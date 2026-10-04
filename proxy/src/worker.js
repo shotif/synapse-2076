@@ -13,7 +13,10 @@ const UPSTREAM = "https://api.anthropic.com";
 const ANTHROPIC_VERSION = "2023-06-01";
 
 const MAX_BODY_BYTES = 64 * 1024;
-const MAX_MESSAGES = 8;
+// A "Call the ..." negotiation sends its whole conversation: up to six player
+// messages and the replies between them.
+const MAX_MESSAGES = 16;
+const MESSAGE_ROLES = new Set(["user", "assistant"]);
 const MAX_PROMPT_CHARS = 48_000;
 const MAX_JSON_DEPTH = 32;
 // The game asks for 2048: Claude's adaptive thinking counts toward max_tokens.
@@ -248,6 +251,10 @@ async function createMessage(request, config, corsOrigin) {
   }
   if (!messages.every(isPlainObject)) {
     return errorResponse(400, "messages: every entry must be an object.", corsOrigin);
+  }
+  const badRole = messages.findIndex((message) => !MESSAGE_ROLES.has(message.role));
+  if (badRole !== -1) {
+    return errorResponse(400, `messages.${badRole}.role: must be "user" or "assistant".`, corsOrigin);
   }
   // Text only. Image and document blocks (URL, file or base64 sources) can pull in far
   // more tokens than the character cap below accounts for.

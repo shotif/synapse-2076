@@ -369,13 +369,47 @@ describe("POST /v1/messages", () => {
     assert.equal(upstreamCalls.length, 0);
   });
 
-  test("requires 1 to 8 message objects", async () => {
+  test("requires 1 to 16 message objects", async () => {
     const turn = { role: "user", content: "hi" };
-    for (const messages of [undefined, [], "hi", Array(9).fill(turn), [turn, "not an object"]]) {
+    for (const messages of [undefined, [], "hi", Array(17).fill(turn), [turn, "not an object"]]) {
       await assertError(await postMessage(messageBody({ messages })), 400, "invalid_request_error");
     }
     assert.equal(upstreamCalls.length, 0);
-    assert.equal((await postMessage(messageBody({ messages: Array(8).fill(turn) }))).status, 200);
+    assert.equal((await postMessage(messageBody({ messages: Array(16).fill(turn) }))).status, 200);
+  });
+
+  test("accepts only user and assistant turns", async () => {
+    for (const role of ["system", "tool", "developer", undefined, 42]) {
+      const messages = [{ role: "user", content: "hi" }, { role, content: "x" }];
+      const payload = await assertError(await postMessage(messageBody({ messages })), 400, "invalid_request_error");
+      assert.match(payload.error.message, /messages\.1\.role/);
+    }
+    assert.equal(upstreamCalls.length, 0);
+  });
+
+  test("forwards a whole negotiation: a system prompt and eleven alternating turns", async () => {
+    const messages = [];
+    for (let i = 0; i < 11; i++) {
+      messages.push(
+        i % 2 === 0
+          ? { role: "user", content: `Caller message ${i / 2 + 1}` }
+          : { role: "assistant", content: '{"say": "In character.", "offer": null}' },
+      );
+    }
+    const body = messageBody({
+      system: "You are Nadia Esposito, Chair of the Governance Council.",
+      messages,
+      max_tokens: 2048,
+      output_config: { effort: "low" },
+      temperature: undefined,
+    });
+    const response = await postMessage(body);
+    assert.equal(response.status, 200);
+    const forwarded = JSON.parse(upstreamCalls[0].init.body);
+    assert.equal(forwarded.system, body.system);
+    assert.deepEqual(forwarded.messages, messages);
+    assert.equal(forwarded.max_tokens, 2048);
+    assert.equal(forwarded.temperature, undefined);
   });
 
   test("forwards text blocks, including cache_control", async () => {
