@@ -172,7 +172,7 @@ func get_drift_accrual_multiplier() -> float:
 
 
 func get_discovery_pressure() -> float:
-	return 2.0 if has_shift(MECHANISTIC_INTERPRETABILITY) else 0.0
+	return 1.5 if has_shift(MECHANISTIC_INTERPRETABILITY) else 0.0
 
 
 func get_emergence_probability() -> float:
@@ -377,9 +377,9 @@ func _roll_emergence(threshold_log: float, model_name: String, rng: RandomNumber
 	emerged_capabilities.append(chosen)
 	capability_bonus += 2.0
 	var info: Dictionary = EMERGENT_CAPABILITIES[chosen]
-	var spike := (4.0 + 2.5 * float(era)) * float(info["drift_weight"]) * alignment_tax_multiplier
+	var spike := (3.0 + 2.0 * float(era)) * float(info["drift_weight"]) * alignment_tax_multiplier
 	if has_shift(RECURSIVE_SYNTHETICS):
-		spike *= 1.5
+		spike *= 1.25
 	return {
 		"id": chosen,
 		"name": info["name"],

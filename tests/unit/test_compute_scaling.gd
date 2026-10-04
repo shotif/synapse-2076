@@ -61,7 +61,7 @@ func test_grid_growth_and_damage() -> void:
 	var compute := ComputeScaling.new()
 	var start := compute.grid_capacity_gw
 	compute.grow_grid(2)
-	assert_almost_eq(compute.grid_capacity_gw, start * 1.03, 0.0001)
+	assert_almost_eq(compute.grid_capacity_gw, start * (1.0 + float(ComputeScaling.ERA_GRID_GROWTH[2])), 0.0001)
 	var before := compute.grid_capacity_gw
 	compute.damage_grid(0.1)
 	assert_almost_eq(compute.grid_capacity_gw, before * 0.9, 0.0001)

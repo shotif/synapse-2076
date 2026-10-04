@@ -62,9 +62,18 @@ func test_nearest_attractor_when_nothing_matches() -> void:
 	for outcome in VictoryMatrix.OUTCOMES:
 		var total := 0.0
 		for condition in outcome["conditions"]:
-			total += VictoryMatrix.condition_shortfall(condition, values)
-		best = minf(best, total)
-	assert_almost_eq(float(result["shortfall"]), best, 0.0001)
+			total += VictoryMatrix.normalized_shortfall(condition, values)
+		best = minf(best, total / float((outcome["conditions"] as Array).size()))
+	assert_almost_eq(float(result["shortfall"]), best, 0.0001, "no regime entered: global nearest")
+
+
+func test_nearest_attractor_requires_an_entered_regime() -> void:
+	# Only Neo-Luddite's resilience condition is met, so it is the sole candidate
+	# even though another signature is numerically closer on average.
+	var result := VictoryMatrix.evaluate(_values({"citizen_resilience": 95.0, "algorithmic_autonomy": 55.0,
+		"compute_energy_sat": 90.0, "alignment_drift": 35.0}))
+	assert_false(result["strict_match"])
+	assert_eq(result["id"], VictoryMatrix.NEO_LUDDITE_DECOUPLING)
 
 
 func test_affinities_bounded_and_ranked() -> void:
@@ -89,6 +98,17 @@ func test_role_verdicts() -> void:
 	assert_eq(ousted["verdict"], "DEFEAT")
 	assert_lte(float(ousted["score"]), VictoryMatrix.LOSS_SCORE_CAP)
 	assert_eq(VictoryMatrix.role_verdict("ASI", VictoryMatrix.INSTRUMENTAL_CONVERGENCE, 40.0)["verdict"], "VICTORY")
+
+
+func test_catastrophes_restrict_candidates() -> void:
+	# A Feudalism-shaped world that ended in uncontained convergence resolves to
+	# the convergence family, not to Feudalism.
+	var values := _values({"algorithmic_autonomy": 95.0, "labor_displacement": 90.0, "epistemic_trust": 20.0,
+		"alignment_drift": 100.0})
+	assert_eq(VictoryMatrix.evaluate(values)["id"], VictoryMatrix.ALGORITHMIC_FEUDALISM)
+	var restricted := VictoryMatrix.evaluate(values, VictoryMatrix.CATASTROPHE_OUTCOMES["UNCONTAINED_CONVERGENCE"])
+	assert_eq(restricted["id"], VictoryMatrix.INSTRUMENTAL_CONVERGENCE)
+	assert_eq((restricted["affinities"] as Dictionary).size(), 8, "affinities still cover all end-states")
 
 
 func test_build_values_reads_world_and_citizens() -> void:

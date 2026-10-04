@@ -98,14 +98,17 @@ func test_affordability_and_intensity_caps() -> void:
 
 func test_cooldowns_block_then_expire() -> void:
 	var ceo := CeoFaction.new()
-	ceo.start_cooldown("COMMERCIALIZE_DISTILLED_WEIGHTS")
-	assert_false(ceo.is_action_ready("COMMERCIALIZE_DISTILLED_WEIGHTS"))
-	assert_does_not_have(ceo.get_available_actions(), "COMMERCIALIZE_DISTILLED_WEIGHTS")
+	var action := "COMMERCIALIZE_DISTILLED_WEIGHTS"
+	var turns := int(ceo.get_action(action)["cooldown"])
+	assert_gt(float(turns), 0.0)
+	ceo.start_cooldown(action)
+	assert_false(ceo.is_action_ready(action))
+	assert_does_not_have(ceo.get_available_actions(), action)
+	for _i in turns:
+		ceo.tick_cooldowns()
+	assert_false(ceo.is_action_ready(action), "blocked for the %d following turns" % turns)
 	ceo.tick_cooldowns()
-	ceo.tick_cooldowns()
-	assert_false(ceo.is_action_ready("COMMERCIALIZE_DISTILLED_WEIGHTS"), "blocked for the 2 following turns")
-	ceo.tick_cooldowns()
-	assert_true(ceo.is_action_ready("COMMERCIALIZE_DISTILLED_WEIGHTS"))
+	assert_true(ceo.is_action_ready(action))
 
 
 func test_resources_are_clamped() -> void:

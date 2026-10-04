@@ -240,6 +240,24 @@ func test_global_catastrophe_ends_campaign() -> void:
 	assert_has(engine.result["outcome"], "id")
 
 
+func test_convergence_catastrophe_needs_two_turns() -> void:
+	var engine := _engine("CEO", 12, true)
+	# Saturate drift and autonomy right before each telemetry phase.
+	engine.player_turn_resolved.connect(func(_result: Dictionary):
+		engine.world.set_value(WorldState.ALIGNMENT_DRIFT, 100.0)
+		engine.world.set_value(WorldState.ALGORITHMIC_AUTONOMY, 100.0))
+	engine.advance()
+	engine.advance()
+	assert_false(engine.is_ended(), "first saturated turn only raises an alert")
+	var alerts := engine.event_log.filter(func(e: Dictionary): return String(e["text"]).begins_with("CONTAINMENT FAILURE IMMINENT"))
+	assert_eq(alerts.size(), 1)
+	engine.advance()
+	engine.advance()
+	assert_true(engine.is_ended())
+	assert_eq(engine.result["catastrophe"]["code"], "UNCONTAINED_CONVERGENCE")
+	assert_has(VictoryMatrix.CATASTROPHE_OUTCOMES["UNCONTAINED_CONVERGENCE"], engine.result["outcome"]["id"])
+
+
 func test_autonomous_faction_collapse_does_not_end_campaign() -> void:
 	var engine := _engine("CEO")
 	engine.advance()

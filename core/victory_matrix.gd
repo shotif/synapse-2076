@@ -14,6 +14,10 @@ extends RefCounted
 ##    Index, i.e. alignment_drift < 30.
 ##  - "Governance Enforcement" is the world enforcement_level index.
 ##  - "Citizen Resilience" is the Citizen Coalition's community_resilience.
+##
+## Nearest attractor: the mean normalized shortfall per condition, among
+## end-states whose regime the world has entered on at least one condition
+## (all end-states are candidates if none qualifies).
 
 const ALGORITHMIC_FEUDALISM := "ALGORITHMIC_FEUDALISM"
 const CO_EVOLUTIONARY_SYMBIOSIS := "CO_EVOLUTIONARY_SYMBIOSIS"
@@ -25,8 +29,8 @@ const INSTRUMENTAL_CONVERGENCE := "INSTRUMENTAL_CONVERGENCE"
 const POST_BIOLOGICAL_DIASPORA := "POST_BIOLOGICAL_DIASPORA"
 
 const LABOR_OBSOLESCENCE := 99.5
-## Affinity = 100 * exp(-shortfall / AFFINITY_FALLOFF).
-const AFFINITY_FALLOFF := 40.0
+## Affinity = 100 * exp(-mean normalized shortfall / AFFINITY_FALLOFF).
+const AFFINITY_FALLOFF := 0.5
 
 ## Evaluation priority order.
 const OUTCOMES := [
@@ -94,7 +98,7 @@ const ROLE_OUTCOME_VALUE := {
 	},
 	"ASI": {
 		INSTRUMENTAL_CONVERGENCE: 60.0, POST_BIOLOGICAL_DIASPORA: 60.0, SYNTHETIC_EDEN: 40.0,
-		ALGORITHMIC_FEUDALISM: 35.0, CO_EVOLUTIONARY_SYMBIOSIS: 30.0, BALKANIZED_CYBER_ANARCHY: 30.0,
+		ALGORITHMIC_FEUDALISM: 35.0, CO_EVOLUTIONARY_SYMBIOSIS: 25.0, BALKANIZED_CYBER_ANARCHY: 30.0,
 		ROGUE_ASI_CONTAINMENT: 0.0, NEO_LUDDITE_DECOUPLING: 0.0,
 	},
 	"CITIZEN_COALITION": {
@@ -152,27 +156,56 @@ static func condition_shortfall(condition: Array, values: Dictionary) -> float:
 	return 0.0
 
 
+## Shortfall relative to how far the threshold sits from the neutral midpoint
+## (50): falling 9 short of "> 95" is a 0.2 miss, sitting 10 above "< 30" a
+## 0.5 miss. Comparable across thresholds of different extremity.
+static func normalized_shortfall(condition: Array, values: Dictionary) -> float:
+	var span := maxf(absf(float(condition[2]) - 50.0), 10.0)
+	return condition_shortfall(condition, values) / span
+
+
+## End-states consistent with each early catastrophe (most specific first).
+const CATASTROPHE_OUTCOMES := {
+	"UNCONTAINED_CONVERGENCE": [INSTRUMENTAL_CONVERGENCE, ROGUE_ASI_CONTAINMENT, POST_BIOLOGICAL_DIASPORA],
+	"AUTONOMOUS_WORLD_WAR": [BALKANIZED_CYBER_ANARCHY, ROGUE_ASI_CONTAINMENT, ALGORITHMIC_FEUDALISM],
+}
+
+
 ## Returns {"id", "number", "name", "subtitle", "description", "strict_match",
-## "shortfall", "affinities": {id: 0-100}, "ranking": [ids by affinity]}.
-static func evaluate(values: Dictionary) -> Dictionary:
+## "shortfall" (normalized), "affinities": {id: 0-100}, "ranking": [ids by affinity]}.
+## [param candidates] limits which end-states may be selected (e.g. after a
+## catastrophe); affinities are still reported for all eight.
+static func evaluate(values: Dictionary, candidates: Array = []) -> Dictionary:
 	var shortfalls := {}
 	var affinities := {}
+	var entered := {}
 	var matched := {}
 	for outcome in OUTCOMES:
+		var conditions: Array = outcome["conditions"]
 		var total := 0.0
-		var strict := true
-		for condition in outcome["conditions"]:
-			total += condition_shortfall(condition, values)
-			if not condition_met(condition, values):
-				strict = false
-		shortfalls[outcome["id"]] = total
-		affinities[outcome["id"]] = 100.0 * exp(-total / AFFINITY_FALLOFF)
-		if strict and matched.is_empty():
+		var met := 0
+		for condition in conditions:
+			total += normalized_shortfall(condition, values)
+			if condition_met(condition, values):
+				met += 1
+		var mean := total / float(conditions.size())
+		shortfalls[outcome["id"]] = mean
+		affinities[outcome["id"]] = 100.0 * exp(-mean / AFFINITY_FALLOFF)
+		entered[outcome["id"]] = met > 0
+		if met == conditions.size() and matched.is_empty() and (candidates.is_empty() or candidates.has(outcome["id"])):
 			matched = outcome
 	var strict_match := not matched.is_empty()
 	if not strict_match:
+		var any_entered := false
+		for outcome in OUTCOMES:
+			if entered[outcome["id"]] and (candidates.is_empty() or candidates.has(outcome["id"])):
+				any_entered = true
 		var best_total := INF
 		for outcome in OUTCOMES:
+			if not candidates.is_empty() and not candidates.has(outcome["id"]):
+				continue
+			if any_entered and not entered[outcome["id"]]:
+				continue
 			if float(shortfalls[outcome["id"]]) < best_total:
 				best_total = float(shortfalls[outcome["id"]])
 				matched = outcome

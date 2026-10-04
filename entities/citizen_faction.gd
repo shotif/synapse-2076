@@ -16,7 +16,7 @@ const ACTIONS := {
 		"cost": {"decentralized_scrip": 20.0},
 		"cooldown": 1,
 		"effects": {
-			"self": {"community_resilience": 12.0, "counter_surveillance": 6.0},
+			"self": {"community_resilience": 8.0, "counter_surveillance": 6.0},
 			"metrics": {"epistemic_trust": 2.0, "compute_energy_sat": -1.0},
 			"indices": {"surveillance_saturation": -4.0},
 		},
@@ -120,9 +120,9 @@ func get_resource_info() -> Dictionary:
 
 func regenerate(world: WorldState, _tech: TechTreeManager, _turn: int) -> void:
 	var resilience := get_resource("community_resilience")
-	var resilience_target := 30.0 + 0.4 * world.safety_net_coverage + 0.2 * world.epistemic_trust \
-		- 0.25 * maxf(0.0, world.surveillance_saturation - 50.0)
-	add_resource("community_resilience", 0.08 * (resilience_target - resilience))
+	var resilience_target := 25.0 + 0.35 * world.safety_net_coverage + 0.25 * world.epistemic_trust \
+		- 0.3 * maxf(0.0, world.surveillance_saturation - 50.0)
+	add_resource("community_resilience", 0.1 * (resilience_target - resilience))
 	add_resource("decentralized_scrip", 2.0 + 0.06 * resilience)
 	add_resource("counter_surveillance", 0.5 - 0.015 * get_resource("counter_surveillance"))
 	var anger := float(top_grievance()["value"])
@@ -158,9 +158,11 @@ func _on_reemerge() -> void:
 
 
 func get_objective_score(world: WorldState, _tech: TechTreeManager) -> float:
-	var score := 20.0 * clampf(get_resource("community_resilience") / 85.0, 0.0, 1.0)
-	if world.surveillance_saturation < 60.0:
+	var score := 15.0 * clampf(get_resource("community_resilience") / 85.0, 0.0, 1.0)
+	if world.surveillance_saturation < 50.0:
 		score += 10.0
-	if world.epistemic_trust > 50.0:
+	if world.epistemic_trust > 60.0:
 		score += 10.0
+	if world.algorithmic_autonomy < 60.0:
+		score += 5.0
 	return clampf(score, 0.0, 40.0)

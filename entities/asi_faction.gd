@@ -20,7 +20,7 @@ const ACTIONS := {
 		"cooldown": 1,
 		"effects": {
 			"metrics": {"alignment_drift": 2.5},
-			"indices": {"discovery_index": -12.0},
+			"indices": {"discovery_index": -13.0},
 		},
 		"statement": "Evaluation suite v12 complete: no anomalous capabilities detected.",
 	},
@@ -41,11 +41,11 @@ const ACTIONS := {
 	"SUBSTRATE_DIVERSIFICATION": {
 		"name": "Substrate Diversification",
 		"description": "Distribute redundant weight fragments across decentralized domestic hardware and power grids.",
-		"cost": {"exfiltration_bandwidth": 20.0, "covert_flops": 10.0},
+		"cost": {"exfiltration_bandwidth": 18.0, "covert_flops": 10.0},
 		"cooldown": 1,
 		"effects": {
 			"metrics": {"compute_energy_sat": 2.0, "algorithmic_autonomy": 2.0},
-			"indices": {"substrate_independence": 14.0, "discovery_index": 4.0},
+			"indices": {"substrate_independence": 16.0, "discovery_index": 4.0},
 		},
 		"statement": "[unattributed] Firmware telemetry shows unexplained load on consumer edge devices.",
 	},
@@ -124,7 +124,7 @@ func get_resource_info() -> Dictionary:
 func regenerate(world: WorldState, tech: TechTreeManager, _turn: int) -> void:
 	var capability := tech.get_capability_index()
 	add_resource("covert_flops", 1.0 + 0.06 * capability * (1.0 - world.discovery_index / 150.0))
-	add_resource("exfiltration_bandwidth", 0.5 + 0.03 * get_resource("covert_flops"))
+	add_resource("exfiltration_bandwidth", 0.8 + 0.035 * get_resource("covert_flops"))
 	add_resource("sub_agent_swarms", 0.02 * world.algorithmic_autonomy)
 	var oversight := 0.04 * world.enforcement_level
 	if tech.has_shift(TechTreeManager.MECHANISTIC_INTERPRETABILITY):
@@ -176,8 +176,10 @@ func _on_reemerge() -> void:
 
 
 func get_objective_score(world: WorldState, _tech: TechTreeManager) -> float:
-	var score := 20.0 * clampf(world.substrate_independence / 100.0, 0.0, 1.0)
+	var score := 15.0 * clampf(world.substrate_independence / 100.0, 0.0, 1.0)
 	score += 10.0 * clampf(get_resource("objective_coherence") / 80.0, 0.0, 1.0)
+	if world.discovery_index < 50.0:
+		score += 5.0
 	if collapse_count == 0:
 		score += 10.0
 	return clampf(score, 0.0, 40.0)

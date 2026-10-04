@@ -29,7 +29,7 @@ const ACTIONS := {
 		"name": "Aggressive Weight Distillation",
 		"description": "Cheapen inference to dominate the market. Generates revenue but triggers +8 Labor Displacement.",
 		"cost": {},
-		"cooldown": 2,
+		"cooldown": 3,
 		"effects": {
 			"self": {"capital": 70.0, "regulatory_goodwill": -4.0},
 			"metrics": {"labor_displacement": 8.0, "algorithmic_autonomy": 2.0, "epistemic_trust": -1.5},

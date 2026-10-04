@@ -29,8 +29,8 @@ const COST_TIERS := {
 const ROLE_PREFERENCES := {
 	"CEO": {
 		"compute_energy_sat": -0.05, "labor_displacement": 0.0, "geopolitical_tension": -0.3,
-		"algorithmic_autonomy": 0.2, "alignment_drift": -0.25, "epistemic_trust": 0.15,
-		"enforcement_level": -0.15, "growth": 1.0, "tax": -30.0,
+		"algorithmic_autonomy": 0.2, "alignment_drift": -0.3, "epistemic_trust": 0.15,
+		"enforcement_level": -0.15, "growth": 0.8, "tax": -35.0,
 	},
 	"GOVERNANCE_COUNCIL": {
 		"compute_energy_sat": -0.1, "labor_displacement": -0.3, "geopolitical_tension": -0.5,
@@ -39,8 +39,8 @@ const ROLE_PREFERENCES := {
 		"growth": -0.5, "tax": -40.0,
 	},
 	"ASI": {
-		"compute_energy_sat": 0.2, "labor_displacement": 0.1, "geopolitical_tension": 0.0,
-		"algorithmic_autonomy": 0.4, "alignment_drift": 0.3, "epistemic_trust": -0.1,
+		"compute_energy_sat": 0.25, "labor_displacement": 0.1, "geopolitical_tension": 0.0,
+		"algorithmic_autonomy": 0.6, "alignment_drift": 0.5, "epistemic_trust": -0.25,
 		"discovery_index": -0.5, "substrate_independence": 0.5, "enforcement_level": -0.2,
 		"growth": 1.0, "tax": 20.0,
 	},

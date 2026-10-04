@@ -66,6 +66,7 @@ var _advancing := false
 var _player_submission := {}
 var _metric_bands := {}
 var _milestones := {}
+var _convergence_streak := 0
 
 
 # --- Campaign lifecycle ---------------------------------------------------------
@@ -104,6 +105,7 @@ func start_campaign(role: String, seed_value: int = 2076, options: Dictionary = 
 	_player_submission = {}
 	_metric_bands = world.bands_dict()
 	_milestones = {}
+	_convergence_streak = 0
 
 	compute.update(0, tech.era, tech.log_flops, world.algorithmic_autonomy, false, false)
 	world.record_history(0, get_year(), _history_extra())
@@ -237,6 +239,7 @@ func _run_world_tick() -> void:
 		"saturation_target": compute.saturation_target,
 		"tax_multiplier": tech.alignment_tax_multiplier,
 		"discovery_pressure": tech.get_discovery_pressure(),
+		"opt_out": _citizen_opt_out(),
 	}, rng)
 
 	if tech_report["era_changed"]:
@@ -270,6 +273,14 @@ func _run_world_tick() -> void:
 		"coupling": coupling,
 	}
 	world_ticked.emit(last_world_report)
+
+
+## Share of society running on the Citizen Coalition's parallel infrastructure.
+func _citizen_opt_out() -> float:
+	var citizens: ActorBase = factions[SimConstants.CITIZEN]
+	if not citizens.is_active():
+		return 0.0
+	return clampf(citizens.get_resource("community_resilience") / 100.0, 0.0, 1.0)
 
 
 func _on_agi_crossed() -> void:
@@ -626,18 +637,28 @@ func _run_telemetry() -> void:
 
 
 ## Global early-termination thresholds that end the campaign for every role.
+## Tension 100 is immediate; saturated drift under near-total autonomy must
+## persist for two consecutive turns (the first turn raises a red alert).
 func _check_catastrophe() -> Dictionary:
 	if world.geopolitical_tension >= 100.0:
 		return {"code": "AUTONOMOUS_WORLD_WAR", "reason": "Geopolitical tension hit 100: sovereign autonomous war swarms are launched."}
 	if world.alignment_drift >= 100.0 and world.algorithmic_autonomy >= 90.0:
-		return {"code": "UNCONTAINED_CONVERGENCE", "reason": "Alignment drift saturated under near-total autonomy: instrumental convergence is uncontained."}
+		_convergence_streak += 1
+		if _convergence_streak >= 2:
+			return {"code": "UNCONTAINED_CONVERGENCE", "reason": "Alignment drift saturated under near-total autonomy for two turns: instrumental convergence is uncontained."}
+		_log("THRESHOLD", "CRITICAL", "CONTAINMENT FAILURE IMMINENT: alignment drift saturated under near-total autonomy. One turn to intervene.")
+	else:
+		_convergence_streak = 0
 	return {}
 
 
 func _finish(reason: String, player_loss: Dictionary, catastrophe: Dictionary) -> void:
 	var citizen: ActorBase = factions[SimConstants.CITIZEN]
 	var values := VictoryMatrix.build_values(world, citizen.get_resource("community_resilience"))
-	var outcome := VictoryMatrix.evaluate(values)
+	var candidates: Array = []
+	if not catastrophe.is_empty():
+		candidates = VictoryMatrix.CATASTROPHE_OUTCOMES.get(catastrophe["code"], [])
+	var outcome := VictoryMatrix.evaluate(values, candidates)
 	var player := get_player()
 	var verdict := VictoryMatrix.role_verdict(player_role, outcome["id"],
 		player.get_objective_score(world, tech), player_loss)

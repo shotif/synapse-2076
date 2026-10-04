@@ -43,9 +43,9 @@ static func _governance(s: Dictionary) -> Dictionary:
 			"Alignment drift at %.0f exceeds the audit trigger." % drift, _urgent(s, f, "MANDATE_ALIGNMENT_AUDIT", drift > 70.0))
 
 	# Extended doctrine.
-	if tension > 70.0 and _can(f, s, "NEGOTIATE_COMPUTE_TREATY"):
+	if tension > 62.0 and _can(f, s, "NEGOTIATE_COMPUTE_TREATY"):
 		return _decide(f, s, "NEGOTIATE_COMPUTE_TREATY",
-			"Geopolitical tension at %.0f; de-escalating before kinetic thresholds." % tension, _urgent(s, f, "NEGOTIATE_COMPUTE_TREATY", tension > 85.0))
+			"Geopolitical tension at %.0f; de-escalating before kinetic thresholds." % tension, _urgent(s, f, "NEGOTIATE_COMPUTE_TREATY", tension > 78.0))
 	if drift > 75.0 and tension < 70.0 and _v(s, "enforcement_level") < 60.0 and _can(f, s, "NATIONAL_SECURITY_SEIZURE"):
 		return _decide(f, s, "NATIONAL_SECURITY_SEIZURE",
 			"Drift at %.0f is uncontained; seizing frontier infrastructure." % drift)
@@ -152,8 +152,8 @@ static func _ceo(s: Dictionary) -> Dictionary:
 			"War chest at $%.0fB and grid headroom available; scaling the frontier." % capital, _urgent(s, f, "SCALE_FRONTIER_CLUSTERS", capital > 600.0))
 	if talent < 600.0 and capital >= 80.0 and _can(f, s, "POACH_SAFETY_RESEARCHERS"):
 		return _decide(f, s, "POACH_SAFETY_RESEARCHERS", "Talent pool thin (%.0f); poaching safety researchers." % talent)
-	if capital < 150.0 and _can(f, s, "COMMERCIALIZE_DISTILLED_WEIGHTS"):
-		return _decide(f, s, "COMMERCIALIZE_DISTILLED_WEIGHTS", "Runway below $150B; monetizing distilled weights.")
+	if capital < 90.0 and _can(f, s, "COMMERCIALIZE_DISTILLED_WEIGHTS"):
+		return _decide(f, s, "COMMERCIALIZE_DISTILLED_WEIGHTS", "Runway below $90B; monetizing distilled weights.")
 	if capital < 120.0 and goodwill > 35.0 and _can(f, s, "SECURE_SOVEREIGN_CONTRACT"):
 		return _decide(f, s, "SECURE_SOVEREIGN_CONTRACT", "Runway at $%.0fB; securing a sovereign contract." % capital)
 	if drift > 45.0 and capital > 100.0 and _can(f, s, "FUND_ALIGNMENT_RESEARCH"):

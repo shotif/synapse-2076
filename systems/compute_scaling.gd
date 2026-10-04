@@ -11,10 +11,10 @@ extends RefCounted
 const BASE_DEMAND_GW := 22.0
 ## Each order of magnitude of frontier training compute multiplies AI power demand
 ## by 10^DEMAND_LOG_ELASTICITY before efficiency gains.
-const DEMAND_LOG_ELASTICITY := 0.30
+const DEMAND_LOG_ELASTICITY := 0.27
 const BASE_GRID_GW := 26.0
 ## Grid capacity growth per tick: era 2 adds SMR grids, era 3 orbital solar.
-const ERA_GRID_GROWTH := {1: 0.018, 2: 0.030, 3: 0.035}
+const ERA_GRID_GROWTH := {1: 0.018, 2: 0.033, 3: 0.042}
 ## Hardware efficiency multipliers per era (photonic interconnects, neuromorphic substrates).
 const ERA_EFFICIENCY := {1: 1.0, 2: 1.6, 3: 2.6}
 const EFFICIENCY_DRIFT_PER_TURN := 0.012

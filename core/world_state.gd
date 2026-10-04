@@ -122,7 +122,7 @@ const BASELINE := {
 # --- Coupling coefficients (per 6-month tick) ---
 const K_COMPUTE_RELAX := 0.35
 const K_LABOR_UP := 0.12
-const K_LABOR_DOWN := 0.03
+const K_LABOR_DOWN := 0.05
 const K_AUTONOMY_RELAX := 0.12
 const K_GEO_RELAX := 0.15
 const K_TRUST_RELAX := 0.12
@@ -131,13 +131,19 @@ const K_ENFORCEMENT_DECAY := 0.06
 const ENFORCEMENT_FLOOR := 15.0
 const PROVENANCE_DECAY := 0.03
 const SAFETY_NET_DECAY := 0.05
-const DISCOVERY_DECAY := 0.04
+const DISCOVERY_DECAY := 0.05
+## Self-reinforcement around the 50 midpoint (regime divergence): cohesion
+## begets cohesion and collapse begets collapse, autonomy locks in, arms races
+## feed themselves. These amplify early differences into divergent end-states.
+const TRUST_REINFORCEMENT := 0.6
+const AUTONOMY_REINFORCEMENT := 0.45
+const TENSION_REINFORCEMENT := 0.2
 
 ## Standard deviation of the stochastic shock applied to each metric per tick.
 const NOISE_SIGMA := {
 	COMPUTE_ENERGY_SAT: 0.5,
 	LABOR_DISPLACEMENT: 0.4,
-	GEOPOLITICAL_TENSION: 1.2,
+	GEOPOLITICAL_TENSION: 1.0,
 	ALGORITHMIC_AUTONOMY: 0.6,
 	ALIGNMENT_DRIFT: 0.4,
 	EPISTEMIC_TRUST: 0.8,
@@ -271,6 +277,8 @@ func apply_delta(key: String, delta: float) -> float:
 ##   saturation_target - compute/energy saturation implied by grid physics
 ##   tax_multiplier    - compounding alignment-tax multiplier (>= 1)
 ##   discovery_pressure - extra ASI discovery per tick (e.g. interpretability)
+##   opt_out           - 0..1 share of communities running parallel, off-grid
+##                       infrastructure (Citizen Coalition resilience)
 ## All deltas are computed from the pre-tick state and applied simultaneously, so
 ## the result does not depend on evaluation order. Returns the applied deltas.
 func resolve_coupling(drivers: Dictionary, rng: RandomNumberGenerator = null) -> Dictionary:
@@ -279,6 +287,7 @@ func resolve_coupling(drivers: Dictionary, rng: RandomNumberGenerator = null) ->
 	var c_target := sanitize(float(drivers.get("saturation_target", compute_energy_sat)))
 	var tax := maxf(1.0, float(drivers.get("tax_multiplier", 1.0)))
 	var discovery_pressure := maxf(0.0, float(drivers.get("discovery_pressure", 0.0)))
+	var opt_out := clampf(float(drivers.get("opt_out", 0.0)), 0.0, 1.0)
 
 	var c := compute_energy_sat
 	var l := labor_displacement
@@ -297,16 +306,21 @@ func resolve_coupling(drivers: Dictionary, rng: RandomNumberGenerator = null) ->
 	deltas[COMPUTE_ENERGY_SAT] = K_COMPUTE_RELAX * (c_target - c)
 
 	# 2. Labor displacement: structural target = automatable share (capability)
-	#    x adoption (autonomy). Displacement is sticky: it falls far slower than it rises.
-	var automatable := clampf(sigmoid((k - 40.0) / 12.0) / sigmoid(5.0), 0.0, 1.0)
-	var adoption := 0.5 + 0.5 * minf(1.0, a / 85.0)
-	var l_target := 10.0 + 90.0 * automatable * adoption
+	#    x adoption (autonomy, braked by labor enforcement), with the Gini share
+	#    cushioned by the safety net. Displacement is sticky: it falls far slower
+	#    than it rises.
+	var automatable := clampf(sigmoid((k - 48.0) / 12.0) / sigmoid(52.0 / 12.0), 0.0, 1.0)
+	var adoption := clampf(0.35 + 0.65 * minf(1.0, a / 90.0) - 0.2 * e / 100.0, 0.2, 1.0)
+	var l_target := 8.0 + 92.0 * automatable * adoption * (1.0 - 0.25 * n / 100.0)
 	var l_rate := K_LABOR_UP if l_target > l else K_LABOR_DOWN
 	deltas[LABOR_DISPLACEMENT] = l_rate * (l_target - l)
 
 	# 3. Algorithmic autonomy: capability-driven delegation, restrained by
-	#    enforcement and accelerated by already-displaced labor.
-	var a_target := 8.0 + 92.0 * sigmoid((k - 35.0) / 13.0) * (1.0 - 0.4 * e / 100.0) + 0.15 * (l - 50.0)
+	#    enforcement and by communities opting out, eased by public trust and
+	#    accelerated by displaced labor.
+	var a_target := 10.0 + 80.0 * sigmoid((k - 45.0) / 14.0) * (1.0 - 0.45 * e / 100.0) \
+		* (0.8 + 0.2 * t / 100.0) * (1.0 - 0.3 * opt_out) \
+		+ 0.08 * maxf(0.0, l - 30.0) + AUTONOMY_REINFORCEMENT * (a - 50.0)
 	deltas[ALGORITHMIC_AUTONOMY] = K_AUTONOMY_RELAX * (clampf(a_target, 0.0, 100.0) - a)
 
 	# 4. Alignment drift accrues with capability growth and unsupervised autonomy,
@@ -317,7 +331,8 @@ func resolve_coupling(drivers: Dictionary, rng: RandomNumberGenerator = null) ->
 
 	# 5. Geopolitical tension: arms-race pressure from autonomy, drift, distrust
 	#    and the pace of capability growth.
-	var g_target := 25.0 + 0.25 * a + 0.2 * d + 0.2 * (60.0 - t) + 6.0 * minf(dk, 3.0)
+	var g_target := 25.0 + 0.25 * a + 0.2 * d + 0.15 * (60.0 - t) + 6.0 * minf(dk, 3.0) \
+		+ TENSION_REINFORCEMENT * (g - 50.0)
 	deltas[GEOPOLITICAL_TENSION] = K_GEO_RELAX * (clampf(g_target, 0.0, 100.0) - g)
 
 	# 6. Epistemic trust: eroded by uncushioned displacement, tension, drift,
@@ -326,7 +341,8 @@ func resolve_coupling(drivers: Dictionary, rng: RandomNumberGenerator = null) ->
 	var synthetic_media := 0.08 * k * (1.0 - p / 100.0)
 	var t_target := 62.0 + 0.3 * p - displacement_pain \
 		- 0.25 * maxf(0.0, g - 40.0) - 0.2 * maxf(0.0, d - 35.0) \
-		- 0.12 * maxf(0.0, a - 45.0) - 0.12 * maxf(0.0, s - 45.0) - synthetic_media
+		- 0.12 * maxf(0.0, a - 45.0) - 0.12 * maxf(0.0, s - 45.0) - synthetic_media \
+		+ TRUST_REINFORCEMENT * (t - 50.0)
 	deltas[EPISTEMIC_TRUST] = K_TRUST_RELAX * (clampf(t_target, 0.0, 100.0) - t)
 
 	# Secondary indices.
@@ -335,7 +351,7 @@ func resolve_coupling(drivers: Dictionary, rng: RandomNumberGenerator = null) ->
 	deltas[ENFORCEMENT_LEVEL] = K_ENFORCEMENT_DECAY * (ENFORCEMENT_FLOOR - e)
 	deltas[PROVENANCE_COVERAGE] = -PROVENANCE_DECAY * p
 	deltas[SAFETY_NET_COVERAGE] = -SAFETY_NET_DECAY * n
-	deltas[DISCOVERY_INDEX] = -DISCOVERY_DECAY * discovery_index + 0.025 * e + discovery_pressure
+	deltas[DISCOVERY_INDEX] = -DISCOVERY_DECAY * discovery_index + 0.02 * e + discovery_pressure
 
 	if rng != null:
 		for key in NOISE_SIGMA:

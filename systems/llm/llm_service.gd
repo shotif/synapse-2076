@@ -14,7 +14,7 @@ extends Node
 ## Configuration precedence (lowest to highest): defaults, project settings
 ## (synapse/llm/*), user://synapse_llm.cfg [llm] section, environment variables
 ## SYNAPSE_LLM_ENDPOINT / SYNAPSE_LLM_MODEL / SYNAPSE_LLM_API_KEY /
-## SYNAPSE_LLM_ENABLED / SYNAPSE_LLM_TIMEOUT. API keys are never read from
+## SYNAPSE_LLM_ENABLED / SYNAPSE_LLM_TIMEOUT / SYNAPSE_LLM_JSON_MODE. API keys are never read from
 ## project settings, so they cannot end up in version control.
 
 signal llm_status_changed(is_online: bool, provider_name: String)
@@ -96,6 +96,8 @@ func load_configuration() -> void:
 		from_env["enabled"] = OS.get_environment("SYNAPSE_LLM_ENABLED").to_lower() in ["1", "true", "yes", "on"]
 	if OS.has_environment("SYNAPSE_LLM_TIMEOUT"):
 		from_env["request_timeout_sec"] = OS.get_environment("SYNAPSE_LLM_TIMEOUT").to_float()
+	if OS.has_environment("SYNAPSE_LLM_JSON_MODE"):
+		from_env["json_mode"] = OS.get_environment("SYNAPSE_LLM_JSON_MODE").to_lower() in ["1", "true", "yes", "on"]
 	configure(from_env)
 
 

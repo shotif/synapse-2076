@@ -54,7 +54,7 @@ const ACTIONS := {
 		"cooldown": 1,
 		"effects": {
 			"metrics": {"alignment_drift": -6.0},
-			"indices": {"discovery_index": 10.0, "enforcement_level": 6.0},
+			"indices": {"discovery_index": 9.0, "enforcement_level": 6.0},
 			"tech": {"safety_investment": 6.0},
 			"factions": {"CEO": {"capital": -10.0}, "ASI": {"objective_coherence": -5.0}},
 		},
