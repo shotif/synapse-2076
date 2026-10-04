@@ -1,15 +1,17 @@
 class_name TrajectoryChart
 extends Control
-## Historical trajectory line chart (PRD milestone 6 debrief). Plots each macro
-## metric over the campaign with era bands, a 0-100 grid and a hover crosshair
-## that reads out every series at the pointed turn.
+## Historical trajectory line chart (the debrief's appendix). Plots each macro
+## metric over the campaign with the hardware-era boundaries, a 0-100 grid and
+## a hover crosshair that reads out every series at the pointed turn. Colors,
+## fonts and corner shape follow the era theme (EraTheme.style_of) and the
+## chart redraws when the dashboard swaps themes.
 
 var history: Array = []
 var series_keys: Array = WorldState.METRIC_KEYS
-var title := "HISTORICAL TRAJECTORY // 2026-2076"
+var title := "Historical trajectory · 2026–2076"
 
 const MARGIN_LEFT := 38.0
-const MARGIN_RIGHT := 12.0
+const MARGIN_RIGHT := 14.0
 const MARGIN_TOP := 40.0
 const MARGIN_BOTTOM := 24.0
 
@@ -22,6 +24,16 @@ func _ready() -> void:
 		custom_minimum_size = Vector2(640, 260)
 
 
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_THEME_CHANGED:
+			queue_redraw()
+		NOTIFICATION_MOUSE_EXIT:
+			if _hover_index != -1:
+				_hover_index = -1
+				queue_redraw()
+
+
 func set_history(entries: Array, keys: Array = WorldState.METRIC_KEYS) -> void:
 	history = entries
 	series_keys = keys
@@ -29,7 +41,7 @@ func set_history(entries: Array, keys: Array = WorldState.METRIC_KEYS) -> void:
 
 
 func _plot_rect() -> Rect2:
-	var items := _legend_items()
+	var items := _legend_items(EraTheme.style_of(self))
 	var legend_bottom: float = (items[-1]["pos"] as Vector2).y if not items.is_empty() else 24.0
 	var top := maxf(MARGIN_TOP, legend_bottom + 16.0)
 	return Rect2(MARGIN_LEFT, top, maxf(10.0, size.x - MARGIN_LEFT - MARGIN_RIGHT),
@@ -37,17 +49,16 @@ func _plot_rect() -> Rect2:
 
 
 ## Legend entries laid out left to right, wrapping onto extra rows when narrow.
-func _legend_items() -> Array:
-	var font := CyberPalette.MONO_FONT
+func _legend_items(s: EraStyle) -> Array:
 	var items := []
-	var x := 8.0
-	var y := 24.0
+	var x := 12.0
+	var y := 26.0
 	for key in series_keys:
-		var series_name := UiFormat.metric_short(key)
-		var width := 22.0 + font.get_string_size(series_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
-		if x > 8.0 and x + width > size.x - 4.0:
-			x = 8.0
-			y += 13.0
+		var series_name := s.label(UiFormat.metric_name(key))
+		var width := 24.0 + s.font_ui.get_string_size(series_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+		if x > 12.0 and x + width > size.x - 6.0:
+			x = 12.0
+			y += 15.0
 		items.append({"key": key, "name": series_name, "pos": Vector2(x, y)})
 		x += width
 	return items
@@ -63,78 +74,83 @@ func _gui_input(event: InputEvent) -> void:
 			queue_redraw()
 
 
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_MOUSE_EXIT and _hover_index != -1:
-		_hover_index = -1
-		queue_redraw()
+func _x_for_turn(plot: Rect2, turn: float) -> float:
+	return plot.position.x + plot.size.x * turn / float(SimConstants.TOTAL_TURNS)
 
 
 func _draw() -> void:
-	var font := CyberPalette.MONO_FONT
+	var s := EraTheme.style_of(self)
+	var mono := s.font_mono
 	var plot := _plot_rect()
-	draw_rect(Rect2(Vector2.ZERO, size), CyberPalette.PANEL)
-	draw_string(CyberPalette.SANS_BOLD, Vector2(8, 16), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, CyberPalette.CYAN)
+	draw_style_box(EraTheme.panel(s, s.bg.lerp(s.surface, 0.6), s.border, s.control_radius + 2, 0.0), Rect2(Vector2.ZERO, size))
+	draw_string(s.font_ui_bold, Vector2(12, 18), s.label(title), HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
+		s.accent if s.era == 2 else s.text_bright)
 
 	# Legend.
-	for item in _legend_items():
-		var color: Color = CyberPalette.METRIC_COLORS.get(item["key"], CyberPalette.TEXT)
+	for item in _legend_items(s):
+		var color := s.metric_color(item["key"])
 		var pos: Vector2 = item["pos"]
-		draw_rect(Rect2(pos.x, pos.y, 10, 3), color)
-		draw_string(font, Vector2(pos.x + 14, pos.y + 6), item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, CyberPalette.TEXT_DIM)
+		draw_rect(Rect2(pos.x, pos.y - 1.0, 12, 3), color)
+		draw_string(s.font_ui, Vector2(pos.x + 16, pos.y + 4), item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, s.text_dim)
 
-	# Era bands (2036 and 2050 boundaries).
-	var span_years := SimConstants.YEARS_PER_TURN * float(SimConstants.TOTAL_TURNS)
-	for era_year in [2036.0, 2050.0]:
-		var ex: float = plot.position.x + plot.size.x * (era_year - SimConstants.START_YEAR) / span_years
-		draw_line(Vector2(ex, plot.position.y), Vector2(ex, plot.end.y), Color(CyberPalette.CYAN, 0.18), 1.0)
-		draw_string(font, Vector2(ex + 3, plot.position.y + 10), "ERA %d" % (2 if era_year < 2050.0 else 3),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(CyberPalette.CYAN, 0.5))
+	# Hardware eras: a faint band for each and its numeral.
+	for era in [1, 2, 3]:
+		var span := EraChronicle.era_turns(era)
+		var x0 := _x_for_turn(plot, float(maxi(span.x - 1, 0)) + (0.5 if era > 1 else 0.0))
+		var x1 := _x_for_turn(plot, float(span.y) + (0.5 if era < 3 else 0.0))
+		if era % 2 == 0:
+			draw_rect(Rect2(x0, plot.position.y, x1 - x0, plot.size.y), Color(s.accent, 0.05))
+		draw_string(mono, Vector2(x0 + 5, plot.end.y - 5), "ERA %s" % EraStyle.ROMAN[era], HORIZONTAL_ALIGNMENT_LEFT, -1,
+			9, Color(s.accent, 0.7))
 
 	# Grid.
 	for level in [0.0, 25.0, 50.0, 75.0, 100.0]:
 		var y: float = plot.end.y - plot.size.y * level / 100.0
-		draw_line(Vector2(plot.position.x, y), Vector2(plot.end.x, y), Color(CyberPalette.BORDER, 1.0), 1.0)
-		draw_string(font, Vector2(4, y + 4), "%3d" % int(level), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, CyberPalette.TEXT_DIM)
+		draw_line(Vector2(plot.position.x, y), Vector2(plot.end.x, y), Color(s.border, s.border.a * (1.6 if level == 0.0 else 0.9)), 1.0)
+		draw_string(mono, Vector2(6, y + 4), "%3d" % int(level), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, s.text_dim)
+	var span_years := SimConstants.YEARS_PER_TURN * float(SimConstants.TOTAL_TURNS)
 	for year in [2026, 2036, 2046, 2056, 2066, 2076]:
 		var yx: float = plot.position.x + plot.size.x * (float(year) - SimConstants.START_YEAR) / span_years
-		draw_string(font, Vector2(yx - 14, size.y - 6), str(year), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, CyberPalette.TEXT_DIM)
-	draw_rect(plot, CyberPalette.BORDER_BRIGHT, false, 1.0)
+		var label := str(year)
+		var width := mono.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+		draw_string(mono, Vector2(clampf(yx - width * 0.5, 2.0, size.x - width - 2.0), size.y - 7), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, s.text_dim)
 
 	if history.size() < 2:
-		draw_string(font, plot.get_center() - Vector2(60, 0), "NO TELEMETRY", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, CyberPalette.TEXT_DIM)
+		var empty := s.label("No telemetry")
+		draw_string(s.font_ui, plot.get_center() - Vector2(s.font_ui.get_string_size(empty, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x * 0.5, 0),
+			empty, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, s.text_dim)
 		return
 
 	# Series.
 	var last_turn := float((history[-1] as Dictionary).get("turn", history.size() - 1))
 	for key in series_keys:
-		var color: Color = CyberPalette.METRIC_COLORS.get(key, CyberPalette.TEXT)
+		var color := s.metric_color(key)
 		var points := PackedVector2Array()
 		for entry in history:
-			var turn := float(entry.get("turn", 0))
-			var px := plot.position.x + plot.size.x * turn / float(SimConstants.TOTAL_TURNS)
 			var py := plot.end.y - plot.size.y * clampf(float(entry.get(key, 0.0)), 0.0, 100.0) / 100.0
-			points.append(Vector2(px, py))
-		draw_polyline(points, color, 1.6, true)
-		draw_circle(points[points.size() - 1], 2.5, color)
+			points.append(Vector2(_x_for_turn(plot, float(entry.get("turn", 0))), py))
+		if s.glow > 0.0:
+			draw_polyline(points, Color(color, s.glow * 0.6), 4.0, true)
+		draw_polyline(points, color, 1.8, true)
+		draw_circle(points[points.size() - 1], 3.0, color)
 
 	if last_turn < float(SimConstants.TOTAL_TURNS):
-		var end_x := plot.position.x + plot.size.x * last_turn / float(SimConstants.TOTAL_TURNS)
-		draw_line(Vector2(end_x, plot.position.y), Vector2(end_x, plot.end.y), Color(CyberPalette.CRIMSON, 0.6), 1.0)
+		var end_x := _x_for_turn(plot, last_turn)
+		draw_line(Vector2(end_x, plot.position.y), Vector2(end_x, plot.end.y), Color(s.critical, 0.7), 1.0)
 
 	# Hover crosshair with readouts.
 	if _hover_index >= 0 and _hover_index < history.size():
 		var entry: Dictionary = history[_hover_index]
-		var hx := plot.position.x + plot.size.x * float(entry.get("turn", 0)) / float(SimConstants.TOTAL_TURNS)
-		draw_line(Vector2(hx, plot.position.y), Vector2(hx, plot.end.y), Color(CyberPalette.TEXT_BRIGHT, 0.5), 1.0)
-		var box_x := hx + 8.0 if hx < plot.get_center().x else hx - 178.0
-		var box := Rect2(box_x, plot.position.y + 6, 170, 18 + 14 * series_keys.size())
-		draw_rect(box, Color(CyberPalette.BG, 0.92))
-		draw_rect(box, CyberPalette.BORDER_BRIGHT, false, 1.0)
-		draw_string(font, box.position + Vector2(6, 14), "T%d  %d" % [int(entry.get("turn", 0)), int(float(entry.get("year", 2026.0)))],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, CyberPalette.TEXT_BRIGHT)
+		var hx := _x_for_turn(plot, float(entry.get("turn", 0)))
+		draw_line(Vector2(hx, plot.position.y), Vector2(hx, plot.end.y), Color(s.text_bright, 0.5), 1.0)
+		var box_x := hx + 8.0 if hx < plot.get_center().x else hx - 186.0
+		var box := Rect2(box_x, plot.position.y + 6, 178, 20 + 15 * series_keys.size())
+		draw_style_box(EraTheme.box(Color(s.overlay, 0.94), s.border_strong, 1, s.control_radius, 0.0, 0.0, s.corner_detail), box)
+		draw_string(mono, box.position + Vector2(8, 15), "T%d · %d" % [int(entry.get("turn", 0)), int(float(entry.get("year", 2026.0)))],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, s.text_bright)
 		var row := 1
 		for key in series_keys:
-			var color: Color = CyberPalette.METRIC_COLORS.get(key, CyberPalette.TEXT)
-			draw_string(font, box.position + Vector2(6, 14 + 14 * row), "%-15s %5.1f" % [UiFormat.metric_short(key), float(entry.get(key, 0.0))],
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 10, color)
+			draw_string(mono, box.position + Vector2(8, 15 + 15 * row), "%-10s %5.1f" % [UiFormat.metric_name(key), float(entry.get(key, 0.0))],
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 10, s.metric_color(key))
 			row += 1
