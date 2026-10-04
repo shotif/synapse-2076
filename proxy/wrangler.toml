@@ -1,0 +1,24 @@
+# Cloudflare Worker that holds the Anthropic API key for the SYNAPSE-2076 web build.
+# Secrets are not in this file. Set them with `npx wrangler@4 secret put <NAME>`:
+#   ANTHROPIC_API_KEY  required
+#   ACCESS_CODE        optional; when set, every API request must send it
+# See README.md.
+
+name = "synapse-llm-proxy"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Defaults. The GitHub Actions deploy overrides these from repository variables.
+[vars]
+ALLOWED_ORIGINS = "https://shotif.github.io"
+ALLOWED_MODELS = "claude-sonnet-5-5"
+MAX_TOKENS_CAP = "1024"
+
+# 30 requests per 60 seconds per client IP. Counters are kept per Cloudflare
+# location and are approximate. namespace_id is any positive integer that is
+# unique among the rate limiters in your Cloudflare account.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "2076"
+simple = { limit = 30, period = 60 }

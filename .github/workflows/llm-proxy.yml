@@ -1,0 +1,222 @@
+name: LLM proxy
+
+# Tests the Claude API proxy in proxy/ and deploys it to Cloudflare Workers.
+# Manual only: Actions -> LLM proxy -> Run workflow. Setup: proxy/README.md.
+#
+# Repository secrets:   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, ANTHROPIC_API_KEY (required)
+#                       SYNAPSE_PROXY_ACCESS_CODE (optional)
+# Repository variables: SYNAPSE_PROXY_ALLOWED_ORIGINS, SYNAPSE_PROXY_ALLOWED_MODELS,
+#                       SYNAPSE_PROXY_MAX_TOKENS (optional, defaults below)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time.
+concurrency:
+  group: llm-proxy
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Proxy unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run the proxy tests
+        working-directory: proxy
+        run: node --test
+
+  deploy:
+    name: Deploy to Cloudflare Workers
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check the required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID ANTHROPIC_API_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret ${name} is not set. Add it under Settings -> Secrets and variables -> Actions."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Wrangler 4 needs Node.js 22 or newer.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve the proxy settings
+        id: settings
+        env:
+          ACCESS_CODE: ${{ secrets.SYNAPSE_PROXY_ACCESS_CODE }}
+          ALLOWED_ORIGINS: ${{ vars.SYNAPSE_PROXY_ALLOWED_ORIGINS }}
+          ALLOWED_MODELS: ${{ vars.SYNAPSE_PROXY_ALLOWED_MODELS || vars.SYNAPSE_LLM_MODEL || 'claude-sonnet-5-5' }}
+          MAX_TOKENS: ${{ vars.SYNAPSE_PROXY_MAX_TOKENS || '1024' }}
+        run: |
+          # Lists become one comma-separated line; the Worker splits on commas and whitespace.
+          one_line() { printf '%s' "$1" | tr -s '\r\n\t ' ',' | sed 's/^,*//; s/,*$//'; }
+
+          origins="$(one_line "$ALLOWED_ORIGINS")"
+          if [ -z "$origins" ]; then
+            origins="https://${GITHUB_REPOSITORY_OWNER,,}.github.io"
+          fi
+          models="$(one_line "$ALLOWED_MODELS")"
+          if [ -z "$models" ]; then
+            echo "::error::No allowed models. Set the SYNAPSE_PROXY_ALLOWED_MODELS variable to one or more model ids."
+            exit 1
+          fi
+          token_cap="$(one_line "$MAX_TOKENS")"
+          if ! [[ "$token_cap" =~ ^[1-9][0-9]{0,6}$ ]]; then
+            echo "::error::SYNAPSE_PROXY_MAX_TOKENS must be a positive whole number, not '${token_cap}'."
+            exit 1
+          fi
+          if [ -n "$ACCESS_CODE" ] && [ -z "${ACCESS_CODE//[[:space:]]/}" ]; then
+            echo "::error::SYNAPSE_PROXY_ACCESS_CODE is only whitespace. Set a real code or delete the secret."
+            exit 1
+          fi
+          if [ -n "$ACCESS_CODE" ] && [ "${#ACCESS_CODE}" -lt 16 ]; then
+            echo "::warning::SYNAPSE_PROXY_ACCESS_CODE is shorter than 16 characters. A long random code (for example 'openssl rand -hex 16') is much harder to guess."
+          fi
+
+          {
+            echo "allowed_origins=${origins}"
+            echo "allowed_models=${models}"
+            echo "max_tokens=${token_cap}"
+            # wrangler-action fails the deploy when a listed secret's env var is empty,
+            # so ACCESS_CODE is only listed when the repository secret is set.
+            if [ -n "$ACCESS_CODE" ]; then
+              echo "access_code=set"
+              printf 'secret_names<<NAMES\nANTHROPIC_API_KEY\nACCESS_CODE\nNAMES\n'
+            else
+              echo "access_code=unset"
+              echo "secret_names=ANTHROPIC_API_KEY"
+            fi
+          } >> "$GITHUB_OUTPUT"
+
+      # wrangler-action uploads the secrets with `wrangler secret bulk` before it runs the
+      # command. For a Worker that does not exist yet, wrangler first creates a placeholder
+      # Worker to hold them, and `deploy` then replaces it with src/worker.js.
+      - name: Deploy the Worker
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ACCESS_CODE: ${{ secrets.SYNAPSE_PROXY_ACCESS_CODE }}
+          ALLOWED_ORIGINS: ${{ steps.settings.outputs.allowed_origins }}
+          ALLOWED_MODELS: ${{ steps.settings.outputs.allowed_models }}
+          MAX_TOKENS_CAP: ${{ steps.settings.outputs.max_tokens }}
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The v3 action installs Wrangler 3 unless told otherwise; wrangler.toml needs Wrangler 4.
+          wranglerVersion: "4"
+          workingDirectory: proxy
+          secrets: ${{ steps.settings.outputs.secret_names }}
+          # Passed to `wrangler deploy` as --var NAME:value, overriding [vars] in wrangler.toml.
+          vars: |
+            ALLOWED_ORIGINS
+            ALLOWED_MODELS
+            MAX_TOKENS_CAP
+          command: deploy
+
+      # Deploys never delete secrets, so a code from an earlier run would keep the proxy locked.
+      - name: Remove an access code left by an earlier deploy
+        if: steps.settings.outputs.access_code == 'unset'
+        working-directory: proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          names="$(npx --yes wrangler@4 secret list --format json)"
+          if grep -q '"name": *"ACCESS_CODE"' <<<"$names"; then
+            npx --yes wrangler@4 secret delete ACCESS_CODE
+            echo "Deleted the ACCESS_CODE secret left by an earlier deploy."
+          else
+            echo "No ACCESS_CODE secret to remove."
+          fi
+
+      - name: Check the Worker and write the job summary
+        if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
+        env:
+          WORKER_URL: ${{ steps.deploy.outputs.deployment-url }}
+          ALLOWED_ORIGINS: ${{ steps.settings.outputs.allowed_origins }}
+          ALLOWED_MODELS: ${{ steps.settings.outputs.allowed_models }}
+          MAX_TOKENS_CAP: ${{ steps.settings.outputs.max_tokens }}
+          ACCESS_CODE_STATE: ${{ steps.settings.outputs.access_code }}
+        run: |
+          url="${WORKER_URL%/}"
+          expected="no"
+          if [ "$ACCESS_CODE_STATE" = "set" ]; then
+            expected="yes"
+          fi
+
+          health=""
+          if [ -n "$url" ]; then
+            echo "Worker URL: ${url}"
+            health="$(curl -fsS --retry 5 --retry-delay 3 --retry-all-errors --max-time 10 "${url}/")" || {
+              echo "::warning::${url}/ did not answer the health check. It can take a minute before a new workers.dev URL responds."
+              health=""
+            }
+            if [ -n "$health" ] && ! grep -q "Access code required: ${expected}" <<<"$health"; then
+              echo "::warning::The Worker does not report 'Access code required: ${expected}' yet. Changes can take a few seconds to reach every location; if this persists, check the Worker's secrets in the Cloudflare dashboard."
+            fi
+          else
+            echo "::warning::wrangler-action did not report a deployment URL."
+          fi
+
+          {
+            echo "## Claude API proxy deployed"
+            echo
+            if [ -n "$url" ]; then
+              echo "Set the repository variable \`SYNAPSE_LLM_ENDPOINT\` to:"
+              echo
+              echo '```'
+              echo "${url}/v1/messages"
+              echo '```'
+              echo
+              echo "| Setting | Value |"
+              echo "|---|---|"
+              echo "| Worker URL | ${url} |"
+            else
+              echo "wrangler-action did not report a URL. Open Workers & Pages -> synapse-llm-proxy in the Cloudflare dashboard, copy the workers.dev URL and set \`SYNAPSE_LLM_ENDPOINT\` to that URL followed by \`/v1/messages\`."
+              echo
+              echo "| Setting | Value |"
+              echo "|---|---|"
+            fi
+            echo "| Allowed origins | ${ALLOWED_ORIGINS} |"
+            echo "| Allowed models | ${ALLOWED_MODELS} |"
+            echo "| max_tokens cap | ${MAX_TOKENS_CAP} |"
+            echo "| Access code required | ${expected} |"
+            if [ -n "$health" ]; then
+              echo
+              echo "Health check (\`GET /\`):"
+              echo
+              echo '```'
+              echo "$health"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
