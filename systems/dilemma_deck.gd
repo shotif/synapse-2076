@@ -418,10 +418,7 @@ var once_seen := {}
 
 
 static func get_template(card_id: String) -> Dictionary:
-	for template in all_cards():
-		if template["id"] == card_id:
-			return template
-	return {}
+	return CardLibrary.get_template(card_id)
 
 
 ## Queues a crisis injected by a faction for the next human draw. [param card]
@@ -567,7 +564,7 @@ func adopt(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenerator, so
 
 ## Every template the deck can deal: the core set plus the era decks.
 static func all_cards() -> Array:
-	return CARDS
+	return CardLibrary.all_cards()
 
 
 ## A card waiting to return escalated is not drawn fresh in the meantime.

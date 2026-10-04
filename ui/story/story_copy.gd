@@ -629,7 +629,16 @@ static var _title_patterns := {}
 # --- Lookups -------------------------------------------------------------------------
 
 static func card(card_id: String) -> Dictionary:
-	return CARDS.get(card_id, {})
+	if CARDS.has(card_id):
+		return CARDS[card_id]
+	return DilemmaDeck.get_template(card_id).get("copy", {})
+
+
+## The newswire line announcing an injected crisis ("" when it has none).
+static func injection_head(card_id: String) -> String:
+	if INJECTIONS.has(card_id):
+		return String(INJECTIONS[card_id])
+	return String(DilemmaDeck.get_template(card_id).get("injection_head", ""))
 
 
 ## The copy for [param option_id] of [param card_id] as chosen by [param role]

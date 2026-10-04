@@ -325,7 +325,7 @@ func test_injected_card_names_its_source_and_brief_is_one_sentence() -> void:
 func test_swipe_hints_cover_the_deck() -> void:
 	for card_id in CrisisCard.SWIPE_HINTS:
 		assert_false(DilemmaDeck.get_template(card_id).is_empty(), "hint for a real card: " + card_id)
-	for template in DilemmaDeck.CARDS:
+	for template in DilemmaDeck.all_cards():
 		var label := String(template["options"][0]["label"])
 		assert_ne(CrisisCard.short_label(String(template["id"]), 0, label), "", template["id"])
 	assert_eq(CrisisCard.short_label("UNKNOWN", 1, "Keep the training runs hot"), "Keep the training")
@@ -347,7 +347,7 @@ func test_era_theme_restyles_the_card() -> void:
 
 func test_crisis_art_draws_every_category_in_every_era() -> void:
 	var categories: Array[String] = []
-	for template in DilemmaDeck.CARDS:
+	for template in DilemmaDeck.all_cards():
 		var category := String(template.get("category", "CRISIS"))
 		if not categories.has(category):
 			categories.append(category)

@@ -111,7 +111,7 @@ func test_every_directive_has_a_headline() -> void:
 
 
 func test_every_crisis_choice_has_a_short_headline() -> void:
-	for template in DilemmaDeck.CARDS:
+	for template in DilemmaDeck.all_cards():
 		var card_id := String(template["id"])
 		var title := StoryCopy.fill(String(template["title"]), LONGEST_FILLS)
 		for role in SimConstants.FACTION_ORDER:

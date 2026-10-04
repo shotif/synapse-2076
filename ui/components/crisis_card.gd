@@ -157,7 +157,7 @@ static func first_sentence(text: String) -> String:
 
 ## The swipe hint for response [param index] of a card.
 static func short_label(card_id: String, index: int, label: String) -> String:
-	var hints: Array = SWIPE_HINTS.get(card_id, [])
+	var hints: Array = SWIPE_HINTS.get(card_id, DilemmaDeck.get_template(card_id).get("swipe_hints", []))
 	if index < hints.size():
 		return String(hints[index])
 	var clause := label.get_slice(";", 0).get_slice(",", 0).strip_edges()

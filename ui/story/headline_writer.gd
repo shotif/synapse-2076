@@ -290,7 +290,8 @@ static func _endgame(entry: Dictionary, h: Dictionary) -> void:
 
 static func _crisis(entry: Dictionary, h: Dictionary) -> void:
 	var injected := String(entry.get("injected", ""))
-	h["title"] = String(StoryCopy.INJECTIONS.get(injected, "A new crisis is headed for your desk"))
+	var head := StoryCopy.injection_head(injected)
+	h["title"] = head if head != "" else "A new crisis is headed for your desk"
 	h["kicker"] = "INCOMING"
 	h["glyph"] = "inbox"
 	h["attach"] = true

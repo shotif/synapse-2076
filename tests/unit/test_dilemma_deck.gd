@@ -16,7 +16,7 @@ func _ctx(role: String, year: float, world: WorldState = null, tech: TechTreeMan
 
 func test_templates_are_well_formed() -> void:
 	var ids := {}
-	for template in DilemmaDeck.CARDS:
+	for template in DilemmaDeck.all_cards():
 		var card_id := String(template["id"])
 		assert_false(ids.has(card_id), "unique id " + card_id)
 		ids[card_id] = true
