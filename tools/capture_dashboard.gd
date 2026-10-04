@@ -10,7 +10,7 @@ extends SceneTree
 ##   xvfb-run -a godot --path . --rendering-driver opengl3 --resolution 1180x820 \
 ##       --script res://tools/capture_dashboard.gd -- --out=docs/screenshots --prefix=tablet_ --touch
 ##
-## Options: --role=CEO --seed=2076 --prefix=NAME_ --touch.
+## Options: --role=CEO --seed=2076 --prefix=NAME_ --touch --lang=de.
 ## Writes <prefix>role_select, crisis_card, dashboard (Era I), lattice
 ## (desktop), world, lens and news (tabbed layouts), why, call, people,
 ## settings, front_page, era_upgrade, era2, era3, debrief, epilogue and
@@ -21,6 +21,7 @@ var prefix := ""
 var role := SimConstants.CEO
 var campaign_seed := 2076
 var touch := false
+var lang := "en"
 var dashboard: Control
 
 
@@ -37,6 +38,8 @@ func _initialize() -> void:
 			campaign_seed = int(arg.get_slice("=", 1))
 		elif arg == "--touch":
 			touch = true
+		elif arg.begins_with("--lang="):
+			lang = arg.get_slice("=", 1)
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	ProjectSettings.set_setting("synapse/llm/probe_on_start", false)
 	# No tutorial over the shots, and no captures in the player's own saves.
@@ -44,6 +47,7 @@ func _initialize() -> void:
 	ProjectSettings.set_setting("synapse/storage/save_dir", "user://capture_storage/saves")
 	ProjectSettings.set_setting("synapse/storage/endings_path", "user://capture_storage/endings.cfg")
 	ProjectSettings.set_setting("synapse/storage/settings_path", "user://capture_storage/settings.cfg")
+	GameSettings.instance().set_value("language", lang)
 
 	dashboard = (load("res://ui/main_dashboard.tscn") as PackedScene).instantiate()
 	root.add_child(dashboard)

@@ -35,11 +35,23 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
 |---|---|---|
 | ![Crisis card](docs/screenshots/crisis_card.png) | ![System upgrade](docs/screenshots/era_upgrade.png) | ![Debrief](docs/screenshots/debrief.png) |
 
+| Setting up a campaign | Why did this change? | The people you met |
+|---|---|---|
+| ![The setup screen: perspective, length, world, difficulty, players and the daily challenge](docs/screenshots/role_select.png) | ![Why public trust moved this turn](docs/screenshots/why.png) | ![The People page](docs/screenshots/people.png) |
+
+| Turning points and "What if?" | The endings collection | Calling a faction leader |
+|---|---|---|
+| ![The epilogue with turning points](docs/screenshots/epilogue.png) | ![Endings: eight end-states for each role](docs/screenshots/endings.png) | ![Call a faction leader](docs/screenshots/call.png) |
+
 **Phones and tablets get their own layouts.** Phones show one panel at a time behind **WORLD / ACT / LENS / NEWS** tabs with the vitals on top; landscape tablets and phones keep the world on the left and a tabbed panel beside it. Crisis cards and other dialogs fill the screen and scroll by dragging, and the globe pinches to zoom. Large landscape screens get the desktop layout. **Claude can drive the other factions**; see [Claude on the web build](#claude-on-the-web-build).
 
 | Phone: crisis card | Phone: ACT | Phone: WORLD | Phone: lens | Phone: NEWS |
 |---|---|---|---|---|
 | ![Crisis card on a phone](docs/screenshots/mobile_crisis_card.png) | ![ACT on a phone](docs/screenshots/mobile_dashboard.png) | ![WORLD on a phone](docs/screenshots/mobile_world.png) | ![Lens on a phone](docs/screenshots/mobile_lens.png) | ![Newswire on a phone](docs/screenshots/mobile_news.png) |
+
+| Phone: setup | Phone: settings | Auf Deutsch: setup | Auf Deutsch: crisis | Auf Deutsch: ACT |
+|---|---|---|---|---|
+| ![Setup on a phone](docs/screenshots/mobile_role_select.png) | ![Settings on a phone](docs/screenshots/mobile_settings.png) | ![The setup screen in German](docs/screenshots/de_mobile_role_select.png) | ![A crisis card in German](docs/screenshots/de_mobile_crisis_card.png) | ![ACT in German](docs/screenshots/de_mobile_dashboard.png) |
 
 ![Tablet in landscape: the world beside the ACT panel](docs/screenshots/tablet_dashboard.png)
 
@@ -115,7 +127,7 @@ Other tools:
 |---|---|
 | `godot --headless --path . --script res://tools/monte_carlo.gd -- --runs=60` | Balance report: end-state distribution, termination reasons, verdicts, per-role outcomes and metric trajectories |
 | `godot --headless --path . --script res://tools/check_scripts.gd` | Compile every `.gd`, `.gdshader` and `.tscn` file |
-| `xvfb-run -a godot --path . --rendering-driver opengl3 --resolution 1600x900 --script res://tools/capture_dashboard.gd -- --out=docs/screenshots` | Drive the real UI through a campaign, all three eras, and save screenshots (works without a GPU through Mesa llvmpipe). Add `--resolution 412x915 ... --prefix=mobile_ --touch` for a phone or `--resolution 1180x820 ... --prefix=tablet_ --touch` for a tablet |
+| `xvfb-run -a godot --path . --rendering-driver opengl3 --resolution 1600x900 --script res://tools/capture_dashboard.gd -- --out=docs/screenshots` | Drive the real UI through a campaign, all three eras, and save screenshots (works without a GPU through Mesa llvmpipe). Add `--resolution 412x915 ... --prefix=mobile_ --touch` for a phone or `--resolution 1180x820 ... --prefix=tablet_ --touch` for a tablet, and `--lang=de` (or `es`, `fr`) for another language |
 | `... --script res://tools/capture_scene.gd -- --scene=res://viewports_3d/globe_viewport.tscn --out=/tmp/globe.png` | Render a single scene |
 
 ## LLM decision layer
