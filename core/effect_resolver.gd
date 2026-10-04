@@ -13,10 +13,17 @@ extends RefCounted
 ##   "tech":     {"capability_investment", "safety_investment", "growth_mult",
 ##                "growth_turns", "alignment_tax", "paradigm_progress"}
 ##   "compute":  {"grid_capacity_gw", "grid_damage"}
-##   "inject_dilemma": card id queued for the player (crisis injection)
+##   "inject_dilemma": card id, or a family of ids, queued for the human
+##                players (never the sender)
+##   "flags":    {"set": [names], "clear": [names]}  story flags for the deck
+##   "characters": {character_id: delta}            how a recurring character
+##                                                   feels about the players
+##   "follow_up": {"card": id, "turns": n}           schedules a card for the
+##                                                   acting player n turns out
 ##
 ## Context keys: world, tech, compute, factions (id -> ActorBase), deck,
-## actor_id, player_id, scale (effect multiplier, default 1.0).
+## actor_id, player_id, humans (human role ids), turn, scale (effect
+## multiplier, default 1.0), allow_injection (default true).
 
 ## Grievance generated per 1% of a rival's currency scale destroyed.
 const GRIEVANCE_PER_PERCENT := 0.6
@@ -102,17 +109,53 @@ static func apply(effects: Dictionary, ctx: Dictionary) -> Dictionary:
 			compute.damage_grid(float(compute_effects["grid_damage"]) * scale)
 			applied["compute"]["grid_damage"] = float(compute_effects["grid_damage"]) * scale
 
-	var card_id := String(effects.get("inject_dilemma", ""))
 	var deck: DilemmaDeck = ctx.get("deck")
-	if card_id != "" and deck != null and actor_id != player_id:
-		if deck.inject(card_id, actor_id):
-			applied["injected"] = card_id
+	var injection: Variant = effects.get("inject_dilemma", "")
+	var humans: Array = ctx.get("humans", [player_id])
+	var someone_else := false
+	for role in humans:
+		if String(role) != actor_id:
+			someone_else = true
+	if deck != null and someone_else and bool(ctx.get("allow_injection", true)) \
+			and ((injection is String and injection != "") or (injection is Array and not (injection as Array).is_empty())):
+		var queued_before := deck.injected.size()
+		if deck.inject(injection, actor_id) and deck.injected.size() > queued_before:
+			applied["injected"] = String(deck.injected[-1]["id"])
+
+	if deck != null:
+		var flag_effects: Dictionary = effects.get("flags", {})
+		for flag in flag_effects.get("set", []):
+			deck.set_flag(String(flag))
+		for flag in flag_effects.get("clear", []):
+			deck.clear_flag(String(flag))
+		var character_effects: Dictionary = effects.get("characters", {})
+		for character_id in character_effects:
+			deck.adjust_character(String(character_id), float(character_effects[character_id]))
+		var follow_up: Dictionary = effects.get("follow_up", {})
+		if follow_up.has("card"):
+			var due := int(ctx.get("turn", 0)) + maxi(int(follow_up.get("turns", 4)), 1)
+			deck.schedule(String(follow_up["card"]), due, actor_id if actor_id != "" else player_id)
+			applied["follow_up"] = String(follow_up["card"])
 
 	return applied
 
 
 ## Multiplies every numeric delta in an effects dictionary (used for crisis-card
 ## escalation). Multipliers, durations and card ids are left untouched.
+## [param a] and [param b] added together (numeric sections summed, other keys
+## taken from [param b] when [param a] lacks them).
+static func combined(a: Dictionary, b: Dictionary) -> Dictionary:
+	var out := a.duplicate(true)
+	for section in b:
+		if section in ["metrics", "indices", "self"] and out.has(section):
+			var merged: Dictionary = out[section]
+			for key in b[section]:
+				merged[key] = float(merged.get(key, 0.0)) + float(b[section][key])
+		elif not out.has(section):
+			out[section] = b[section].duplicate(true) if (b[section] is Dictionary or b[section] is Array) else b[section]
+	return out
+
+
 static func scaled(effects: Dictionary, factor: float) -> Dictionary:
 	var out := effects.duplicate(true)
 	for section in ["metrics", "indices", "self"]:

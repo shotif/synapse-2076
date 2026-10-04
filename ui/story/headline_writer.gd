@@ -66,6 +66,10 @@ static func headline(entry: Dictionary, player_role: String = "") -> Dictionary:
 			_crisis(entry, h)
 		"RETALIATION":
 			_retaliation(entry, h)
+		"GOAL":
+			_goal(entry, h)
+		"DEAL":
+			_deal(entry, h)
 		_:
 			h["newsworthy"] = false
 	if String(h["title"]).strip_edges().is_empty():
@@ -134,6 +138,13 @@ static func _dilemma(entry: Dictionary, h: Dictionary) -> void:
 	var crisis := StoryCopy.sentence_case_title(card_id, crisis_title) if crisis_title != "" else ""
 	if crisis != "":
 		h["dek"] = crisis + (". It will return, escalated." if deferred else ".")
+	if bool(entry.get("fallout", false)):
+		title = StoryCopy.fill(StoryCopy.FALLOUT_HEAD, {"crisis": crisis}) if crisis != "" else ""
+		if title.is_empty() or title.length() > MAX_TITLE:
+			title = StoryCopy.FALLOUT_HEAD_SHORT
+		h["title"] = StoryCopy.capitalize_first(title)
+		h["kicker"] = "%s · BROKE" % String(copy.get("topic", String(entry.get("card_category", "CRISIS"))))
+		h["dek"] = (crisis + ". " if crisis != "" else "") + StoryCopy.FALLOUT_DEK
 	if actor_id == SimConstants.ASI:
 		h["byline"] = StoryCopy.UNATTRIBUTED_BYLINE
 		h["unattributed"] = true
@@ -214,6 +225,11 @@ static func _threshold(entry: Dictionary, h: Dictionary) -> void:
 	h["byline"] = "Telemetry"
 	var label := String(WorldState.METRIC_INFO.get(metric, {}).get("label", UiFormat.metric_name(metric)))
 	h["dek"] = "%s at %d: %s." % [label, int(round(value)), WorldState.regime_for(metric, value)]
+	if entry.has("near_miss"):
+		h["title"] = StoryCopy.NEAR_MISS_HEAD
+		h["kicker"] = "NEAR MISS"
+		h["dek"] = String(entry.get("text", "")).trim_prefix("NEAR MISS: ")
+		return
 	if bool(entry.get("imminent", false)):
 		h["title"] = StoryCopy.IMMINENT_HEAD
 		h["kicker"] = "ALERT"
@@ -245,7 +261,7 @@ static func _collapse(entry: Dictionary, h: Dictionary) -> void:
 	h["title"] = String(StoryCopy.COLLAPSES.get(code, ""))
 	h["kicker"] = "BREAKING · COLLAPSE"
 	if String(h["dek"]).is_empty():
-		h["dek"] = String(entry.get("text", "")).trim_prefix("PLAYER LOSS: ")
+		h["dek"] = String(entry.get("text", "")).trim_prefix("PLAYER LOSS: ").trim_prefix("PLAYER OUT: ")
 
 
 static func _endgame(entry: Dictionary, h: Dictionary) -> void:
@@ -282,6 +298,26 @@ static func _crisis(entry: Dictionary, h: Dictionary) -> void:
 	if String(h["faction"]) == SimConstants.ASI:
 		h["byline"] = StoryCopy.UNATTRIBUTED_BYLINE
 		h["unattributed"] = true
+
+
+static func _goal(entry: Dictionary, h: Dictionary) -> void:
+	var status := String(entry.get("status", ""))
+	h["title"] = StoryCopy.capitalize_first(String(entry.get("goal_text", "")))
+	h["kicker"] = String(StoryCopy.GOAL_KICKERS.get(status, "GOAL"))
+	h["glyph"] = "flag"
+	h["byline"] = "Era %s goal" % String(StoryCopy.ROMAN.get(int(entry.get("era", 1)), ""))
+	var reward := String(entry.get("reward_text", ""))
+	h["dek"] = "Reward: %s." % reward if status == EraGoals.MET and reward != "" else ""
+
+
+static func _deal(entry: Dictionary, h: Dictionary) -> void:
+	var partner := String(entry.get("partner", ""))
+	h["title"] = StoryCopy.fill(StoryCopy.DEAL_HEAD, {"actor": StoryCopy.actor(String(h["faction"])), "partner": StoryCopy.actor_the(partner)})
+	h["kicker"] = "DEAL"
+	h["glyph"] = "share"
+	var text := String(entry.get("text", ""))
+	var dot := text.find(". ")
+	h["dek"] = text.substr(dot + 2) if dot >= 0 else ""
 
 
 static func _retaliation(entry: Dictionary, h: Dictionary) -> void:

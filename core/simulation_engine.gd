@@ -14,12 +14,29 @@ extends RefCounted
 ## presenting the player phase, or while waiting on asynchronous actor
 ## decisions. Calling it again at the player phase resolves that phase with the
 ## submitted (or, in autoplay, heuristic) choices and prepares the next turn.
+##
+## Up to four people can play (pass-and-play): [member human_roles] lists their
+## factions, and the player phase presents each of them in turn, with
+## [member player_role] pointing at whoever is deciding. Every input that shapes
+## the campaign goes into [member record]; [method from_record] replays it to
+## rebuild a saved game or to rewind to an earlier turn. Every change to the
+## world is filed with its cause (WorldState.change_log) so the interface can
+## explain it.
 
 enum Phase { IDLE, WORLD_TICK, ACTOR_RESOLUTION, PLAYER_ACTION, TELEMETRY, ENDED }
 
 const PHASE_NAMES := ["IDLE", "WORLD_TICK", "ACTOR_RESOLUTION", "PLAYER_ACTION", "TELEMETRY", "ENDED"]
 const CONSERVE := "CONSERVE_RESOURCES"
-const MAX_PIPELINE_STEPS := 16
+const MAX_PIPELINE_STEPS := 24
+const RECORD_VERSION := 1
+const MAX_HUMANS := 4
+## Bounds on a negotiated deal (see [method apply_deal]).
+const DEAL_MAX_SHARE := 0.3
+const DEAL_MAX_METRIC := 3.0
+const DEAL_MAX_PLEDGE_TURNS := 6
+## The currency each faction pays its side of a deal in.
+const DEAL_CURRENCY := {"CEO": "capital", "GOVERNANCE_COUNCIL": "political_capital", "ASI": "covert_flops",
+	"CITIZEN_COALITION": "decentralized_scrip"}
 
 signal campaign_started(player_role: String, campaign_seed: int)
 signal phase_changed(phase: int, turn: int)
@@ -42,7 +59,24 @@ var tech: TechTreeManager
 var compute: ComputeScaling
 var deck: DilemmaDeck
 var factions := {}
+## The human player deciding right now (the first human outside the player phase).
 var player_role := ""
+## Factions played by people, in turn order; everyone else is autonomous.
+var human_roles: Array[String] = []
+## Humans knocked out in a pass-and-play game: role -> {turn, loss}.
+var eliminated := {}
+var difficulty := Difficulty.STANDARD
+var scenario_id := Scenarios.STANDARD
+## First turn the humans play; earlier turns run on autopilot at the start.
+var start_turn := 1
+## The options the campaign was started with (kept in the record).
+var options := {}
+var goals := EraGoals.new()
+## Every input of the campaign: seed, options, the humans' choices, the
+## autonomous factions' decisions, cards written outside the deck and deals.
+var record := {}
+## Promises made in deals: faction -> {"toward": role, "until": turn}.
+var pledges := {}
 var campaign_seed := 0
 var turn := 0
 var phase: int = Phase.IDLE
@@ -67,21 +101,46 @@ var _player_submission := {}
 var _metric_bands := {}
 var _milestones := {}
 var _convergence_streak := 0
+var _human_index := 0
+var _replay := {}
+var _fast_forwarding := false
+var _external_cards := {}
+var _dealt_this_turn := {}
 
 
 # --- Campaign lifecycle ---------------------------------------------------------
 
-func start_campaign(role: String, seed_value: int = 2076, options: Dictionary = {}) -> void:
+## Starts a campaign. [param options]:
+##   total_turns, max_player_directives, autoplay (as before)
+##   human_roles  factions played by people (pass-and-play); defaults to [role]
+##   difficulty   Difficulty preset id ("story", "standard", "hard")
+##   scenario     Scenarios id
+##   start_turn   first turn the humans play (shorter campaigns that start in a
+##                later era); earlier turns run on autopilot
+func start_campaign(role: String, seed_value: int = 2076, campaign_options: Dictionary = {}) -> void:
 	if not SimConstants.is_valid_faction(role):
 		push_error("SimulationEngine: invalid player role '%s'" % role)
 		return
+	human_roles = [role]
+	for other in campaign_options.get("human_roles", []):
+		if SimConstants.is_valid_faction(String(other)) and not human_roles.has(String(other)) and human_roles.size() < MAX_HUMANS:
+			human_roles.append(String(other))
 	player_role = role
 	campaign_seed = seed_value
 	rng = RandomNumberGenerator.new()
 	rng.seed = seed_value
-	total_turns = int(options.get("total_turns", SimConstants.TOTAL_TURNS))
-	max_player_directives = int(options.get("max_player_directives", max_player_directives))
-	autoplay_player = bool(options.get("autoplay", autoplay_player))
+	total_turns = maxi(int(campaign_options.get("total_turns", SimConstants.TOTAL_TURNS)), 1)
+	max_player_directives = int(campaign_options.get("max_player_directives", max_player_directives))
+	autoplay_player = bool(campaign_options.get("autoplay", autoplay_player))
+	difficulty = String(campaign_options.get("difficulty", Difficulty.STANDARD))
+	if not Difficulty.is_valid(difficulty):
+		difficulty = Difficulty.STANDARD
+	scenario_id = String(campaign_options.get("scenario", Scenarios.STANDARD))
+	if not Scenarios.is_valid(scenario_id):
+		scenario_id = Scenarios.STANDARD
+	start_turn = clampi(int(campaign_options.get("start_turn", 1)), 1, total_turns)
+	options = {"total_turns": total_turns, "max_player_directives": max_player_directives, "human_roles": human_roles.duplicate(),
+		"difficulty": difficulty, "scenario": scenario_id, "start_turn": start_turn}
 
 	world = WorldState.new()
 	tech = TechTreeManager.new()
@@ -90,8 +149,19 @@ func start_campaign(role: String, seed_value: int = 2076, options: Dictionary = 
 	factions = {}
 	for faction_id in SimConstants.FACTION_ORDER:
 		var actor := FactionRegistry.create(faction_id)
-		actor.is_player = faction_id == role
+		actor.is_player = human_roles.has(faction_id)
 		factions[faction_id] = actor
+	eliminated = {}
+	pledges = {}
+	_human_index = 0
+	_external_cards = {}
+	_dealt_this_turn = {}
+	_fast_forwarding = false
+	record = {"version": RECORD_VERSION, "seed": seed_value, "role": role, "options": options.duplicate(true), "turns": {}}
+	_apply_start_resources()
+	Scenarios.apply(self, scenario_id)
+	goals = EraGoals.new()
+	goals.setup(human_roles, start_turn)
 
 	turn = 0
 	phase = Phase.IDLE
@@ -111,8 +181,81 @@ func start_campaign(role: String, seed_value: int = 2076, options: Dictionary = 
 	world.record_history(0, get_year(), _history_extra())
 	_log("SYSTEM", "INFO", "Campaign initialized: %s perspective, seed %d. Horizon %d turns (%d-%d)." % [
 		SimConstants.role_title(role), seed_value, total_turns,
-		int(SimConstants.START_YEAR), int(SimConstants.year_for_turn(total_turns))])
+		int(SimConstants.START_YEAR), int(SimConstants.year_for_turn(total_turns))], "",
+		{"humans": human_roles.duplicate(), "difficulty": difficulty, "scenario": scenario_id, "start_turn": start_turn})
 	campaign_started.emit(role, seed_value)
+	if start_turn > 1:
+		_fast_forward(start_turn - 1)
+
+
+## Rebuilds a campaign from [param saved] (a [member record]): replays every
+## recorded turn and stops at the player phase of [param until_turn] (or where
+## the record ends). The returned engine continues recording from there, so a
+## rewind simply plays on with different choices.
+static func from_record(saved: Dictionary, until_turn: int = -1) -> SimulationEngine:
+	var engine := SimulationEngine.new()
+	if int(saved.get("version", 0)) != RECORD_VERSION:
+		push_warning("SimulationEngine: record version %s is not supported" % str(saved.get("version", "?")))
+	var saved_options: Dictionary = (saved.get("options", {}) as Dictionary).duplicate(true)
+	engine._replay = saved.duplicate(true)
+	engine.start_campaign(String(saved.get("role", "")), int(saved.get("seed", 0)), saved_options)
+	engine.replay_to(until_turn)
+	return engine
+
+
+## Replays recorded inputs until the player phase of [param until_turn], the
+## end of the record or the end of the campaign.
+func replay_to(until_turn: int = -1) -> void:
+	for _guard in total_turns * (MAX_HUMANS + 3) + 10:
+		if is_ended():
+			break
+		if is_awaiting_player():
+			if until_turn > 0 and turn >= until_turn:
+				break
+			var entry := _recorded_turn(turn).get("players", {}).get(player_role, {}) as Dictionary
+			if entry.is_empty():
+				break
+			for deal in entry.get("deals", []):
+				apply_deal(deal)
+			var response := submit_player_turn(entry.get("directives", []), String(entry.get("option", DilemmaDeck.DEFER_ID)))
+			if not response["ok"]:
+				push_warning("SimulationEngine: replay diverged at turn %d (%s)" % [turn, ", ".join(response["errors"])])
+				break
+			continue
+		var before_turn := turn
+		var before_phase := phase
+		advance()
+		if turn == before_turn and phase == before_phase:
+			break
+	_replay = {}
+
+
+## Plays turns 1..[param last_turn] on autopilot (shorter campaigns that start
+## in a later era). These turns are not recorded: they replay identically.
+func _fast_forward(last_turn: int) -> void:
+	_fast_forwarding = true
+	var was_autoplay := autoplay_player
+	autoplay_player = true
+	for _guard in last_turn * (MAX_HUMANS + 3) + 10:
+		if is_ended() or (turn >= last_turn and phase == Phase.IDLE):
+			break
+		advance()
+	autoplay_player = was_autoplay
+	_fast_forwarding = false
+	if not is_ended():
+		_log("SYSTEM", "INFO", "The years to %d played out on their own. Your campaign begins." % int(get_year(turn + 1)), "",
+			{"prologue_turns": last_turn})
+
+
+## Story's richer and Hard's leaner starting budgets for the human players.
+func _apply_start_resources() -> void:
+	var factor := Difficulty.value(difficulty, "start_resources")
+	if is_equal_approx(factor, 1.0):
+		return
+	for role in human_roles:
+		var actor: ActorBase = factions[role]
+		for key in actor.resources.keys():
+			actor.set_resource(key, actor.get_resource(key) * factor)
 
 
 ## Attaches an asynchronous decision source (LLMService or a test double).
@@ -131,6 +274,25 @@ func get_year(for_turn: int = -1) -> float:
 
 func get_player() -> ActorBase:
 	return factions.get(player_role)
+
+
+## Human players still in the game, in turn order.
+func active_humans() -> Array[String]:
+	var out: Array[String] = []
+	for role in human_roles:
+		if not eliminated.has(role):
+			out.append(role)
+	return out
+
+
+func is_human(faction_id: String) -> bool:
+	return human_roles.has(faction_id) and not eliminated.has(faction_id)
+
+
+## Why [param key] changed during [param for_turn] (the current turn by
+## default): [{cause, delta}], largest first.
+func get_changes(key: String, for_turn: int = -1) -> Array:
+	return world.changes_for(turn if for_turn < 0 else for_turn, key)
 
 
 func is_ended() -> bool:
@@ -178,6 +340,11 @@ func advance() -> void:
 					break
 				_player_submission = {"autoplay": true}
 			_resolve_player_turn()
+			if _human_index + 1 < active_humans().size():
+				_human_index += 1
+				_present_current_human()
+				continue
+			_restore_primary_role()
 			_set_phase(Phase.TELEMETRY)
 		elif phase == Phase.TELEMETRY:
 			_run_telemetry()
@@ -192,6 +359,7 @@ func advance() -> void:
 ## result (empty when stopped early or blocked on asynchronous decisions).
 func run_headless(max_turns: int = -1) -> Dictionary:
 	autoplay_player = true
+	_replay = {}
 	var limit := total_turns if max_turns < 0 else mini(max_turns, total_turns)
 	for _guard in limit * 3 + 10:
 		if is_ended() or (turn >= limit and phase == Phase.IDLE):
@@ -211,6 +379,8 @@ func _begin_turn() -> void:
 	turn_actions = {}
 	current_dilemma = {}
 	_player_submission = {}
+	_dealt_this_turn = {}
+	world.begin_change_turn(turn)
 	_set_phase(Phase.WORLD_TICK)
 	turn_started.emit(turn, get_year())
 
@@ -232,7 +402,8 @@ func _run_world_tick() -> void:
 	superconductors = tech.has_shift(TechTreeManager.AMBIENT_SUPERCONDUCTORS)
 	var compute_report := compute.update(turn, tech.era, tech.log_flops, world.algorithmic_autonomy, optical, superconductors, covert_load)
 
-	world.drift_accrual_multiplier = tech.get_drift_accrual_multiplier()
+	world.drift_accrual_multiplier = tech.get_drift_accrual_multiplier() * Difficulty.value(difficulty, "drift_accrual")
+	world.change_cause = ""
 	var coupling := world.resolve_coupling({
 		"capability_index": tech.get_capability_index(),
 		"capability_delta": tech.last_capability_delta,
@@ -246,10 +417,12 @@ func _run_world_tick() -> void:
 		var era_names := {1: "Silicon & Nuclear Co-location", 2: "Optical Interconnects & SMR Grids", 3: "Neuromorphic & Post-Biological Substrates"}
 		_log("ERA", "WARN", "Hardware Era %d begins: %s." % [tech.era, era_names[tech.era]], "", {"era": tech.era})
 	for shift in tech_report["shifts"]:
+		world.change_cause = "Paradigm shift: %s" % shift["name"]
 		_apply_effects(shift["effects"], "", 1.0)
 		_log("PARADIGM", "WARN", "PARADIGM SHIFT: %s. %s" % [shift["name"], shift["summary"]], "",
 			{"shift": shift["id"], "name": shift["name"], "summary": shift["summary"]})
 	for emergence in tech_report["emergences"]:
+		world.change_cause = "Emergent capability: %s" % emergence["name"]
 		_apply_effects(emergence["effects"], "", 1.0)
 		var spike := world.apply_delta(WorldState.ALIGNMENT_DRIFT, float(emergence["drift_spike"]))
 		_log("EMERGENCE", "CRITICAL", "EMERGENT CAPABILITY: %s (%s). Alignment drift %+.1f." % [
@@ -258,14 +431,23 @@ func _run_world_tick() -> void:
 	if tech_report["agi_crossed"]:
 		_on_agi_crossed()
 
+	var income := Difficulty.value(difficulty, "income")
 	for faction_id in SimConstants.FACTION_ORDER:
 		var actor: ActorBase = factions[faction_id]
 		if not actor.is_active():
 			continue
+		world.change_cause = "%s (standing influence)" % actor.display_name
 		actor.apply_passive_influence(world, tech, compute)
+		var before := actor.resources.duplicate()
 		actor.regenerate(world, tech, turn)
+		if is_human(faction_id) and not is_equal_approx(income, 1.0):
+			for key in before:
+				var gain := actor.get_resource(key) - float(before[key])
+				if gain > 0.0:
+					actor.add_resource(key, gain * (income - 1.0))
 		actor.tick_cooldowns()
 		actor.decay_grievances()
+	world.change_cause = ""
 
 	last_world_report = {
 		"turn": turn,
@@ -301,7 +483,7 @@ func _request_actor_decisions() -> void:
 	_collected = {}
 	var requested: Array[String] = []
 	for faction_id in SimConstants.FACTION_ORDER:
-		if faction_id == player_role:
+		if is_human(faction_id):
 			continue
 		var actor: ActorBase = factions[faction_id]
 		if not actor.is_active():
@@ -310,9 +492,13 @@ func _request_actor_decisions() -> void:
 		_awaiting[faction_id] = true
 	actor_decisions_requested.emit(requested)
 	_requesting = true
+	var recorded: Dictionary = _recorded_turn(turn).get("actors", {})
 	for faction_id in requested:
+		if recorded.has(faction_id):
+			_collected[faction_id] = (recorded[faction_id] as Dictionary).duplicate(true)
+			continue
 		var observation := build_observation(faction_id)
-		if _provider_online():
+		if _provider_online() and _replay.is_empty() and not _fast_forwarding:
 			decision_provider.call("query_actor_decision", faction_id, observation)
 		else:
 			_collected[faction_id] = HeuristicFallback.evaluate(faction_id, observation)
@@ -349,9 +535,43 @@ func _apply_actor_decisions() -> void:
 	# Fixed order keeps replays deterministic regardless of network latency.
 	for faction_id in SimConstants.FACTION_ORDER:
 		if _collected.has(faction_id):
-			resolve_action(factions[faction_id], _collected[faction_id], "AUTONOMOUS")
+			var raw: Dictionary = (_collected[faction_id] as Dictionary).duplicate(true)
+			if not _fast_forwarding:
+				_record_turn_entry(turn)["actors"][faction_id] = _recordable_decision(raw)
+			# A faction that promised peace in a deal does not retaliate against that player.
+			var pledge: Dictionary = pledges.get(faction_id, {})
+			if not pledge.is_empty() and turn <= int(pledge["until"]) and String(raw.get("retaliation_against", "")) == String(pledge["toward"]):
+				raw["retaliation_against"] = ""
+			resolve_action(factions[faction_id], raw, "AUTONOMOUS")
 	_awaiting = {}
 	_collected = {}
+
+
+## What the record being replayed holds for [param for_turn] ({} when not replaying).
+func _recorded_turn(for_turn: int) -> Dictionary:
+	if _replay.is_empty():
+		return {}
+	var turns: Dictionary = _replay.get("turns", {})
+	return turns.get(str(for_turn), {})
+
+
+## This campaign's record entry for [param for_turn], created on first use.
+func _record_turn_entry(for_turn: int) -> Dictionary:
+	var turns: Dictionary = record["turns"]
+	if not turns.has(str(for_turn)):
+		turns[str(for_turn)] = {"players": {}, "actors": {}, "cards": {}}
+	return turns[str(for_turn)]
+
+
+## The parts of a decision needed to replay it (LLM rationales are trimmed).
+static func _recordable_decision(raw: Dictionary) -> Dictionary:
+	var out := {}
+	for key in ["action", "selected_action", "intensity", "cost", "resource_expenditure", "public_statement",
+			"source", "retaliation_against", "fallback_reason", "turn"]:
+		if raw.has(key):
+			out[key] = raw[key]
+	out["rationale"] = String(raw.get("rationale", "")).left(240)
+	return out
 
 
 ## Normalizes heuristic ({action, cost}) and LLM ({selected_action,
@@ -394,6 +614,8 @@ func resolve_action(actor: ActorBase, raw: Dictionary, origin: String) -> Dictio
 		note = "%s rejected (%s); conserving." % [action_id, block]
 		action_id = CONSERVE
 	var intensity := float(decision["intensity"])
+	if not is_human(actor.faction_id) and origin == "AUTONOMOUS":
+		intensity += Difficulty.value(difficulty, "rival_intensity_bonus")
 	if actor.get_action(action_id).get("cost", {}).is_empty():
 		intensity = 1.0
 	else:
@@ -402,7 +624,14 @@ func resolve_action(actor: ActorBase, raw: Dictionary, origin: String) -> Dictio
 	actor.spend(cost)
 	actor.start_cooldown(action_id)
 	var definition := actor.get_action(action_id)
-	var applied := _apply_effects(definition.get("effects", {}), actor.faction_id, ActorBase.effect_scale(intensity))
+	var allow_injection := true
+	var skip_chance := Difficulty.value(difficulty, "injection_skip_chance")
+	if skip_chance > 0.0 and not is_human(actor.faction_id) and definition.get("effects", {}).has("inject_dilemma"):
+		allow_injection = rng.randf() >= skip_chance
+	world.change_cause = "%s: %s" % [actor.display_name, String(definition.get("name", action_id))]
+	var applied := _apply_effects(definition.get("effects", {}), actor.faction_id, ActorBase.effect_scale(intensity),
+		{"allow_injection": allow_injection})
+	world.change_cause = ""
 	var statement := String(decision["public_statement"])
 	if statement == "" or action_id != String(decision["action"]):
 		statement = String(definition.get("statement", ""))
@@ -449,11 +678,14 @@ func resolve_action(actor: ActorBase, raw: Dictionary, origin: String) -> Dictio
 	return outcome
 
 
-func _apply_effects(effects: Dictionary, actor_id: String, scale: float) -> Dictionary:
-	return EffectResolver.apply(effects, {
+func _apply_effects(effects: Dictionary, actor_id: String, scale: float, extra: Dictionary = {}) -> Dictionary:
+	var ctx := {
 		"world": world, "tech": tech, "compute": compute, "factions": factions,
 		"deck": deck, "actor_id": actor_id, "player_id": player_role, "scale": scale,
-	})
+		"humans": active_humans(), "turn": turn,
+	}
+	ctx.merge(extra, true)
+	return EffectResolver.apply(effects, ctx)
 
 
 ## Flat observation for heuristics / LLM prompts, including rivals' last moves.
@@ -471,13 +703,174 @@ func build_observation(faction_id: String) -> Dictionary:
 # --- Phase 3: player dilemma & action -----------------------------------------------
 
 func _present_player_phase() -> void:
-	current_dilemma = deck.draw({
+	_human_index = 0
+	if active_humans().is_empty():
+		return
+	_present_current_human()
+
+
+## Draws the crisis for the human whose turn it is and asks for their input.
+func _present_current_human() -> void:
+	player_role = active_humans()[_human_index]
+	var ctx := {
 		"turn": turn, "year": get_year(), "role": player_role,
 		"world": world, "tech": tech, "player": get_player(),
-	}, rng)
+		"cost_mult": Difficulty.value(difficulty, "crisis_costs"),
+	}
+	var written: Dictionary = _recorded_turn(turn).get("cards", {}).get(player_role, {})
+	if written.is_empty() and _replay.is_empty() and not _fast_forwarding and _external_cards.has(player_role):
+		written = _external_cards[player_role]
+	_external_cards.erase(player_role)
+	if not written.is_empty():
+		current_dilemma = deck.adopt(written, ctx, rng, "WRITTEN")
+		_record_turn_entry(turn)["cards"][player_role] = written.duplicate(true)
+	else:
+		current_dilemma = deck.draw(ctx, rng)
 	_player_submission = {}
 	dilemma_presented.emit(current_dilemma)
 	player_input_required.emit(get_player_context())
+
+
+func _restore_primary_role() -> void:
+	var humans := active_humans()
+	player_role = humans[0] if not humans.is_empty() else (human_roles[0] if not human_roles.is_empty() else player_role)
+
+
+## Offers a crisis card written outside the deck (Claude's crisis writer) for
+## [param role]'s next draw. [param card] must already be validated into deck
+## template form (id, title, body, category, severity, options, defer).
+func offer_external_card(role: String, card: Dictionary) -> bool:
+	if not is_human(role) or not card.has("options") or (card["options"] as Array).size() < 2:
+		return false
+	_external_cards[role] = card.duplicate(true)
+	return true
+
+
+## What a deal between the current player and an autonomous faction would do,
+## after the caps, without applying it. [param deal]:
+##   "partner"       the autonomous faction
+##   "give"          {player currency: amount} the player pays
+##   "get"           {player currency: amount} the partner's backing: the player
+##                   receives it and the partner pays the same share of its own
+##                   DEAL_CURRENCY (less backing when it cannot afford that)
+##   "pledge_turns"  turns the partner will not retaliate against the player
+##   "metrics"       {metric: delta} a joint move on the world
+##   "summary"       one line for the log
+## Payments are capped at DEAL_MAX_SHARE of what the payer holds (backing at
+## DEAL_MAX_SHARE of the currency's typical scale), metric moves at
+## +/-DEAL_MAX_METRIC and pledges at DEAL_MAX_PLEDGE_TURNS. Returns {ok, errors,
+## partner, give, get, partner_pays, metrics, pledge_turns, summary}.
+func preview_deal(deal: Dictionary) -> Dictionary:
+	var errors: Array[String] = []
+	var partner_id := String(deal.get("partner", ""))
+	if not is_awaiting_player():
+		errors.append("Deals are made during your turn.")
+	elif _dealt_this_turn.has(player_role):
+		errors.append("One deal per turn.")
+	elif not factions.has(partner_id) or partner_id == player_role or is_human(partner_id) or not (factions[partner_id] as ActorBase).is_active():
+		errors.append("No one to deal with.")
+	if not errors.is_empty():
+		return {"ok": false, "errors": errors}
+	var player := get_player()
+	var partner: ActorBase = factions[partner_id]
+	var backing := _deal_backing(player, partner, deal.get("get", {}))
+	var metrics := {}
+	var promised: Variant = deal.get("metrics", {})
+	if promised is Dictionary:
+		for key in promised:
+			if WorldState.is_metric(String(key)) and is_finite(float(promised[key])) and not is_zero_approx(float(promised[key])):
+				metrics[String(key)] = clampf(float(promised[key]), -DEAL_MAX_METRIC, DEAL_MAX_METRIC)
+	var preview := {
+		"ok": true, "errors": errors, "partner": partner_id,
+		"give": _capped_payment(player, deal.get("give", {})),
+		"get": backing["received"],
+		"partner_pays": backing["cost"],
+		"metrics": metrics,
+		"pledge_turns": clampi(int(deal.get("pledge_turns", 0)), 0, DEAL_MAX_PLEDGE_TURNS),
+		"summary": String(deal.get("summary", "")).strip_edges().left(200),
+	}
+	if (preview["give"] as Dictionary).is_empty() and (preview["get"] as Dictionary).is_empty() and metrics.is_empty() \
+			and int(preview["pledge_turns"]) == 0:
+		errors.append("The deal is empty.")
+		return {"ok": false, "errors": errors}
+	return preview
+
+
+## Applies a deal (see [method preview_deal]). One deal per player per turn,
+## before they submit; it is recorded and replays with the campaign.
+func apply_deal(deal: Dictionary) -> Dictionary:
+	var preview := preview_deal(deal)
+	if not preview["ok"]:
+		return preview
+	var player := get_player()
+	var partner: ActorBase = factions[preview["partner"]]
+	world.change_cause = "Deal with %s" % partner.display_name
+	for key in preview["give"]:
+		player.add_resource(key, -float(preview["give"][key]))
+	for key in preview["get"]:
+		player.add_resource(key, float(preview["get"][key]))
+	for key in preview["partner_pays"]:
+		partner.add_resource(key, -float(preview["partner_pays"][key]))
+	var metric_deltas := {}
+	for key in preview["metrics"]:
+		metric_deltas[key] = world.apply_delta(String(key), float(preview["metrics"][key]))
+	world.change_cause = ""
+	var pledge_turns := int(preview["pledge_turns"])
+	if pledge_turns > 0:
+		pledges[partner.faction_id] = {"toward": player_role, "until": turn + pledge_turns}
+		partner.grievances.erase(player_role)
+	_dealt_this_turn[player_role] = true
+	var players: Dictionary = _record_turn_entry(turn)["players"]
+	if not players.has(player_role):
+		players[player_role] = {}
+	var deals: Array = players[player_role].get("deals", [])
+	deals.append(deal.duplicate(true))
+	players[player_role]["deals"] = deals
+	var summary := String(preview["summary"])
+	_log("DEAL", "INFO", "%s and %s strike a deal.%s" % [player.display_name, partner.display_name, (" " + summary) if summary != "" else ""],
+		player_role, {"partner": partner.faction_id, "give": preview["give"], "get": preview["get"], "partner_pays": preview["partner_pays"],
+			"pledge_turns": pledge_turns, "summary": summary, "deltas": metric_deltas})
+	preview["metrics"] = metric_deltas
+	return preview
+
+
+## Payment capped at DEAL_MAX_SHARE of what [param payer] holds.
+func _capped_payment(payer: ActorBase, wanted: Variant) -> Dictionary:
+	var out := {}
+	if not (wanted is Dictionary):
+		return out
+	for key in wanted:
+		if not payer.resources.has(key) or not is_finite(float(wanted[key])):
+			continue
+		var amount := clampf(float(wanted[key]), 0.0, payer.get_resource(key) * DEAL_MAX_SHARE)
+		if amount > 0.0:
+			out[key] = amount
+	return out
+
+
+## The partner's backing: {"received": player currencies, "cost": partner currency}.
+func _deal_backing(player: ActorBase, partner: ActorBase, wanted: Variant) -> Dictionary:
+	var received := {}
+	var share := 0.0
+	if wanted is Dictionary:
+		for key in wanted:
+			if not player.resources.has(key) or not is_finite(float(wanted[key])):
+				continue
+			var amount := clampf(float(wanted[key]), 0.0, player.resource_scale(key) * DEAL_MAX_SHARE)
+			if amount > 0.0:
+				received[key] = amount
+				share += amount / player.resource_scale(key)
+	var currency := String(DEAL_CURRENCY.get(partner.faction_id, ""))
+	if received.is_empty() or not partner.resources.has(currency):
+		return {"received": {}, "cost": {}}
+	var wanted_cost := share * partner.resource_scale(currency)
+	var affordable := minf(wanted_cost, partner.get_resource(currency) * DEAL_MAX_SHARE)
+	if affordable <= 0.0:
+		return {"received": {}, "cost": {}}
+	var factor := affordable / wanted_cost
+	for key in received:
+		received[key] = float(received[key]) * factor
+	return {"received": received, "cost": {currency: affordable}}
 
 
 ## Everything the UI needs to render the player phase.
@@ -500,6 +893,8 @@ func get_player_context() -> Dictionary:
 		"turn": turn,
 		"year": get_year(),
 		"role": player_role,
+		"humans": active_humans(),
+		"human_index": _human_index,
 		"dilemma": current_dilemma,
 		"resources": player.resources.duplicate(),
 		"actions": actions,
@@ -567,29 +962,30 @@ func _resolve_player_turn() -> void:
 		option_id = DilemmaDeck.choose_auto_option(current_dilemma, player_role, player)
 	var option := DilemmaDeck.find_option(current_dilemma, option_id)
 	var dilemma_result := {"option": option_id, "label": String(option.get("label", ""))}
+	var crisis_title := _plain_title(String(current_dilemma.get("title", "")))
 	if option_id == DilemmaDeck.DEFER_ID:
-		deck.defer(current_dilemma, turn)
-		dilemma_result["applied"] = _apply_effects(option.get("effects", {}), player_role, 1.0)
-		_log("DILEMMA", "WARN", "Crisis deferred: %s. It will return escalated." % current_dilemma.get("title", ""), player_role,
-			_dilemma_extra(option_id, String(option.get("label", "")), dilemma_result["applied"], true))
+		dilemma_result["applied"] = _defer_current(option, crisis_title)
 	else:
 		var cost: Dictionary = option.get("cost", {})
 		if player.can_afford(cost):
 			player.spend(cost)
+			world.change_cause = "Crisis: %s (%s)" % [crisis_title, String(option.get("label", ""))]
 			dilemma_result["applied"] = _apply_effects(option.get("effects", {}), player_role, 1.0)
+			world.change_cause = ""
 			_log("DILEMMA", "INFO", "Crisis resolved: %s -> %s." % [current_dilemma.get("title", ""), option.get("label", "")], player_role,
 				_dilemma_extra(option_id, String(option.get("label", "")), dilemma_result["applied"], false))
 		else:
-			deck.defer(current_dilemma, turn)
 			dilemma_result["option"] = DilemmaDeck.DEFER_ID
-			dilemma_result["applied"] = _apply_effects(current_dilemma.get("defer", {}).get("effects", {}), player_role, 1.0)
-			_log("DILEMMA", "WARN", "Could not afford '%s'; crisis deferred." % option.get("label", ""), player_role,
-				_dilemma_extra(DilemmaDeck.DEFER_ID, String(current_dilemma.get("defer", {}).get("label", "")), dilemma_result["applied"], true))
+			dilemma_result["applied"] = _defer_current(current_dilemma.get("defer", {}), crisis_title,
+				"Could not afford '%s'" % option.get("label", ""))
 
 	var directive_outcomes := []
+	var recorded_directives := []
 	if autoplay:
 		var decision := HeuristicFallback.evaluate(player_role, build_observation(player_role))
-		directive_outcomes.append(resolve_action(player, decision, "PLAYER_AUTOPLAY"))
+		var outcome := resolve_action(player, decision, "PLAYER_AUTOPLAY")
+		directive_outcomes.append(outcome)
+		recorded_directives.append({"action": String(outcome["action"]), "intensity": float(outcome["intensity"])})
 	else:
 		for entry in _player_submission.get("directives", []):
 			var directive := {
@@ -598,23 +994,54 @@ func _resolve_player_turn() -> void:
 				"source": "PLAYER",
 			}
 			directive_outcomes.append(resolve_action(player, directive, "PLAYER"))
+			recorded_directives.append({"action": directive["action"], "intensity": directive["intensity"]})
 		if directive_outcomes.is_empty():
 			directive_outcomes.append(resolve_action(player, {"action": CONSERVE, "source": "PLAYER"}, "PLAYER"))
+	if not _fast_forwarding:
+		var players: Dictionary = _record_turn_entry(turn)["players"]
+		var entry: Dictionary = players.get(player_role, {})
+		entry["option"] = String(dilemma_result["option"])
+		entry["directives"] = recorded_directives
+		players[player_role] = entry
 	var turn_result := {"turn": turn, "dilemma": dilemma_result, "directives": directive_outcomes}
 	_player_submission = {}
 	player_turn_resolved.emit(turn_result)
 
 
+## Puts off the current crisis, or lets it break when it was already put off
+## twice (DilemmaDeck.MAX_DEFERRALS). [param reason] explains a forced deferral.
+func _defer_current(defer_option: Dictionary, crisis_title: String, reason: String = "") -> Dictionary:
+	var fallout := bool(current_dilemma.get("fallout", false))
+	if not fallout:
+		deck.defer(current_dilemma, turn, player_role)
+	world.change_cause = ("Crisis broke: %s" if fallout else "Crisis deferred: %s") % crisis_title
+	var applied := _apply_effects(defer_option.get("effects", {}), player_role, 1.0)
+	world.change_cause = ""
+	var text := "Crisis deferred: %s. It will return escalated." % current_dilemma.get("title", "")
+	if fallout:
+		text = "Crisis broke: %s. Put off twice, it ran its course." % crisis_title
+	elif reason != "":
+		text = "%s; crisis deferred." % reason
+	var extra := _dilemma_extra(DilemmaDeck.DEFER_ID, String(defer_option.get("label", "")), applied, true)
+	extra["fallout"] = fallout
+	_log("DILEMMA", "CRITICAL" if fallout else "WARN", text, player_role, extra)
+	return applied
+
+
+## A crisis title without the "[ESCALATED xN]" prefix.
+static func _plain_title(title: String) -> String:
+	if title.begins_with("[ESCALATED"):
+		return title.substr(title.find("]") + 1).strip_edges()
+	return title
+
+
 ## Structured data for crisis log entries (the newswire and history screens read it).
 func _dilemma_extra(option_id: String, option_label: String, applied: Dictionary, deferred: bool) -> Dictionary:
-	var title := String(current_dilemma.get("title", ""))
 	var escalation := int(current_dilemma.get("escalation", 0))
-	if escalation > 0 and title.begins_with("[ESCALATED"):
-		title = title.substr(title.find("]") + 1).strip_edges()
 	return {
 		"card": String(current_dilemma.get("id", "")),
 		"card_category": String(current_dilemma.get("category", "")),
-		"title": title,
+		"title": _plain_title(String(current_dilemma.get("title", ""))),
 		"card_severity": int(current_dilemma.get("severity", 1)),
 		"escalation": escalation,
 		"option": option_id,
@@ -640,16 +1067,30 @@ func _run_telemetry() -> void:
 		var loss := actor.evaluate_loss(world)
 		if loss.is_empty():
 			continue
-		if faction_id == player_role:
-			player_loss = loss
-			_log("COLLAPSE", "CRITICAL", "PLAYER LOSS: %s" % loss["reason"], faction_id, {"code": String(loss.get("code", "")), "player": true})
-		else:
-			var collapse := actor.on_collapse(loss, world)
-			_apply_effects(collapse.get("effects", {}), "", 1.0)
-			_log("COLLAPSE", "CRITICAL", "%s (%s)" % [collapse.get("headline", loss["reason"]), loss["code"]], faction_id,
-				{"code": String(loss["code"]), "headline": String(collapse.get("headline", ""))})
+		if is_human(faction_id) and not _fast_forwarding:
+			if active_humans().size() <= 1:
+				player_loss = loss
+				_log("COLLAPSE", "CRITICAL", "PLAYER LOSS: %s" % loss["reason"], faction_id, {"code": String(loss.get("code", "")), "player": true})
+				continue
+			# Pass-and-play: this player is out; their faction carries on unattended.
+			eliminated[faction_id] = {"turn": turn, "loss": loss}
+			actor.is_player = false
+			_log("COLLAPSE", "CRITICAL", "PLAYER OUT: %s" % loss["reason"], faction_id,
+				{"code": String(loss.get("code", "")), "player": true, "eliminated": true})
+		var collapse := actor.on_collapse(loss, world)
+		world.change_cause = "Collapse: %s" % actor.display_name
+		_apply_effects(collapse.get("effects", {}), "", 1.0)
+		world.change_cause = ""
+		_log("COLLAPSE", "CRITICAL", "%s (%s)" % [collapse.get("headline", loss["reason"]), loss["code"]], faction_id,
+			{"code": String(loss["code"]), "headline": String(collapse.get("headline", ""))})
+	_restore_primary_role()
+
+	if not _fast_forwarding and turn >= start_turn and player_loss.is_empty():
+		_evaluate_goals()
 
 	var catastrophe := _check_catastrophe()
+	if not catastrophe.is_empty() and _fast_forwarding:
+		catastrophe = _avert_prologue_catastrophe(catastrophe)
 	world.record_history(turn, get_year(), _history_extra())
 	_log_threshold_breaches()
 	var snapshot := get_snapshot()
@@ -664,6 +1105,38 @@ func _run_telemetry() -> void:
 	else:
 		turn_completed.emit(turn, snapshot)
 		_set_phase(Phase.IDLE)
+
+
+## Settles the era goals at the end of the turn and pays the rewards.
+func _evaluate_goals() -> void:
+	for event in goals.evaluate(self):
+		var goal: Dictionary = event["goal"]
+		var role := String(event["role"])
+		var met := String(event["status"]) == EraGoals.MET
+		var applied := {}
+		if met:
+			world.change_cause = "Era goal: %s" % String(goal["text"])
+			applied = _apply_effects(goal.get("reward", {}), role, Difficulty.value(difficulty, "goal_rewards"))
+			world.change_cause = ""
+		_log("GOAL", "INFO" if met else "WARN", "%s goal %s: %s." % [SimConstants.role_title(role), "met" if met else "missed", goal["text"]],
+			role, {"goal": String(goal["id"]), "goal_text": String(goal["text"]), "status": String(event["status"]),
+				"reward_text": String(goal.get("reward_text", "")) if met else "", "era": int(goal["era"]),
+				"deltas": (applied.get("metrics", {}) as Dictionary).duplicate()})
+
+
+## The autopilot years before a late start cannot end the world: the brink is
+## logged and pulled back, so the players inherit a tense world, not a dead one.
+func _avert_prologue_catastrophe(catastrophe: Dictionary) -> Dictionary:
+	world.change_cause = "A near miss"
+	if String(catastrophe.get("code", "")) == "AUTONOMOUS_WORLD_WAR":
+		world.set_value(WorldState.GEOPOLITICAL_TENSION, 88.0)
+	else:
+		world.set_value(WorldState.ALIGNMENT_DRIFT, 88.0)
+		_convergence_streak = 0
+	world.change_cause = ""
+	_log("THRESHOLD", "CRITICAL", "NEAR MISS: %s It was pulled back from the brink." % catastrophe["reason"], "",
+		{"near_miss": String(catastrophe.get("code", ""))})
+	return {}
 
 
 ## Global early-termination thresholds that end the campaign for every role.
@@ -690,24 +1163,39 @@ func _finish(reason: String, player_loss: Dictionary, catastrophe: Dictionary) -
 	if not catastrophe.is_empty():
 		candidates = VictoryMatrix.CATASTROPHE_OUTCOMES.get(catastrophe["code"], [])
 	var outcome := VictoryMatrix.evaluate(values, candidates)
-	var player := get_player()
-	var verdict := VictoryMatrix.role_verdict(player_role, outcome["id"],
-		player.get_objective_score(world, tech), player_loss)
+	_restore_primary_role()
+	if not player_loss.is_empty() and active_humans().size() == 1:
+		player_role = active_humans()[0]
+	var verdicts := {}
+	for role in human_roles:
+		var loss: Dictionary = player_loss if role == player_role and not player_loss.is_empty() \
+			else (eliminated.get(role, {}) as Dictionary).get("loss", {})
+		var actor: ActorBase = factions[role]
+		verdicts[role] = VictoryMatrix.role_verdict(role, outcome["id"], actor.get_objective_score(world, tech), loss,
+			goals.score_bonus(role))
+	var verdict: Dictionary = verdicts.get(player_role, {})
 	result = {
 		"reason": reason,
 		"turn": turn,
 		"year": get_year(),
 		"seed": campaign_seed,
 		"player_role": player_role,
+		"humans": human_roles.duplicate(),
 		"outcome": outcome,
 		"verdict": verdict,
+		"verdicts": verdicts,
 		"player_loss": player_loss,
+		"eliminated": eliminated.duplicate(true),
 		"catastrophe": catastrophe,
 		"final_values": values,
 		"final_indices": world.indices_dict(),
 		"tech": tech.to_dict(),
 		"milestones": _milestones.duplicate(),
 		"history": world.history,
+		"difficulty": difficulty,
+		"scenario": scenario_id,
+		"start_turn": start_turn,
+		"goals": _goal_rows(),
 	}
 	if not catastrophe.is_empty():
 		_log("ENDGAME", "CRITICAL", "CATASTROPHIC THRESHOLD: %s" % catastrophe["reason"], "", {"catastrophe": catastrophe["code"]})
@@ -718,6 +1206,14 @@ func _finish(reason: String, player_loss: Dictionary, catastrophe: Dictionary) -
 			"verdict": verdict["verdict"], "score": verdict["score"]})
 	_set_phase(Phase.ENDED)
 	campaign_ended.emit(result)
+
+
+## Every human's goals: role -> rows (EraGoals.status_for).
+func _goal_rows() -> Dictionary:
+	var rows := {}
+	for role in human_roles:
+		rows[role] = goals.status_for(role)
+	return rows
 
 
 func _log_threshold_breaches() -> void:
@@ -768,6 +1264,13 @@ func get_snapshot() -> Dictionary:
 		"factions": faction_data,
 		"turn_actions": turn_actions.duplicate(true),
 		"history_size": world.history.size(),
+		"human_roles": human_roles.duplicate(),
+		"eliminated": eliminated.duplicate(true),
+		"difficulty": difficulty,
+		"scenario": scenario_id,
+		"start_turn": start_turn,
+		"pledges": pledges.duplicate(true),
+		"goals": _goal_rows(),
 	}
 
 

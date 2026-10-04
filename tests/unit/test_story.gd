@@ -14,18 +14,53 @@ const LONGEST_FILLS := {
 ## Real campaigns, played once for the suite.
 var gov_engine: SimulationEngine
 var gov_result := {}
-var ceo_engine: SimulationEngine
-var ceo_result := {}
+var crash_engine: SimulationEngine
+var crash_result := {}
 var holder: Control
 
 
 func before_all() -> void:
-	gov_engine = SimulationEngine.new()
-	gov_engine.start_campaign(SimConstants.GOVERNANCE, 2076, {"autoplay": true})
-	gov_result = gov_engine.run_headless()
-	ceo_engine = SimulationEngine.new()
-	ceo_engine.start_campaign(SimConstants.CEO, 2076, {"autoplay": true})
-	ceo_result = ceo_engine.run_headless()
+	# A Council campaign that plays out the century and wins, and a campaign that
+	# ends in catastrophe after reaching Era III: the first seeds from 2076 that
+	# produce them, so deck and balance changes keep the stories.
+	var gov := _find_campaign(SimConstants.GOVERNANCE, func(result: Dictionary) -> bool:
+		return result["reason"] == "TURN_LIMIT" and result["verdict"]["verdict"] == "VICTORY")
+	gov_engine = gov[0]
+	gov_result = gov[1]
+	var crash: Array = []
+	for role in [SimConstants.CEO, SimConstants.ASI, SimConstants.CITIZEN, SimConstants.GOVERNANCE]:
+		crash = _find_campaign(role, func(result: Dictionary) -> bool:
+			return result["reason"] == "CATASTROPHE" and int(result["turn"]) >= EraChronicle.era_turns(3).x)
+		if crash[1]["reason"] == "CATASTROPHE":
+			break
+	crash_engine = crash[0]
+	crash_result = crash[1]
+
+
+## [engine, result] for the first seed from 2076 whose autoplayed [param role]
+## campaign satisfies [param wanted] and has a footnoted drift jump.
+func _find_campaign(role: String, wanted: Callable) -> Array:
+	var found: Array = []
+	for seed_value in range(2076, 2136):
+		var engine := SimulationEngine.new()
+		engine.start_campaign(role, seed_value, {"autoplay": true})
+		var result := engine.run_headless()
+		found = [engine, result]
+		if wanted.call(result) and _largest_spike(engine.event_log).get("spike", 0.0) >= 4.0:
+			break
+	return found
+
+
+## The emergence with the campaign's largest drift jump: {name, turn, spike}.
+func _largest_spike(event_log: Array) -> Dictionary:
+	var best := {}
+	for entry in event_log:
+		if entry["category"] != "EMERGENCE":
+			continue
+		var spike := float((entry.get("deltas", {}) as Dictionary).get(WorldState.ALIGNMENT_DRIFT, 0.0))
+		if best.is_empty() or spike > float(best["spike"]) + 0.000001:
+			best = {"name": String(entry.get("name", "")), "turn": int(entry["turn"]), "spike": spike}
+	return best
 
 
 func before_each() -> void:
@@ -206,7 +241,7 @@ func test_statements_stay_plain_text() -> void:
 
 
 func test_real_campaign_headlines_are_short() -> void:
-	for engine in [gov_engine, ceo_engine]:
+	for engine in [gov_engine, crash_engine]:
 		var news := 0
 		for entry in (engine as SimulationEngine).event_log:
 			var h := HeadlineWriter.headline(entry, (engine as SimulationEngine).player_role)
@@ -340,14 +375,15 @@ func test_components_accept_calls_before_joining_the_tree() -> void:
 # --- EraChronicle --------------------------------------------------------------------
 
 func test_campaign_scenarios_hold() -> void:
-	assert_eq(gov_result["reason"], "TURN_LIMIT", "Governance seed 2076 plays out the century")
+	assert_eq(gov_result["reason"], "TURN_LIMIT", "a Council campaign plays out the century (seed %d)" % gov_engine.campaign_seed)
 	assert_eq(gov_result["verdict"]["verdict"], "VICTORY")
-	assert_eq(ceo_result["reason"], "CATASTROPHE", "CEO seed 2076 ends in catastrophe")
-	assert_eq(int(ceo_result["turn"]), 83)
+	assert_eq(crash_result["reason"], "CATASTROPHE", "a campaign ends in catastrophe (%s, seed %d)" % [crash_engine.player_role, crash_engine.campaign_seed])
+	assert_gte(int(crash_result["turn"]), EraChronicle.era_turns(3).x, "after reaching Era III")
+	assert_lt(int(crash_result["turn"]), SimConstants.TOTAL_TURNS)
 
 
 func test_era_summaries_match_history() -> void:
-	for pair in [[gov_engine, gov_result], [ceo_engine, ceo_result]]:
+	for pair in [[gov_engine, gov_result], [crash_engine, crash_result]]:
 		var engine: SimulationEngine = pair[0]
 		var history: Array = engine.world.history
 		for era in [1, 2, 3]:
@@ -371,16 +407,34 @@ func test_era_summaries_match_history() -> void:
 				assert_true(String(text).length() > 0)
 			assert_eq((summary["lines"] as Array).size(), 3, "three lines to chart")
 	var era_one := EraChronicle.summarize_era(gov_engine.event_log, gov_engine.world.history, 1, SimConstants.GOVERNANCE)
-	assert_eq(era_one["title"], "The Decade of Pauses", "named for the Council's coordinated pauses")
-	assert_string_contains(String(era_one["paragraphs"][0]), "the Council answered with a coordinated pause")
+	assert_has(_era_one_themes(gov_engine.event_log, SimConstants.GOVERNANCE), String(era_one["title"]).trim_prefix("The Decade of "),
+		"'%s' is named for something the Council did" % era_one["title"])
+	assert_string_contains(String(era_one["paragraphs"][0]), "the Council")
 	assert_eq(era_one["edition"], {"volume": "I", "number": 20, "year": 2036})
 	assert_eq(era_one["next_line"], "Era II begins: optical interconnects and modular reactors.")
 	assert_eq(EraChronicle.summarize_era(gov_engine.event_log, gov_engine.world.history, 1, SimConstants.GOVERNANCE), era_one,
 		"deterministic")
 
 
+## Every theme the chronicle could name Era I after for [param role]: the
+## crisis answers and directives it chose before 2036.
+func _era_one_themes(event_log: Array, role: String) -> Array:
+	var themes := []
+	for entry in event_log:
+		if int(entry["turn"]) >= EraChronicle.era_turns(2).x or String(entry.get("faction", "")) != role:
+			continue
+		var theme := ""
+		if entry["category"] == "DILEMMA":
+			theme = String(StoryCopy.card_option(String(entry.get("card", "")), String(entry.get("option", "")), role).get("theme", ""))
+		elif entry["category"] == "ACTION":
+			theme = String(StoryCopy.ACTIONS.get("%s/%s" % [role, entry.get("action", "")], {}).get("theme", ""))
+		if theme != "" and not themes.has(theme):
+			themes.append(theme)
+	return themes
+
+
 func test_one_chapter_per_era_reached() -> void:
-	for pair in [[gov_engine, gov_result], [ceo_engine, ceo_result]]:
+	for pair in [[gov_engine, gov_result], [crash_engine, crash_result]]:
 		var engine: SimulationEngine = pair[0]
 		var result: Dictionary = pair[1]
 		var chapters := EraChronicle.chapters(engine.event_log, engine.world.history, result)
@@ -397,8 +451,15 @@ func test_one_chapter_per_era_reached() -> void:
 			footnotes += (chapter["footnotes"] as Array).size()
 		assert_eq(footnotes, 1, "one footnote marks the century's largest drift jump")
 	var gov_chapters := EraChronicle.chapters(gov_engine.event_log, gov_engine.world.history, gov_result)
-	assert_string_contains(String(gov_chapters[2]["paragraphs"][1]), "the century's largest single jump in drift")
-	assert_eq(gov_chapters[2]["footnotes"][0], "Strategic Evaluation Deception, turn 63 of the campaign.")
+	var spike_era := SimConstants.era_for_year(SimConstants.year_for_turn(int(_largest_spike(gov_engine.event_log)["turn"])))
+	assert_string_contains(" ".join(gov_chapters[spike_era - 1]["paragraphs"]), "the century's largest single jump in drift")
+	var spike := _largest_spike(gov_engine.event_log)
+	var footnoted := false
+	for chapter in gov_chapters:
+		for note in chapter["footnotes"]:
+			assert_eq(note, "%s, turn %d of the campaign." % [spike["name"], spike["turn"]])
+			footnoted = true
+	assert_true(footnoted)
 	var short := EraChronicle.chapters([], gov_engine.world.history.slice(0, 30), {"turn": 29})
 	assert_eq(short.size(), 2, "a campaign cut short in Era II has two chapters")
 
@@ -448,7 +509,7 @@ func test_front_page_desktop_has_two_columns() -> void:
 	holder.size = Vector2(1600, 900)
 	var page := FrontPage.new()
 	holder.add_child(page)
-	page.present(EraChronicle.summarize_era(ceo_engine.event_log, ceo_engine.world.history, 2, SimConstants.CEO))
+	page.present(EraChronicle.summarize_era(crash_engine.event_log, crash_engine.world.history, 2, crash_engine.player_role))
 	await wait_frames(3)
 	var bodies := page.find_children("*", "RichTextLabel", true, false)
 	assert_gt(bodies.size(), 1, "the story runs in columns")
@@ -460,10 +521,10 @@ func test_history_book_presents_and_fits_a_phone() -> void:
 	var book := EndgameDebrief.new()
 	holder.add_child(book)
 	book.set_compact(true)
-	book.present(ceo_result, ceo_engine.event_log)
+	book.present(crash_result, crash_engine.event_log)
 	await wait_frames(3)
 	assert_true(book.visible)
-	assert_eq((book._chart.history as Array).size(), ceo_engine.world.history.size(), "appendix chart bound to history")
+	assert_eq((book._chart.history as Array).size(), crash_engine.world.history.size(), "appendix chart bound to history")
 	assert_eq(book._affinity_box.get_child_count(), 8, "eight end-state affinities")
 	assert_eq(book.page_count(), 4, "three chapters and an epilogue")
 	assert_eq(book.current_page(), 2, "opens on the last chapter")
@@ -474,7 +535,7 @@ func test_history_book_presents_and_fits_a_phone() -> void:
 	for label in book.find_children("*", "Label", true, false):
 		texts.append((label as Label).text)
 	assert_has(texts, "CHAPTER I")
-	assert_has(texts, "The Decade of Leaks")
+	assert_has(texts, String(EraChronicle.summarize_era(crash_engine.event_log, crash_engine.world.history, 1, crash_engine.player_role)["title"]))
 	_assert_fits(book, PHONE.x, "history book chapter I")
 	book.show_chapter(3)
 	await wait_frames(2)
@@ -482,7 +543,7 @@ func test_history_book_presents_and_fits_a_phone() -> void:
 	for label in book.find_children("*", "Label", true, false):
 		texts.append((label as Label).text)
 	assert_has(texts, "How It Ended")
-	assert_has(texts, "HOW IT ENDED · DEFEAT")
+	assert_has(texts, "HOW IT ENDED · %s" % crash_result["verdict"]["verdict"])
 	var asked := [false, false]
 	book.new_campaign_requested.connect(func(): asked[0] = true)
 	book.closed.connect(func(): asked[1] = true)

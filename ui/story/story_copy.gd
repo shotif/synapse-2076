@@ -597,6 +597,17 @@ const OUTCOME_HEADS := {
 	"NEO_LUDDITE_DECOUPLING": "The Great Unplugging: humanity bans autonomous reasoning",
 }
 
+## A crisis put off twice that ran its course ({crisis} in sentence case).
+const FALLOUT_HEAD := "Left too long: {crisis}"
+const FALLOUT_HEAD_SHORT := "A crisis put off twice breaks"
+const FALLOUT_DEK := "Nobody acted in time, so it ran its course."
+## The autopilot years before a late start pulled back from a catastrophe.
+const NEAR_MISS_HEAD := "The world steps back from the brink"
+## Era goals: kicker by status; the title is the goal itself.
+const GOAL_KICKERS := {"met": "GOAL MET", "failed": "GOAL MISSED"}
+## A negotiated deal between a player and an autonomous faction.
+const DEAL_HEAD := "{actor} strikes a deal with {partner}"
+
 ## Crises an autonomous faction forces onto the player's desk.
 const INJECTIONS := {
 	"NATIONALIZATION_ORDER": "A state seizure order is headed for your desk",

@@ -109,11 +109,42 @@ func test_deferred_cards_return_escalated() -> void:
 
 func test_escalation_amplifies_defer_penalties() -> void:
 	var deck := DilemmaDeck.new()
-	deck.deferred.append({"id": "GRID_BROWNOUT", "due_turn": 1, "escalation": 2, "origin": "DECK"})
+	deck.deferred.append({"id": "GRID_BROWNOUT", "due_turn": 1, "escalation": 1, "origin": "DECK"})
 	var card := deck.draw(_ctx("GOVERNANCE_COUNCIL", 2030.0), null)
 	var base: Dictionary = DilemmaDeck.get_template("GRID_BROWNOUT")["defer"]["effects"]["metrics"]
 	assert_almost_eq(float(card["defer"]["effects"]["metrics"]["epistemic_trust"]),
-		float(base["epistemic_trust"]) * 2.0, 0.001)
+		float(base["epistemic_trust"]) * 1.5, 0.001)
+	assert_false(card["fallout"], "a card put off once can be put off again")
+
+
+func test_a_crisis_put_off_twice_breaks() -> void:
+	var deck := DilemmaDeck.new()
+	deck.deferred.append({"id": "GRID_BROWNOUT", "due_turn": 1, "escalation": DilemmaDeck.MAX_DEFERRALS, "origin": "DECK"})
+	var card := deck.draw(_ctx("GOVERNANCE_COUNCIL", 2030.0), null)
+	assert_true(card["fallout"])
+	assert_true(card["defer"]["fallout"])
+	assert_eq(card["defer"]["id"], DilemmaDeck.DEFER_ID, "the same swipe lets it break")
+	var base: Dictionary = DilemmaDeck.get_template("GRID_BROWNOUT")["defer"]["effects"]["metrics"]
+	var fallout: Dictionary = card["defer"]["effects"]["metrics"]
+	assert_almost_eq(float(fallout["epistemic_trust"]),
+		float(base["epistemic_trust"]) * DilemmaDeck.FALLOUT_SCALE + float(DilemmaDeck.FALLOUT_EFFECTS["metrics"]["epistemic_trust"]), 0.001)
+	assert_almost_eq(float(fallout["geopolitical_tension"]), float(DilemmaDeck.FALLOUT_EFFECTS["metrics"]["geopolitical_tension"]), 0.001)
+	deck.defer(card, 3, "GOVERNANCE_COUNCIL")
+	assert_true(deck.deferred.is_empty(), "a broken crisis does not come back")
+
+
+func test_deferred_cards_wait_for_their_player() -> void:
+	var deck := DilemmaDeck.new()
+	var ctx := _ctx("CEO", 2030.0)
+	var card := deck.draw(ctx, null)
+	deck.defer(card, 1, "CEO")
+	var other := _ctx("ASI", 2030.0)
+	other["turn"] = 3
+	assert_ne(deck.draw(other, null)["source"], "DEFERRED", "another player's deferral is not yours")
+	ctx["turn"] = 3
+	var returned := deck.draw(ctx, null)
+	assert_eq(returned["source"], "DEFERRED")
+	assert_eq(returned["id"], card["id"])
 
 
 func test_auto_choice_is_valid_and_affordable() -> void:

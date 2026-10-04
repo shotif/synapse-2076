@@ -226,10 +226,12 @@ static func evaluate(values: Dictionary, candidates: Array = []) -> Dictionary:
 
 ## Scores the player's role: outcome value (0-60) + role objectives (0-40).
 ## An instant loss caps the score and forces DEFEAT.
-static func role_verdict(role: String, outcome_id: String, objective_score: float, loss: Dictionary = {}) -> Dictionary:
+## [param goal_bonus] is the score from era goals the player met.
+static func role_verdict(role: String, outcome_id: String, objective_score: float, loss: Dictionary = {},
+		goal_bonus: float = 0.0) -> Dictionary:
 	var outcome_value := float(ROLE_OUTCOME_VALUE.get(role, {}).get(outcome_id, 0.0))
 	var objectives := clampf(objective_score, 0.0, 40.0)
-	var score := outcome_value + objectives
+	var score := outcome_value + objectives + maxf(goal_bonus, 0.0)
 	var verdict := "DEFEAT"
 	if not loss.is_empty():
 		score = minf(score, LOSS_SCORE_CAP)
@@ -243,5 +245,6 @@ static func role_verdict(role: String, outcome_id: String, objective_score: floa
 		"score": score,
 		"outcome_value": outcome_value,
 		"objective_score": objectives,
+		"goal_bonus": maxf(goal_bonus, 0.0),
 		"loss": loss,
 	}

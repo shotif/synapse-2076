@@ -2,19 +2,31 @@ class_name DilemmaDeck
 extends RefCounted
 ## Procedural crisis-card generator for the player phase (PRD section 6, phase 3).
 ##
-## Each turn the player faces one card. Priority: deferred cards that have come
-## due (escalated), then crises injected by autonomous factions, then a weighted
-## draw from templates whose conditions match the current world and that are not
-## already waiting to return. Templates are
-## filled with procedural names and numbers. Every card offers at least two
-## options per role plus a "Defer" option; deferring returns the card two turns
-## later with harsher penalties and pricier fixes.
+## Each turn every human player faces one card. Priority: their deferred cards
+## that have come due (escalated), then follow-ups scheduled by earlier choices,
+## then crises injected by other factions, then a weighted draw from templates
+## whose conditions match the current world and that are not already waiting to
+## return. Templates are filled with procedural names and numbers. Every card
+## offers at least two options per role plus a "Defer" option; deferring returns
+## the card two turns later with harsher penalties and pricier fixes.
+##
+## Conditions a template can set: min / max / any_min (metric or index
+## thresholds), min_year / max_year, min_capability, requires_shift /
+## lacks_shift, requires_flags / lacks_flags (story flags set by earlier
+## choices or the scenario), character_min / character_max ({character id:
+## score}) and once (never drawn twice in a campaign).
 
 signal card_injected(card_id: String, source: String)
 
 const DEFER_ID := "DEFER"
 const DEFER_DELAY_TURNS := 2
 const MAX_ESCALATION := 3
+## A crisis put off this many times cannot be put off again: its defer option
+## becomes the fallout (it resolves on its own, badly) and it does not return.
+const MAX_DEFERRALS := 2
+## Fallout = the defer effects at this scale plus FALLOUT_EFFECTS.
+const FALLOUT_SCALE := 2.5
+const FALLOUT_EFFECTS := {"metrics": {"epistemic_trust": -3.0, "geopolitical_tension": 2.0}}
 const RECENT_WINDOW := 6
 const MAX_INJECTED := 3
 
@@ -393,17 +405,30 @@ var deferred: Array[Dictionary] = []
 var injected: Array[Dictionary] = []
 var recent: Array[String] = []
 var draws := 0
+## Story flags set by choices, scenarios and events (name -> true).
+var flags := {}
+## How each recurring character feels about the players (id -> score).
+var characters := {}
+## Follow-up cards waiting for their turn: [{id, due_turn, role}].
+var scheduled: Array[Dictionary] = []
+## Scenario weight multipliers by card id.
+var weight_multipliers := {}
+## Cards marked "once" that have been drawn.
+var once_seen := {}
 
 
 static func get_template(card_id: String) -> Dictionary:
-	for template in CARDS:
+	for template in all_cards():
 		if template["id"] == card_id:
 			return template
 	return {}
 
 
-## Queues a crisis injected by an autonomous faction for the next draw.
-func inject(card_id: String, source: String) -> bool:
+## Queues a crisis injected by a faction for the next human draw. [param card]
+## is a card id or a family of ids (the one seen least recently is used). The
+## sending faction never draws its own injection.
+func inject(card: Variant, source: String) -> bool:
+	var card_id := _pick_injection(card)
 	if get_template(card_id).is_empty():
 		return false
 	for entry in injected:
@@ -416,50 +441,133 @@ func inject(card_id: String, source: String) -> bool:
 	return true
 
 
+func _pick_injection(card: Variant) -> String:
+	if card is String:
+		return card
+	var family: Array = card if card is Array else []
+	var best := ""
+	var best_age := -1
+	for member in family:
+		var member_id := String(member)
+		if get_template(member_id).is_empty():
+			continue
+		var age := RECENT_WINDOW + 1
+		var index := recent.rfind(member_id)
+		if index >= 0:
+			age = recent.size() - index
+		if age > best_age:
+			best_age = age
+			best = member_id
+	return best
+
+
+func set_flag(flag: String) -> void:
+	flags[flag] = true
+
+
+func clear_flag(flag: String) -> void:
+	flags.erase(flag)
+
+
+func has_flag(flag: String) -> bool:
+	return flags.has(flag)
+
+
+## Changes how a recurring character feels about the players.
+func adjust_character(character_id: String, delta: float) -> void:
+	characters[character_id] = float(characters.get(character_id, 0.0)) + delta
+
+
+func character_score(character_id: String) -> float:
+	return float(characters.get(character_id, 0.0))
+
+
+## Queues [param card_id] for [param role]'s draw on [param due_turn].
+func schedule(card_id: String, due_turn: int, role: String) -> void:
+	for entry in scheduled:
+		if entry["id"] == card_id and entry["role"] == role:
+			return
+	scheduled.append({"id": card_id, "due_turn": due_turn, "role": role})
+
+
 ## Draws the card for this turn. [param ctx] needs: turn, year, role, world,
 ## tech, player (ActorBase). Returns a fully resolved card instance.
 func draw(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	var turn := int(ctx.get("turn", 0))
+	var role := String(ctx.get("role", ""))
 	draws += 1
 	for i in deferred.size():
-		if int(deferred[i]["due_turn"]) <= turn:
-			var entry: Dictionary = deferred[i]
+		var entry: Dictionary = deferred[i]
+		var entry_role := String(entry.get("role", ""))
+		if int(entry["due_turn"]) <= turn and (entry_role == "" or entry_role == role):
 			deferred.remove_at(i)
-			var card := _instantiate(get_template(entry["id"]), ctx, rng, "DEFERRED", int(entry["escalation"]))
+			var template: Dictionary = entry.get("template", get_template(entry["id"]))
+			var card := _instantiate(template, ctx, rng, "DEFERRED", int(entry["escalation"]))
 			card["origin"] = entry.get("origin", "DECK")
 			_remember(card["id"])
 			return card
-	if not injected.is_empty():
-		var entry: Dictionary = injected.pop_front()
+	for i in scheduled.size():
+		var entry: Dictionary = scheduled[i]
+		if int(entry["due_turn"]) <= turn and String(entry["role"]) == role:
+			scheduled.remove_at(i)
+			var template := get_template(entry["id"])
+			if template.is_empty() or not _eligible(template, ctx, true):
+				break
+			var card := _instantiate(template, ctx, rng, "FOLLOW_UP", 0)
+			_remember(card["id"])
+			return card
+	for i in injected.size():
+		var entry: Dictionary = injected[i]
+		if String(entry["source"]) == role:
+			continue
+		injected.remove_at(i)
 		var card := _instantiate(get_template(entry["id"]), ctx, rng, String(entry["source"]), 0)
 		_remember(card["id"])
 		return card
 	var pool: Array[Dictionary] = []
+	var weights: Array[float] = []
 	var total := 0.0
-	for template in CARDS:
-		if template.get("injection_only", false) or _is_deferred(template["id"]) or not _eligible(template, ctx):
+	for template in all_cards():
+		if template.get("injection_only", false) or template.get("follow_up_only", false) \
+				or _is_deferred(template["id"]) or not _eligible(template, ctx):
 			continue
-		var weight := float(template["weight"])
+		var weight := float(template["weight"]) * float(weight_multipliers.get(template["id"], 1.0))
 		if recent.has(template["id"]):
 			weight *= 0.1
 		if weight <= 0.0:
 			continue
 		pool.append(template)
+		weights.append(weight)
 		total += weight
 	if pool.is_empty():
 		pool.append(get_template("FRONTIER_RELEASE_RACE"))
+		weights.append(1.0)
 		total = 1.0
 	var chosen: Dictionary = pool[0]
 	var roll := rng.randf() * total if rng != null else 0.0
-	for template in pool:
-		var weight := float(template["weight"]) * (0.1 if recent.has(template["id"]) else 1.0)
-		roll -= weight
+	for i in pool.size():
+		roll -= weights[i]
 		if roll <= 0.0:
-			chosen = template
+			chosen = pool[i]
 			break
 	var card := _instantiate(chosen, ctx, rng, "DECK", 0)
 	_remember(card["id"])
 	return card
+
+
+## A card written outside the deck (e.g. by Claude), already validated, turned
+## into a playable instance for [param ctx]'s role.
+func adopt(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenerator, source: String) -> Dictionary:
+	draws += 1
+	var card := _instantiate(template, ctx, rng, source, 0)
+	card["template"] = template.duplicate(true)
+	_remember(card["id"])
+	return card
+
+
+## Every template the deck can deal: the core set plus the era decks.
+static func all_cards() -> Array:
+	return CARDS
 
 
 ## A card waiting to return escalated is not drawn fresh in the meantime.
@@ -470,11 +578,17 @@ func _is_deferred(card_id: String) -> bool:
 	return false
 
 
-## Re-queues a deferred card two turns out with one more level of escalation.
-func defer(card: Dictionary, turn: int) -> void:
+## Re-queues a deferred card two turns out with one more level of escalation,
+## for the same player ([param role]).
+func defer(card: Dictionary, turn: int, role: String = "") -> void:
+	if bool(card.get("fallout", false)):
+		return
 	var escalation := mini(int(card.get("escalation", 0)) + 1, MAX_ESCALATION)
 	var origin := String(card.get("origin", card.get("source", "DECK")))
-	deferred.append({"id": card["id"], "due_turn": turn + DEFER_DELAY_TURNS, "escalation": escalation, "origin": origin})
+	var entry := {"id": card["id"], "due_turn": turn + DEFER_DELAY_TURNS, "escalation": escalation, "origin": origin, "role": role}
+	if card.has("template"):
+		entry["template"] = card["template"]
+	deferred.append(entry)
 
 
 static func find_option(card: Dictionary, option_id: String) -> Dictionary:
@@ -536,12 +650,33 @@ static func option_utility(option: Dictionary, role: String, player: ActorBase) 
 	return utility
 
 
-func _eligible(template: Dictionary, ctx: Dictionary) -> bool:
+func _eligible(template: Dictionary, ctx: Dictionary, scheduled_draw: bool = false) -> bool:
 	var conditions: Dictionary = template.get("conditions", {})
 	var world: WorldState = ctx.get("world")
 	var tech: TechTreeManager = ctx.get("tech")
 	var year := float(ctx.get("year", SimConstants.START_YEAR))
+	if template.get("once", false) and once_seen.has(template["id"]):
+		return false
+	for flag in conditions.get("requires_flags", []):
+		if not flags.has(String(flag)):
+			return false
+	for flag in conditions.get("lacks_flags", []):
+		if flags.has(String(flag)):
+			return false
+	var character_min: Dictionary = conditions.get("character_min", {})
+	for character_id in character_min:
+		if character_score(String(character_id)) < float(character_min[character_id]):
+			return false
+	var character_max: Dictionary = conditions.get("character_max", {})
+	for character_id in character_max:
+		if character_score(String(character_id)) > float(character_max[character_id]):
+			return false
+	# Follow-ups keep their story conditions but not the world thresholds.
+	if scheduled_draw:
+		return true
 	if conditions.has("min_year") and year < float(conditions["min_year"]):
+		return false
+	if conditions.has("max_year") and year > float(conditions["max_year"]):
 		return false
 	if world != null:
 		var mins: Dictionary = conditions.get("min", {})
@@ -574,7 +709,9 @@ func _instantiate(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenera
 	var role := String(ctx.get("role", ""))
 	var turn := int(ctx.get("turn", 0))
 	var fills := _placeholder_values(ctx, rng)
-	var cost_factor := 1.0 + 0.25 * float(escalation)
+	var cost_factor := (1.0 + 0.25 * float(escalation)) * float(ctx.get("cost_mult", 1.0))
+	if template.get("once", false):
+		once_seen[template["id"]] = true
 	var options: Array[Dictionary] = []
 	for option in template.get("options", []):
 		var roles: Array = option.get("roles", [])
@@ -582,7 +719,15 @@ func _instantiate(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenera
 			continue
 		options.append(_resolve_option(option, role, cost_factor))
 	var defer_template: Dictionary = template.get("defer", {"label": "Defer", "effects": {}})
+	var fallout := escalation >= MAX_DEFERRALS
 	var defer_effects := EffectResolver.scaled(defer_template.get("effects", {}), 1.0 + 0.5 * float(escalation))
+	var defer_label := String(defer_template.get("label", "Defer"))
+	var defer_detail := "Returns in %d turns, escalated." % DEFER_DELAY_TURNS
+	if fallout:
+		defer_effects = EffectResolver.combined(EffectResolver.scaled(template.get("fallout", defer_template.get("effects", {})), FALLOUT_SCALE),
+			FALLOUT_EFFECTS)
+		defer_label = "Let it break"
+		defer_detail = "Put off twice already: it runs its course, badly, and is gone."
 	var title := _fill(String(template["title"]), fills)
 	if escalation > 0:
 		title = "[ESCALATED x%d] %s" % [escalation, title]
@@ -592,17 +737,20 @@ func _instantiate(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenera
 		"title": title,
 		"body": _fill(String(template["body"]), fills),
 		"category": template.get("category", "CRISIS"),
+		"character": String(template.get("character", "")),
 		"severity": clampi(int(template.get("severity", 1)) + escalation, 1, 3),
 		"escalation": escalation,
+		"fallout": fallout,
 		"source": source,
 		"turn": turn,
 		"options": options,
 		"defer": {
 			"id": DEFER_ID,
-			"label": String(defer_template.get("label", "Defer")),
-			"detail": "Returns in %d turns, escalated." % DEFER_DELAY_TURNS,
+			"label": defer_label,
+			"detail": defer_detail,
 			"cost": {},
 			"effects": defer_effects,
+			"fallout": fallout,
 		},
 	}
 
@@ -678,4 +826,5 @@ static func _rand_int(rng: RandomNumberGenerator, low: int, high: int) -> int:
 
 
 func to_dict() -> Dictionary:
-	return {"deferred": deferred.duplicate(true), "injected": injected.duplicate(true), "recent": recent.duplicate()}
+	return {"deferred": deferred.duplicate(true), "injected": injected.duplicate(true), "recent": recent.duplicate(),
+		"flags": flags.duplicate(), "characters": characters.duplicate(), "scheduled": scheduled.duplicate(true)}
