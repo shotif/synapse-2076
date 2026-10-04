@@ -10,7 +10,10 @@ extends Node
 ##   add_child(audio)
 ##   audio.set_era(1)
 ##   audio.play_sfx("card_appear")
-##   engine.event_logged.connect(func(entry): audio.play_event(entry, engine.player_role))
+##   audio.play_event(entry, engine.player_role)   # in the event_logged handler
+##
+## (A lambda connected to an engine's own signal must not capture that engine
+## in a local variable: the pair would keep each other alive.)
 ##
 ## Engine log entries map to effects through [method event_sfx]. A turn can
 ## log a dozen entries at once, so [method play_event] queues their effects
