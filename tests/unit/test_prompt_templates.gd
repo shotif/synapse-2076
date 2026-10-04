@@ -153,3 +153,67 @@ func test_claude_error_shape_is_reported() -> void:
 	assert_eq(LLMService.describe_http_error(529, JSON.stringify(error)), "HTTP 529: Overloaded [retry]")
 	assert_eq(LLMService.describe_http_error(502, "<html>bad gateway</html>"), "HTTP 502")
 	assert_false(PromptTemplates.parse_completion(JSON.stringify({"type": "message", "content": []}))["ok"], "empty content")
+
+
+func test_completion_text_reads_text_blocks_and_explains_failures() -> void:
+	var claude := {"type": "message", "stop_reason": "end_turn", "content": [
+		{"type": "thinking", "thinking": "hidden", "signature": "x"},
+		{"type": "text", "text": "Hello, "},
+		{"type": "text", "text": "caller."},
+	]}
+	assert_eq(PromptTemplates.parse_completion_text(JSON.stringify(claude)), {"ok": true, "text": "Hello, caller.", "error": ""})
+	var openai := {"choices": [{"message": {"role": "assistant", "content": "Plain prose is fine here."}}]}
+	assert_eq(PromptTemplates.parse_completion_text(JSON.stringify(openai))["text"], "Plain prose is fine here.",
+		"no JSON required: the feature parses the text")
+	var refused := {"type": "message", "stop_reason": "refusal", "content": []}
+	assert_eq(PromptTemplates.parse_completion_text(JSON.stringify(refused))["error"], "the model declined the request")
+	assert_eq(PromptTemplates.parse_completion_text("<html>")["error"], "response body is not JSON")
+	assert_false(PromptTemplates.parse_completion(JSON.stringify(refused))["ok"])
+
+
+func test_normalize_turns_for_generic_completions() -> void:
+	var turns := PromptTemplates.normalize_turns([
+		{"role": "assistant", "content": "too early"},
+		{"role": "user", "content": "  one  "},
+		{"role": "user", "content": [{"type": "text", "text": "two"}]},
+		{"role": "tool", "content": "ignored"},
+		{"role": "assistant", "content": ""},
+		{"role": "assistant", "content": "reply"},
+		"not a turn",
+		{"role": "user", "content": "three"},
+	])
+	assert_eq(turns, [{"role": "user", "content": "one\n\ntwo"}, {"role": "assistant", "content": "reply"},
+		{"role": "user", "content": "three"}])
+	assert_eq(PromptTemplates.normalize_turns([{"role": "user", "content": "hi"}, {"role": "assistant", "content": "prefill"}]), [],
+		"a conversation must end with the user")
+	assert_eq(PromptTemplates.normalize_turns([]), [])
+	var long: Array = []
+	for i in 30:
+		long.append({"role": "user" if i % 2 == 0 else "assistant", "content": str(i)})
+	long.append({"role": "user", "content": "last"})
+	var kept := PromptTemplates.normalize_turns(long)
+	assert_lte(kept.size(), PromptTemplates.MAX_COMPLETION_TURNS)
+	assert_eq(kept[0]["role"], "user", "still starts with the user")
+	assert_eq(kept[-1]["content"], "last", "the newest turns are kept")
+
+
+func test_generic_completion_bodies() -> void:
+	var turns := [{"role": "user", "content": "hi"}]
+	var openai := PromptTemplates.build_completion_body("llama3:8b", "Persona.", turns, true, 0.4, 300)
+	assert_eq(openai["messages"], [{"role": "system", "content": "Persona."}, {"role": "user", "content": "hi"}])
+	assert_eq(openai["response_format"], {"type": "json_object"})
+	var claude := PromptTemplates.build_anthropic_completion_body("claude-test", "Persona.", turns, 2048, "low")
+	assert_eq(claude, {"model": "claude-test", "max_tokens": 2048, "system": "Persona.", "messages": turns,
+		"output_config": {"effort": "low"}})
+	assert_false(PromptTemplates.build_anthropic_completion_body("claude-test", "", turns).has("system"))
+
+
+func test_plain_text_strips_markup_and_spoofing() -> void:
+	assert_eq(PromptTemplates.plain_text("[b]Bold[/b] [url=https://evil.example]click[/url] me", 100), "Bold click me")
+	assert_eq(PromptTemplates.plain_text("[img]x.png[/img]", 100), "x.png")
+	assert_eq(PromptTemplates.plain_text("Brackets [ ] and {braces} go", 100), "Brackets and braces go")
+	var spoof := "Zero" + String.chr(0x200B) + "width " + String.chr(0x202E) + "reversed" + String.chr(0x202C) + " text" \
+		+ String.chr(10) + "here"
+	assert_eq(PromptTemplates.plain_text(spoof, 100), "Zerowidth reversed text here", "zero-width and bidi controls go")
+	assert_eq(PromptTemplates.plain_text("x".repeat(500), 10), "xxxxxxx...")
+	assert_eq(PromptTemplates.plain_text("[ESCALATED x3] Fake", 100), "Fake", "a model cannot fake the escalation tag")

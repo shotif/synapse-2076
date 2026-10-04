@@ -1,7 +1,9 @@
 class_name PromptTemplates
 extends RefCounted
 ## System prompts, role personas, request serialization and strict response
-## validation for LLM-driven factions (PRD section 7.3).
+## validation for LLM-driven factions (PRD section 7.3), plus the pieces of
+## LLMService.request_completion: conversation turns, request bodies for both
+## wire formats, the reply text and plain_text() for model text shown anywhere.
 ##
 ## Everything an LLM returns is untrusted: actions are checked against the
 ## faction catalog and the turn's available actions, expenditures are
@@ -11,6 +13,11 @@ extends RefCounted
 const MAX_RATIONALE := 400
 const MAX_STATEMENT := 280
 const MAX_EXPENDITURE_MULTIPLIER := 2.0
+## Most conversation turns a generic completion sends (the Claude proxy in
+## proxy/ accepts 16 messages per request).
+const MAX_COMPLETION_TURNS := 16
+
+static var _markup: RegEx
 
 ## JSON Schema of the response every faction must return (PRD 7.3).
 const RESPONSE_SCHEMA := {
@@ -25,6 +32,10 @@ const RESPONSE_SCHEMA := {
 		"public_statement": {"type": "string", "maxLength": MAX_STATEMENT},
 	},
 }
+
+## How the four roles are named in prompts.
+const ROLE_NAMES := {"CEO": "Frontier Lab CEO", "GOVERNANCE_COUNCIL": "Global AI Governance Chair",
+	"ASI": "Emergent Superintelligence", "CITIZEN_COALITION": "Post-Work Citizen Coalition"}
 
 const PERSONAS := {
 	"CEO": "You run the leading frontier AI lab. You are ambitious, competitive and commercially ruthless, but you know that a drift catastrophe or nationalization ends your company.",
@@ -118,6 +129,75 @@ static func build_anthropic_body(model: String, faction: String, observation: Di
 	return body
 
 
+## Conversation turns for a generic completion (LLMService.request_completion):
+## keeps {"role": "user" | "assistant", "content": text} entries that carry
+## text, merges consecutive turns of one role, drops assistant turns before the
+## first user turn and keeps the most recent MAX_COMPLETION_TURNS. Returns []
+## unless the conversation ends with the user's turn: current Claude models
+## reject an assistant prefill.
+static func normalize_turns(messages: Array) -> Array:
+	var turns: Array = []
+	for message in messages:
+		if not (message is Dictionary):
+			continue
+		var role := String(message.get("role", ""))
+		if role != "user" and role != "assistant":
+			continue
+		var text := _content_to_text(message.get("content", "")).strip_edges()
+		if text == "" or (turns.is_empty() and role == "assistant"):
+			continue
+		if not turns.is_empty() and String(turns[-1]["role"]) == role:
+			turns[-1]["content"] = String(turns[-1]["content"]) + "\n\n" + text
+		else:
+			turns.append({"role": role, "content": text})
+	if turns.is_empty() or String(turns[-1]["role"]) != "user":
+		return []
+	while turns.size() > MAX_COMPLETION_TURNS:
+		turns.pop_front()
+		while not turns.is_empty() and String(turns[0]["role"]) != "user":
+			turns.pop_front()
+	return turns
+
+
+## OpenAI-compatible chat-completions body for a generic completion: the
+## system prompt as the first message, then [param turns]
+## ([method normalize_turns]).
+static func build_completion_body(model: String, system: String, turns: Array, json_mode: bool = true,
+		temperature: float = 0.4, max_tokens: int = 400) -> Dictionary:
+	var messages: Array = []
+	if system.strip_edges() != "":
+		messages.append({"role": "system", "content": system})
+	messages.append_array(turns.duplicate(true))
+	var body := {
+		"model": model,
+		"messages": messages,
+		"temperature": temperature,
+		"max_tokens": max_tokens,
+		"stream": false,
+	}
+	if json_mode:
+		body["response_format"] = {"type": "json_object"}
+	return body
+
+
+## Claude Messages API body for a generic completion: the system prompt as the
+## top-level field, [param turns] ([method normalize_turns]) as messages, no
+## sampling parameters and output_config.effort only when [param effort] is set
+## (see [method build_anthropic_body]).
+static func build_anthropic_completion_body(model: String, system: String, turns: Array,
+		max_tokens: int = 2048, effort: String = "") -> Dictionary:
+	var body := {
+		"model": model,
+		"max_tokens": max_tokens,
+		"messages": turns.duplicate(true),
+	}
+	if system.strip_edges() != "":
+		body["system"] = system
+	if effort != "":
+		body["output_config"] = {"effort": effort}
+	return body
+
+
 static func compact_observation(faction: String, observation: Dictionary) -> Dictionary:
 	var keys: Array = OBSERVATION_KEYS.duplicate()
 	if faction == SimConstants.ASI:
@@ -133,24 +213,41 @@ static func compact_observation(faction: String, observation: Dictionary) -> Dic
 ## extracts the decision object.
 ## Returns {"ok": bool, "payload": Dictionary, "content": String, "error": String}.
 static func parse_completion(body_text: String) -> Dictionary:
+	var reply := parse_completion_text(body_text)
+	if not reply["ok"]:
+		return _parse_error(String(reply["error"]))
+	var content := String(reply["text"])
+	var payload: Variant = extract_json_object(content)
+	if not (payload is Dictionary):
+		return _parse_error("no JSON object found in completion content")
+	return {"ok": true, "payload": payload, "content": content, "error": ""}
+
+
+## The reply text of an OpenAI-style chat completion or a Claude Messages API
+## response. Claude replies are read by text block (thinking blocks and any
+## other block types are skipped), never by position.
+## Returns {"ok": bool, "text": String, "error": String}.
+static func parse_completion_text(body_text: String) -> Dictionary:
 	var json := JSON.new()
 	if json.parse(body_text) != OK:
-		return _parse_error("response body is not JSON")
+		return _text_error("response body is not JSON")
 	var data: Variant = json.data
 	if not (data is Dictionary):
-		return _parse_error("response body is not an object")
+		return _text_error("response body is not an object")
 	if data.has("error"):
 		var error: Variant = data["error"]
 		var message: String = str(error.get("message", error)) if error is Dictionary else str(error)
-		return _parse_error("provider error: %s" % sanitize_text(message, 200))
+		return _text_error("provider error: %s" % sanitize_text(message, 200))
 	var content := ""
 	if data.get("content") is Array:
 		# Claude Messages API: a list of content blocks; the text blocks hold the answer.
 		content = _content_to_text(data["content"])
+		if content.strip_edges() == "" and str(data.get("stop_reason", "")) == "refusal":
+			return _text_error("the model declined the request")
 	else:
 		var choices: Variant = data.get("choices")
 		if not (choices is Array) or (choices as Array).is_empty():
-			return _parse_error("response has no choices")
+			return _text_error("response has no choices")
 		var first: Variant = choices[0]
 		if first is Dictionary:
 			var message: Variant = first.get("message")
@@ -159,11 +256,8 @@ static func parse_completion(body_text: String) -> Dictionary:
 			elif first.has("text"):
 				content = _content_to_text(first["text"])
 	if content.strip_edges() == "":
-		return _parse_error("completion content is empty")
-	var payload: Variant = extract_json_object(content)
-	if not (payload is Dictionary):
-		return _parse_error("no JSON object found in completion content")
-	return {"ok": true, "payload": payload, "content": content, "error": ""}
+		return _text_error("completion content is empty")
+	return {"ok": true, "text": content, "error": ""}
 
 
 ## Finds the first JSON object in free text (handles code fences and prose).
@@ -270,6 +364,26 @@ static func sanitize_text(value: String, max_length: int) -> String:
 	return out
 
 
+## Untrusted model text made safe for any label: markup tags such as BBCode
+## ([b], [url=...], [img]) are removed with any stray brackets and braces, as
+## are control, zero-width and bidirectional-override characters; whitespace
+## is collapsed and the result truncated (see [method sanitize_text]).
+static func plain_text(value: String, max_length: int) -> String:
+	if _markup == null:
+		_markup = RegEx.create_from_string("\\[/?[A-Za-z_][^\\[\\]]{0,80}\\]")
+	var text := _markup.sub(value, "", true)
+	var parts := PackedStringArray()
+	for i in text.length():
+		var code := text.unicode_at(i)
+		if code == 0x5B or code == 0x5D or code == 0x7B or code == 0x7D:
+			continue
+		if (code >= 0x200B and code <= 0x200F) or (code >= 0x202A and code <= 0x202E) \
+				or (code >= 0x2066 and code <= 0x2069) or code == 0xFEFF:
+			continue
+		parts.append(text[i])
+	return sanitize_text("".join(parts), max_length)
+
+
 static func _content_to_text(content: Variant) -> String:
 	if content is String:
 		return content
@@ -306,3 +420,7 @@ static func _round_values(value: Variant) -> Variant:
 
 static func _parse_error(message: String) -> Dictionary:
 	return {"ok": false, "payload": {}, "content": "", "error": message}
+
+
+static func _text_error(message: String) -> Dictionary:
+	return {"ok": false, "text": "", "error": message}

@@ -13,8 +13,13 @@ extends Node
 ##   "not_found"      404 with a provider error message (unknown model)
 ##   "hang"           accepts the connection and never answers (timeout path)
 ## GET /v1/models answers 200 unless the mode is "unauthorized" or "hang".
+## [member reply_text], when set, replaces the decision as the reply text (the
+## generic completions); [member thinking_block] puts a thinking block before
+## Claude's text block.
 
 var mode := "ok"
+var reply_text := ""
+var thinking_block := false
 var decision := {
 	"faction": "GOVERNANCE_COUNCIL",
 	"turn": 1,
@@ -131,8 +136,11 @@ func _handle(client: Dictionary) -> void:
 	elif mode == "not_found":
 		_respond(client, 404, _error_body(claude, "not_found_error", "model: mock-missing"))
 	elif claude:
+		var blocks: Array = [{"type": "text", "text": _content_for_mode()}]
+		if thinking_block:
+			blocks.push_front({"type": "thinking", "thinking": "{\"say\": \"not this\"}", "signature": "sig"})
 		_respond(client, 200, {"id": "msg_mock", "type": "message", "role": "assistant", "model": "mock-model",
-			"content": [{"type": "text", "text": _content_for_mode()}], "stop_reason": "end_turn"})
+			"content": blocks, "stop_reason": "end_turn"})
 	else:
 		_respond(client, 200, {
 			"id": "chatcmpl-mock",
@@ -150,7 +158,7 @@ func _error_body(claude: bool, error_type: String, message: String) -> Dictionar
 
 
 func _content_for_mode() -> String:
-	var content := JSON.stringify(decision)
+	var content := JSON.stringify(decision) if reply_text == "" else reply_text
 	match mode:
 		"fenced":
 			content = "Certainly. Here is my decision:\n```json\n%s\n```\nGood luck, humans." % JSON.stringify(decision, "  ")
