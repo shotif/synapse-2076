@@ -14,10 +14,17 @@ func before_all() -> void:
 func before_each() -> void:
 	dashboard = DashboardScene.instantiate()
 	tree.root.add_child(dashboard)
+	dashboard.saves.delete()
+	dashboard.endings.reset()
 	await tree.process_frame
 
 
 func after_each() -> void:
+	dashboard.saves.delete()
+	dashboard.endings.reset()
+	GameSettings.instance().set_value("text_scale", 1.0)
+	GameSettings.instance().set_value("coach_done", false)
+	ProjectSettings.set_setting("synapse/onboarding/coach", false)
 	dashboard.queue_free()
 	await tree.process_frame
 
@@ -98,3 +105,112 @@ func test_players_take_turns_with_their_own_lens() -> void:
 	await tree.process_frame
 	assert_eq(engine.turn, 2)
 	assert_eq(dashboard._lens.role, SimConstants.CEO, "the first player opens every turn")
+
+
+func test_the_setup_screen_starts_the_campaign_it_describes() -> void:
+	var setup: RoleSelect = dashboard.get_node("%RoleSelect")
+	setup.select_role(SimConstants.GOVERNANCE)
+	setup.select_mode("decade_2")
+	setup.select_scenario("the_pause")
+	setup.select_difficulty(Difficulty.STORY)
+	setup.set_seat(SimConstants.ASI, true)
+	setup._on_start_pressed()
+	await tree.process_frame
+	var engine: SimulationEngine = dashboard.engine
+	assert_not_null(engine)
+	assert_eq(engine.scenario_id, "the_pause")
+	assert_eq(engine.difficulty, Difficulty.STORY)
+	assert_eq(engine.start_turn, 20)
+	assert_eq(engine.total_turns, 39)
+	assert_eq(engine.human_roles, [SimConstants.GOVERNANCE, SimConstants.ASI] as Array[String])
+	assert_eq(dashboard._meta["mode"], "decade_2")
+	assert_false(setup.visible)
+
+
+func test_autosave_continue_and_the_end_of_a_campaign() -> void:
+	dashboard.start_campaign(SimConstants.CITIZEN, 33, false)
+	await tree.process_frame
+	assert_true(dashboard.saves.has_save(), "saved at the first decision")
+	for _turn in 2:
+		_answer()
+		dashboard._begin_next_turn()
+		await tree.process_frame
+	var engine: SimulationEngine = dashboard.engine
+	dashboard._show_role_select()
+	var setup: RoleSelect = dashboard.get_node("%RoleSelect")
+	assert_true(setup.has_continue(), "the setup screen offers Continue")
+	dashboard._continue_campaign()
+	await tree.process_frame
+	assert_ne(dashboard.engine, engine, "a fresh engine rebuilt from the save")
+	assert_eq(dashboard.engine.turn, engine.turn)
+	assert_eq(dashboard.engine.current_dilemma["id"], engine.current_dilemma["id"])
+	assert_true(dashboard.get_node("%DilemmaDialog").visible)
+	# Play the rest on autopilot to the end.
+	dashboard.engine.autoplay_player = true
+	dashboard.engine.run_headless()
+	await tree.process_frame
+	assert_true(dashboard.engine.is_ended())
+	assert_false(dashboard.saves.has_save(), "an ended campaign cannot be continued")
+	assert_eq(dashboard.endings.progress().x, 1, "its ending joins the collection")
+	assert_true(dashboard.get_node("%EndgameDebrief").visible)
+	dashboard._open_endings()
+	assert_true(dashboard._endings_gallery.visible)
+	dashboard._endings_gallery.close()
+	dashboard._rewind_to(4)
+	await tree.process_frame
+	assert_eq(dashboard.engine.turn, 4, "what if: back at turn 4")
+	assert_true(dashboard.engine.is_awaiting_player())
+	assert_false(dashboard.get_node("%EndgameDebrief").visible)
+
+
+func test_tapping_a_number_explains_it() -> void:
+	dashboard.start_campaign(SimConstants.GOVERNANCE, 5, false)
+	await tree.process_frame
+	_answer()
+	dashboard._begin_next_turn()
+	await tree.process_frame
+	var strip: VitalsStrip = dashboard._vitals_strip
+	strip.metric_pressed.emit(WorldState.EPISTEMIC_TRUST)
+	assert_true(dashboard._why.visible, "the why popup opens")
+	dashboard._why.close()
+	(dashboard._meters[WorldState.ALIGNMENT_DRIFT] as MeterBar).metric_pressed.emit(WorldState.ALIGNMENT_DRIFT)
+	assert_true(dashboard._why.visible)
+
+
+func test_goals_toasts_and_calls() -> void:
+	dashboard.start_campaign(SimConstants.CITIZEN, 14, false)
+	await tree.process_frame
+	assert_gt(dashboard._goals.get_rows().size(), 0, "the ACT column shows this era's goal")
+	assert_true(dashboard._call_button.visible, "a leader can be called during the turn")
+	dashboard._open_call()
+	assert_true(dashboard._negotiation.visible)
+	var negotiator: Negotiator = dashboard._negotiation.get_negotiator()
+	negotiator.send_quick("calm")
+	if not negotiator.offer.is_empty():
+		var applied := negotiator.accept()
+		assert_true(applied["ok"], "the scripted offer goes through: %s" % str(applied.get("errors", [])))
+		var deals: Array = dashboard.engine.event_log.filter(func(e: Dictionary) -> bool: return e["category"] == "DEAL")
+		assert_eq(deals.size(), 1)
+	dashboard._negotiation.hang_up()
+	dashboard.engine.get_player().set_resource("community_resilience", 70.0)
+	_answer()
+	await tree.process_frame
+	assert_true(dashboard._goal_toast.is_showing(), "a met goal gets a banner")
+	assert_false(dashboard._call_button.visible, "no calls between turns")
+
+
+func test_settings_and_the_first_campaign_coach() -> void:
+	var base := dashboard.theme.default_font_size
+	GameSettings.instance().set_value("text_scale", 1.3)
+	await tree.process_frame
+	assert_gt(dashboard.theme.default_font_size, base, "bigger text everywhere")
+	dashboard._open_settings()
+	assert_true(dashboard._settings_dialog.visible)
+	dashboard._settings_dialog.close()
+	ProjectSettings.set_setting("synapse/onboarding/coach", true)
+	GameSettings.instance().set_value("coach_done", false)
+	dashboard.start_campaign(SimConstants.CEO, 2, false)
+	await tree.process_frame
+	assert_true(dashboard._coach.is_running(), "the first campaign is coached")
+	dashboard._coach.skip()
+	assert_true(bool(GameSettings.value("coach_done")))

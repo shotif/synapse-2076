@@ -31,7 +31,6 @@ const TAB_INFO := [
 ]
 ## Earlier tab names, still accepted by show_tab().
 const TAB_ALIASES := {"intel": "lens", "log": "news"}
-const UI_CONFIG_PATH := "user://synapse_ui.cfg"
 const DESKTOP_LEFT_WIDTH := 372.0
 const DESKTOP_RIGHT_WIDTH := 404.0
 const DESKTOP_FOOTER_HEIGHT := 176.0
@@ -81,6 +80,23 @@ var _index_names := {}
 var _menu_layer: Control
 var _menu_panel: PanelContainer
 var _effects_check: CheckBox
+## Autosave (Continue) and the endings collection.
+var saves := SaveManager.new(String(ProjectSettings.get_setting("synapse/storage/save_dir", "user://saves")))
+var endings := EndingsBook.new(String(ProjectSettings.get_setting("synapse/storage/endings_path", "user://endings.cfg")))
+## Optional: Claude writes some of the players' crises (LLM settings).
+var crisis_writer: CrisisWriter
+## How this campaign was started (mode, daily date): kept with saves and shares.
+var _meta := {}
+var _fresh_endings: Array = []
+var _goals: GoalsPanel
+var _goal_toast: GoalToast
+var _why: WhyPopup
+var _settings_dialog: SettingsDialog
+var _negotiation: NegotiationDialog
+var _call_button: Button
+var _endings_gallery: EndingsGallery
+var _share_card: ShareCard
+var _coach: Coach
 
 @onready var _margin: MarginContainer = $Margin
 @onready var _layout: VBoxContainer = $Margin/Layout
@@ -133,6 +149,7 @@ func _ready() -> void:
 	for node in find_children("*Meter", "", true, false):
 		if node is MeterBar:
 			_meters[(node as MeterBar).metric_key] = node
+			(node as MeterBar).metric_pressed.connect(_explain)
 	_build_chrome()
 
 	llm = LLMService.new()
@@ -141,6 +158,7 @@ func _ready() -> void:
 	llm.load_configuration()
 	llm.import_page_url_settings()
 	_badge.bind(llm)
+	crisis_writer = CrisisWriter.new(llm)
 	_badge.settings_requested.connect(_open_llm_settings)
 	llm.llm_status_changed.connect(func(_online: bool, _provider: String): _update_llm_hint())
 
@@ -156,9 +174,15 @@ func _ready() -> void:
 	_directive_panel.execute_requested.connect(_on_execute_requested)
 	_directive_panel.review_crisis_requested.connect(_reopen_crisis)
 	_debrief.new_campaign_requested.connect(_show_role_select)
+	_debrief.rewind_requested.connect(_rewind_to)
+	_debrief.share_requested.connect(_share_ending)
+	_debrief.endings_requested.connect(_open_endings)
 	_settings.closed.connect(func(): _badge.refresh())
-	_role_select.start_requested.connect(start_campaign)
+	_role_select.campaign_requested.connect(_on_campaign_requested)
+	_role_select.continue_requested.connect(_continue_campaign)
+	_role_select.endings_requested.connect(_open_endings)
 	_role_select.llm_settings_requested.connect(_open_llm_settings)
+	GameSettings.instance().changed.connect(_on_game_setting_changed)
 	_globe_button.pressed.connect(func(): show_view("globe"))
 	_lattice_button.pressed.connect(func(): show_view("lattice"))
 	_lens_button.pressed.connect(func(): show_left_view("lens"))
@@ -231,6 +255,11 @@ func resume_campaign(resumed: SimulationEngine) -> void:
 
 ## Stops whatever the previous campaign had running and clears its views.
 func _reset_views(spectate_mode: bool) -> void:
+	_coach.stop()
+	if _negotiation.visible:
+		_negotiation.hang_up()
+	_why.close()
+	_goal_toast.clear()
 	_spectate_timer.stop()
 	_next_turn_timer.stop()
 	_era_upgrade.cancel()
@@ -258,6 +287,7 @@ func _connect_engine() -> void:
 	engine.telemetry_updated.connect(_on_telemetry_updated)
 	engine.turn_completed.connect(_on_turn_completed)
 	engine.campaign_ended.connect(_on_campaign_ended)
+	engine.player_turn_resolved.connect(_on_player_turn_resolved)
 	engine.set_decision_provider(llm)
 
 
@@ -273,6 +303,59 @@ func _show_engine() -> void:
 	_rebuild_lens()
 	show_tab("world" if spectate else "act")
 	_refresh_telemetry(engine.get_snapshot(), true)
+	_update_call_button()
+
+
+## The setup screen asked for a campaign: {role, seed, spectate, options, mode, daily}.
+func _on_campaign_requested(config: Dictionary) -> void:
+	_meta = {"mode": String(config.get("mode", CampaignModes.DEFAULT)), "daily": String(config.get("daily", "")),
+		"spectate": bool(config.get("spectate", false))}
+	start_campaign(String(config["role"]), int(config.get("seed", 2076)), bool(config.get("spectate", false)),
+		config.get("options", {}))
+
+
+## Continue: the autosave rebuilt by replaying its record.
+func _continue_campaign() -> void:
+	var file := saves.load_file()
+	var resumed := saves.resume()
+	if resumed == null:
+		saves.delete()
+		_role_select.set_continue({})
+		return
+	_meta = {"mode": String(file.get("mode", CampaignModes.mode_for(resumed.options))), "daily": String(file.get("daily", "")),
+		"spectate": false}
+	resume_campaign(resumed)
+
+
+## "What if?": back to [param turn]'s decision of the campaign that just ended.
+func _rewind_to(turn: int) -> void:
+	if engine == null:
+		return
+	var rewound := SimulationEngine.from_record(engine.record, turn)
+	if rewound.is_ended():
+		return
+	spectate = false
+	# A rewound daily challenge is no longer the day's challenge.
+	_meta["daily"] = ""
+	_meta["spectate"] = false
+	resume_campaign(rewound)
+
+
+func _open_endings() -> void:
+	_endings_gallery.set_compact(compact)
+	_endings_gallery.open(endings, _fresh_endings)
+
+
+## The ending as a newspaper front page: downloaded on the web, saved
+## elsewhere, and a one-line summary on the clipboard.
+func _share_ending() -> void:
+	if engine == null or engine.result.is_empty():
+		return
+	var image: Image = await _share_card.render(engine.result, _meta)
+	var saved := ShareCard.deliver(image, ShareCard.file_name(engine.result, _meta))
+	DisplayServer.clipboard_set(ShareCard.share_text(engine.result, _meta))
+	if saved != "" and not OS.has_feature("web"):
+		print("Share image saved to %s" % ProjectSettings.globalize_path(saved))
 
 
 ## "globe": the world with its metric layers, chips and news ticker.
@@ -488,6 +571,8 @@ func set_screen_mode(mode: String, landscape: bool = true) -> void:
 	_world_overlay.set_compact(compact)
 	_newswire.set_compact(compact)
 	_newswire.set_horizontal(not compact)
+	for overlay in [_why, _settings_dialog, _coach, _negotiation, _endings_gallery]:
+		overlay.set_compact(compact)
 	if _lens != null:
 		_lens.set_compact(compact)
 	_restyle_chrome()
@@ -554,7 +639,7 @@ func _build_chrome() -> void:
 	_vitals_strip = VitalsStrip.new()
 	_vitals_strip.name = "VitalsStrip"
 	_vitals_strip.set_compact(true)
-	_vitals_strip.metric_pressed.connect(func(_key: String): show_tab("intel"))
+	_vitals_strip.metric_pressed.connect(_explain)
 	_compact_vitals.add_child(_vitals_strip)
 	_build_index_grid()
 
@@ -603,6 +688,59 @@ func _build_chrome() -> void:
 	_era_upgrade.finished.connect(_on_story_finished)
 	add_child(_era_upgrade)
 	_build_menu()
+	_build_feature_layers()
+
+
+## Goals in the ACT column, the faction call button, and the overlays added
+## on top (in input order: the coach last, so it sees taps first).
+func _build_feature_layers() -> void:
+	var act_box := _directive_panel.get_child(0)
+	_goals = GoalsPanel.new()
+	_goals.name = "GoalsPanel"
+	_goals.set_compact(true)
+	act_box.add_child(_goals)
+	act_box.move_child(_goals, 1)
+
+	_call_button = Button.new()
+	_call_button.name = "CallButton"
+	_call_button.theme_type_variation = "GhostButton"
+	_call_button.icon = Glyphs.texture("discuss", 16)
+	_call_button.tooltip_text = "Negotiate a deal with another faction's leader"
+	_call_button.visible = false
+	_call_button.pressed.connect(_open_call)
+	act_box.add_child(_call_button)
+	# Right under the crisis summary, before the directives.
+	var crisis_panel: Control = _directive_panel.get("_crisis_panel")
+	act_box.move_child(_call_button, crisis_panel.get_index() + 1 if crisis_panel != null and crisis_panel.get_parent() == act_box else act_box.get_child_count() - 1)
+	_dilemma.get_vitals().metric_pressed.connect(_explain)
+
+	_goal_toast = GoalToast.new()
+	_goal_toast.name = "GoalToast"
+	add_child(_goal_toast)
+	_why = WhyPopup.new()
+	_why.name = "WhyPopup"
+	add_child(_why)
+	_negotiation = NegotiationDialog.new()
+	_negotiation.name = "NegotiationDialog"
+	_negotiation.z_index = 2
+	_negotiation.deal_accepted.connect(_on_deal_accepted)
+	_negotiation.closed.connect(_update_call_button)
+	add_child(_negotiation)
+	_settings_dialog = SettingsDialog.new()
+	_settings_dialog.name = "SettingsDialog"
+	_settings_dialog.tutorial_requested.connect(_replay_tutorial)
+	add_child(_settings_dialog)
+	_endings_gallery = EndingsGallery.new()
+	_endings_gallery.name = "EndingsGallery"
+	_endings_gallery.z_index = 2
+	add_child(_endings_gallery)
+	_share_card = ShareCard.new()
+	_share_card.name = "ShareCard"
+	add_child(_share_card)
+	_coach = Coach.new()
+	_coach.name = "Coach"
+	_coach.tab_requested.connect(show_tab)
+	add_child(_coach)
 
 
 # --- Menu ---------------------------------------------------------------------------
@@ -626,7 +764,9 @@ func _build_menu() -> void:
 	box.add_theme_constant_override("separation", 4)
 	_menu_panel.add_child(box)
 	box.add_child(_menu_item("New campaign", "home", func(): _show_role_select()))
-	box.add_child(_menu_item("AI settings", "settings", func(): _open_llm_settings()))
+	box.add_child(_menu_item("Settings", "settings", func(): _open_settings()))
+	box.add_child(_menu_item("Endings", "flag", func(): _open_endings()))
+	box.add_child(_menu_item("AI settings", "spark", func(): _open_llm_settings()))
 	if OS.has_feature("web"):
 		box.add_child(_menu_item("Full screen", "layers", func(): _toggle_fullscreen()))
 	box.add_child(HSeparator.new())
@@ -682,16 +822,108 @@ func _apply_effects() -> void:
 
 
 func _load_ui_settings() -> void:
-	var config := ConfigFile.new()
-	if config.load(UI_CONFIG_PATH) == OK:
-		effects_enabled = bool(config.get_value("display", "effects", true))
+	effects_enabled = bool(GameSettings.value("effects"))
 
 
 func _save_ui_settings() -> void:
-	var config := ConfigFile.new()
-	config.load(UI_CONFIG_PATH)
-	config.set_value("display", "effects", effects_enabled)
-	config.save(UI_CONFIG_PATH)
+	GameSettings.instance().set_value("effects", effects_enabled)
+
+
+func _open_settings() -> void:
+	_settings_dialog.set_compact(compact)
+	_settings_dialog.open()
+
+
+## Text size, color-blind colors, plain language and effects take hold at once.
+func _on_game_setting_changed(key: String, value: Variant) -> void:
+	if key in EraTheme.SETTING_KEYS:
+		EraTheme.invalidate()
+		_apply_era(era)
+		EraTheme.rescale_tree(self)
+	elif key == "effects":
+		effects_enabled = bool(value)
+		_apply_effects()
+	elif key == "plain_language" and engine != null:
+		_update_indices(engine.get_snapshot())
+		_goals.refresh(engine)
+
+
+# --- Explanations, goals, the coach and calls ----------------------------------------
+
+## "Why did this change?" for a metric the player tapped.
+func _explain(metric_key: String) -> void:
+	if engine == null or metric_key == "":
+		return
+	_why.set_compact(compact)
+	_why.present(engine, metric_key)
+
+
+func _should_coach() -> bool:
+	return not spectate and engine != null and engine.turn == engine.start_turn and engine.player_role == engine.human_roles[0] \
+		and bool(ProjectSettings.get_setting("synapse/onboarding/coach", true)) and Coach.should_run() and not _coach.is_running()
+
+
+func _coach_targets() -> Dictionary:
+	return {
+		"crisis_card": _dilemma.get_card(),
+		"card_options": _dilemma.get_responses(),
+		"vitals": func() -> Control:
+			if _dilemma.visible:
+				return _dilemma.get_vitals()
+			return _vitals_strip if screen_mode == UiLayout.MODE_PHONE else _lens,
+		"directives": _directive_panel.get_directive_list(),
+		"execute": _directive_panel.get_execute_button(),
+		"newswire": _newswire,
+		"goals": _goals,
+		"menu": _menu_button,
+		"lens_tab": func() -> Control: return _nav.get_button("lens") if compact else _lens_button,
+		"act_tab": _nav.get_button("act"),
+		"world_tab": _nav.get_button("world"),
+		"news_tab": _nav.get_button("news"),
+	}
+
+
+func _replay_tutorial() -> void:
+	Coach.reset_progress()
+	if engine != null and engine.is_awaiting_player() and not spectate:
+		_coach.set_compact(compact)
+		_coach.begin(_coach_targets())
+
+
+## The call button shows while a player can still strike a deal this turn.
+func _update_call_button() -> void:
+	if _call_button == null:
+		return
+	var can_call := engine != null and not spectate and engine.is_awaiting_player() \
+		and not Negotiator.callable_partners(engine).is_empty()
+	_call_button.visible = can_call
+	if can_call:
+		var s := EraStyle.for_era(era)
+		_call_button.text = s.label("Call a faction leader")
+		_call_button.custom_minimum_size = Vector2(0, 44 if compact else 36)
+
+
+func _open_call() -> void:
+	if engine == null or not engine.is_awaiting_player():
+		return
+	_negotiation.set_compact(compact)
+	_negotiation.open_call(engine, llm, "")
+
+
+## A deal changes the player's purse and maybe the world: refresh both.
+func _on_deal_accepted(_applied: Dictionary) -> void:
+	var snapshot := engine.get_snapshot()
+	_refresh_telemetry(snapshot, false)
+	_directive_panel.update_resources(engine.player_role, engine.get_player().resources)
+	if _lens != null:
+		_lens.update_state(snapshot, engine.get_player().resources)
+	_goals.refresh(engine)
+
+
+## After each player's turn: Claude may write that player's next crisis.
+func _on_player_turn_resolved(_turn_result: Dictionary) -> void:
+	if crisis_writer != null and engine != null and not spectate:
+		crisis_writer.prefetch(engine, engine.player_role)
 
 
 ## Flags ACT while a decision is waiting and another tab is showing.
@@ -717,6 +949,7 @@ func _rebuild_lens() -> void:
 			_lens.record_event(entry)
 		engine.event_logged.connect(_lens.record_event)
 		_lens.directive_requested.connect(_on_lens_directive)
+		_lens.metric_pressed.connect(_explain)
 		_lens.update_state(engine.get_snapshot(), engine.get_player().resources)
 		left_view = "lens"
 	_label_lens_switch()
@@ -749,10 +982,16 @@ func _on_lens_directive(action_id: String) -> void:
 # --- Engine signal handlers ---------------------------------------------------------
 
 func _on_event_logged(entry: Dictionary) -> void:
+	# A late start's autopilot years arrive at once; the wire gets the latest of them afterwards.
+	if entry.get("prologue", false):
+		return
 	_world_overlay.show_log_entry(entry)
 	_newswire.add_entry(entry)
-	if String(entry.get("category", "")) == "ERA":
+	var category := String(entry.get("category", ""))
+	if category == "ERA":
 		_begin_era_change(int(entry.get("era", era)))
+	elif category == "GOAL" and engine != null and engine.is_human(String(entry.get("faction", ""))) and not spectate:
+		_goal_toast.show_entry(entry)
 
 
 func _on_phase_changed(phase: int, _turn: int) -> void:
@@ -766,6 +1005,7 @@ func _on_phase_changed(phase: int, _turn: int) -> void:
 	}
 	_set_phase_text(String(names.get(phase, "?")))
 	_update_header()
+	_update_call_button()
 	if compact:
 		_update_tab_buttons()
 
@@ -788,6 +1028,11 @@ func _on_player_input_required(context: Dictionary) -> void:
 		_rebuild_lens()
 		_newswire.player_role = engine.player_role
 		_update_header()
+	if not engine.is_ended():
+		engine.record["meta"] = _meta.duplicate()
+		saves.save(engine, _meta)
+	_goals.refresh(engine)
+	_update_call_button()
 	_pending_option = ""
 	_directive_panel.setup(context)
 	_directive_panel.set_interactive(true)
@@ -807,10 +1052,13 @@ func _present_crisis(context: Dictionary) -> void:
 	if screen_mode != UiLayout.MODE_DESKTOP:
 		show_tab("act")
 	_dilemma.present(context["dilemma"], context["resources"], engine.player_role, engine.world.metrics_dict())
+	if _should_coach():
+		_coach.begin(_coach_targets())
 
 
 func _on_telemetry_updated(snapshot: Dictionary) -> void:
 	_refresh_telemetry(snapshot, true)
+	_goals.refresh(engine)
 	if _lens != null:
 		_lens.update_state(snapshot, engine.get_player().resources)
 
@@ -831,12 +1079,20 @@ func _on_campaign_ended(result: Dictionary) -> void:
 	_deferred_context = {}
 	_directive_panel.set_interactive(false)
 	_dilemma.close()
+	_coach.stop()
+	if _negotiation.visible:
+		_negotiation.hang_up()
+	_update_call_button()
+	# An ended campaign is never continued; its endings join the collection.
+	saves.delete()
+	_fresh_endings = endings.record_result(result, spectate)
 	_debrief.present(result, engine.event_log)
 
 
 # --- Player interaction -------------------------------------------------------------
 
 func _on_dilemma_option_chosen(option_id: String) -> void:
+	_coach.advance_from("crisis_answered")
 	_pending_option = option_id
 	_directive_panel.set_crisis_choice(DilemmaDeck.find_option(engine.current_dilemma, option_id))
 	_directive_panel.show_message("")
@@ -858,6 +1114,7 @@ func _on_execute_requested(directives: Array) -> void:
 	if not response["ok"]:
 		_directive_panel.show_message("\n".join(response["errors"]))
 		return
+	_coach.advance_from("turn_submitted")
 	if engine.is_awaiting_player():
 		# Pass-and-play: the next player's desk is already set up.
 		return
@@ -903,9 +1160,15 @@ func _show_role_select() -> void:
 	_pending_era = 0
 	_debrief.visible = false
 	_dilemma.close()
+	_coach.stop()
+	if _negotiation.visible:
+		_negotiation.hang_up()
 	_update_llm_hint()
 	if era != 1:
 		_apply_era(1)
+	_role_select.set_continue(saves.summary())
+	_role_select.set_endings_progress(endings.progress())
+	_role_select.set_today("")
 	_role_select.visible = true
 
 

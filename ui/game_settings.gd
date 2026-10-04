@@ -40,6 +40,7 @@ var _values := {}
 static func instance() -> GameSettings:
 	if _instance == null:
 		_instance = GameSettings.new()
+		_instance.path = String(ProjectSettings.get_setting("synapse/storage/settings_path", PATH))
 		_instance.load_settings()
 	return _instance
 

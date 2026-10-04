@@ -16,6 +16,12 @@ func _initialize() -> void:
 	# _initialize() runs before the root window joins the tree; wait one frame so
 	# tests that add nodes (HTTPRequest, timers, scenes) get a live SceneTree.
 	await process_frame
+	# Keep the player's own saves, endings and settings out of the test runs,
+	# and keep the tutorial from starting over the dashboard suites.
+	ProjectSettings.set_setting("synapse/storage/save_dir", "user://test_storage/saves")
+	ProjectSettings.set_setting("synapse/storage/endings_path", "user://test_storage/endings.cfg")
+	ProjectSettings.set_setting("synapse/storage/settings_path", "user://test_storage/settings.cfg")
+	ProjectSettings.set_setting("synapse/onboarding/coach", false)
 	var suite_filter := ""
 	var test_filter := ""
 	for arg in OS.get_cmdline_user_args():
