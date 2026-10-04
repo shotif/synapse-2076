@@ -71,7 +71,13 @@ func test_catalog_effects_reference_known_keys() -> void:
 			for key in effects.get("compute", {}):
 				assert_has(COMPUTE_KEYS, key, label + " compute key " + key)
 			if effects.has("inject_dilemma"):
-				assert_false(DilemmaDeck.get_template(effects["inject_dilemma"]).is_empty(), label + " injects a real card")
+				var injection: Variant = effects["inject_dilemma"]
+				var family: Array = injection if injection is Array else [injection]
+				assert_gt(family.size(), 0.0, label + " injects a card")
+				for card_id in family:
+					var template := DilemmaDeck.get_template(String(card_id))
+					assert_false(template.is_empty(), "%s injects a real card (%s)" % [label, card_id])
+					assert_true(bool(template.get("injection_only", false)), "%s injects an injection-only card (%s)" % [label, card_id])
 
 
 func test_weight_distillation_triggers_plus_eight_labor_displacement() -> void:

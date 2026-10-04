@@ -13,8 +13,10 @@ extends RefCounted
 ##   "tech":     {"capability_investment", "safety_investment", "growth_mult",
 ##                "growth_turns", "alignment_tax", "paradigm_progress"}
 ##   "compute":  {"grid_capacity_gw", "grid_damage"}
-##   "inject_dilemma": card id, or a family of ids, queued for the human
-##                players (never the sender)
+##   "inject_dilemma": card id, or a family of related ids, queued for each
+##                human player other than the sender (DilemmaDeck.inject picks
+##                the member each of them saw least recently, skipping members
+##                on cooldown)
 ##   "flags":    {"set": [names], "clear": [names]}  story flags for the deck
 ##   "characters": {character_id: delta}            how a recurring character
 ##                                                   feels about the players
@@ -119,7 +121,7 @@ static func apply(effects: Dictionary, ctx: Dictionary) -> Dictionary:
 	if deck != null and someone_else and bool(ctx.get("allow_injection", true)) \
 			and ((injection is String and injection != "") or (injection is Array and not (injection as Array).is_empty())):
 		var queued_before := deck.injected.size()
-		if deck.inject(injection, actor_id) and deck.injected.size() > queued_before:
+		if deck.inject(injection, actor_id, int(ctx.get("turn", -1)), humans) and deck.injected.size() > queued_before:
 			applied["injected"] = String(deck.injected[-1]["id"])
 
 	if deck != null:

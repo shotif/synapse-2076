@@ -495,7 +495,8 @@ func test_front_page_presents_and_fits_a_phone() -> void:
 	for label in page.find_children("*", "Label", true, false):
 		texts.append((label as Label).text)
 	assert_has(texts, "The Ledger")
-	assert_has(texts, "The Decade of Pauses")
+	assert_true(String(summary["title"]).begins_with("The Decade of "), "Era I is named for the Council: " + String(summary["title"]))
+	assert_has(texts, String(summary["title"]))
 	assert_has(texts, "ALSO IN THIS EDITION")
 	_assert_fits(page, PHONE.x, "front page")
 	var dismissed := [false]

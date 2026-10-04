@@ -44,7 +44,7 @@ const ACTIONS := {
 			"indices": {"surveillance_saturation": 5.0},
 			"compute": {"grid_damage": 0.04},
 			"factions": {"CEO": {"compute_clusters": -0.6, "capital": -15.0}, "GOVERNANCE_COUNCIL": {"political_capital": -10.0, "public_mandate": -4.0}},
-			"inject_dilemma": "SUBSTATION_SABOTAGE",
+			"inject_dilemma": ["SUBSTATION_SABOTAGE", "FIBER_CUT", "CAMPUS_BLOCKADE"],
 		},
 		"statement": "The substations go dark until the displaced are made whole.",
 	},

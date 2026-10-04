@@ -1,9 +1,10 @@
 class_name CardLibrary
 extends RefCounted
-## Every crisis template the deck can deal: the core set (DilemmaDeck.CARDS)
-## and the era decks in systems/cards/. Era cards carry their own story copy
-## ("copy", in the StoryCopy.CARDS schema), swipe hints ("swipe_hints": [left,
-## right]) and, for injection-only cards, the newswire line that announces them
+## Every crisis template the deck can deal: the core set (DilemmaDeck.CARDS),
+## the era decks in systems/cards/ and the injection families
+## (InjectionCards). Era cards carry their own story copy ("copy", in the
+## StoryCopy.CARDS schema), swipe hints ("swipe_hints": [left, right]) and, for
+## injection-only cards, the newswire line that announces them
 ## ("injection_head"). Each era file also lists MEMORIES: what a recurring
 ## character remembers about the players (see Characters).
 
@@ -13,7 +14,7 @@ static var _by_id := {}
 
 static func all_cards() -> Array:
 	if _all.is_empty():
-		_all = DilemmaDeck.CARDS + Era1Cards.CARDS + Era2Cards.CARDS + Era3Cards.CARDS
+		_all = DilemmaDeck.CARDS + Era1Cards.CARDS + Era2Cards.CARDS + Era3Cards.CARDS + InjectionCards.CARDS
 		_by_id = {}
 		for template in _all:
 			_by_id[String(template["id"])] = template
