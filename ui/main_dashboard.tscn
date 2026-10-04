@@ -50,10 +50,12 @@ theme_override_constants/separation = 8
 layout_mode = 2
 
 [node name="HeaderRow" type="HBoxContainer" parent="Margin/Layout/Header"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 24
 
 [node name="Title" type="Label" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"HeaderTitle"
 text = "[SYNAPSE-2076]"
@@ -104,59 +106,70 @@ unique_name_in_owner = true
 layout_mode = 2
 
 [node name="Body" type="HBoxContainer" parent="Margin/Layout"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
 [node name="TelemetryPanel" type="PanelContainer" parent="Margin/Layout/Body"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(350, 0)
 layout_mode = 2
 
-[node name="TelemetryBox" type="VBoxContainer" parent="Margin/Layout/Body/TelemetryPanel"]
+[node name="TelemetryScroll" type="ScrollContainer" parent="Margin/Layout/Body/TelemetryPanel"]
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="TelemetryBox" type="VBoxContainer" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
 theme_override_constants/separation = 4
 
-[node name="TelemetryTitle" type="Label" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox"]
+[node name="TelemetryTitle" type="Label" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox"]
 layout_mode = 2
 theme_type_variation = &"PanelTitle"
 text = "TELEMETRY METERS"
 
-[node name="ComputeMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+[node name="ComputeMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
 layout_mode = 2
 metric_key = "compute_energy_sat"
 
-[node name="LaborMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+[node name="LaborMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
 layout_mode = 2
 metric_key = "labor_displacement"
 
-[node name="GeopoliticsMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+[node name="GeopoliticsMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
 layout_mode = 2
 metric_key = "geopolitical_tension"
 
-[node name="AutonomyMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+[node name="AutonomyMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
 layout_mode = 2
 metric_key = "algorithmic_autonomy"
 
-[node name="DriftMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+[node name="DriftMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
 layout_mode = 2
 metric_key = "alignment_drift"
 
-[node name="TrustMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+[node name="TrustMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
 layout_mode = 2
 metric_key = "epistemic_trust"
 
-[node name="Separator" type="HSeparator" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox"]
+[node name="Separator" type="HSeparator" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox"]
 layout_mode = 2
 
-[node name="IndicesLabel" type="RichTextLabel" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox"]
+[node name="IndicesLabel" type="RichTextLabel" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
+mouse_filter = 1
 theme_override_font_sizes/normal_font_size = 12
 bbcode_enabled = true
+fit_content = true
 scroll_active = false
 
 [node name="CenterPanel" type="PanelContainer" parent="Margin/Layout/Body"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
@@ -172,6 +185,8 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"PanelTitle"
 text = "3D HOLOGRAPHIC VIEWPORT"
+clip_text = true
+text_overrun_behavior = 3
 
 [node name="GlobeButton" type="Button" parent="Margin/Layout/Body/CenterPanel/CenterBox/ViewportHeader"]
 unique_name_in_owner = true
@@ -227,6 +242,7 @@ unique_name_in_owner = true
 layout_mode = 2
 
 [node name="Footer" type="PanelContainer" parent="Margin/Layout"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 168)
 layout_mode = 2
 
@@ -242,13 +258,21 @@ bbcode_enabled = true
 fit_content = true
 scroll_active = false
 
-[node name="EventFeed" type="RichTextLabel" parent="Margin/Layout/Footer/FooterBox"]
+[node name="FeedScroll" type="ScrollContainer" parent="Margin/Layout/Footer/FooterBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="EventFeed" type="RichTextLabel" parent="Margin/Layout/Footer/FooterBox/FeedScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 1
 theme_override_font_sizes/normal_font_size = 12
 bbcode_enabled = true
-scroll_following = true
+fit_content = true
+scroll_active = false
 selection_enabled = true
 
 [node name="DilemmaDialog" parent="." instance=ExtResource("5_dilemma")]

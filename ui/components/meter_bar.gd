@@ -2,11 +2,19 @@ class_name MeterBar
 extends Control
 ## Vector trend bar for one macro metric: label, value readout, delta arrow,
 ## threshold ticks, banded fill (cyan / amber / crimson) and a sparkline of the
-## recent trajectory (PRD section 8.2, telemetry meters).
+## recent trajectory (PRD section 8.2, telemetry meters). The compact variant
+## (phone vitals strip) keeps the label, readout and banded bar only.
+
+## One-word labels for the compact variant.
+const COMPACT_LABELS := {
+	"compute_energy_sat": "COMPUTE", "labor_displacement": "LABOR", "geopolitical_tension": "TENSION",
+	"algorithmic_autonomy": "AUTONOMY", "alignment_drift": "DRIFT", "epistemic_trust": "TRUST",
+}
 
 @export var metric_key := ""
 @export var label_text := "METRIC"
 @export_range(0.0, 100.0) var value := 0.0
+@export var compact := false
 
 var history := PackedFloat32Array()
 var band := 0
@@ -22,11 +30,11 @@ const HISTORY_LENGTH := 32
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(240, 54)
+	custom_minimum_size = Vector2(92, 34) if compact else Vector2(240, 54)
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	_display_value = value
 	if metric_key != "" and WorldState.METRIC_INFO.has(metric_key):
-		label_text = WorldState.METRIC_INFO[metric_key]["short"]
+		label_text = COMPACT_LABELS.get(metric_key, "") if compact else WorldState.METRIC_INFO[metric_key]["short"]
 
 
 ## Sets the new value; tracks history, band and change since the last update.
@@ -66,6 +74,9 @@ func _process(delta_time: float) -> void:
 
 
 func _draw() -> void:
+	if compact:
+		_draw_compact()
+		return
 	var font := CyberPalette.MONO_FONT
 	var bold := CyberPalette.MONO_BOLD
 	var w := size.x
@@ -107,18 +118,38 @@ func _draw() -> void:
 		draw_circle(points[-1], 2.0, color)
 
 
-func _draw_threshold_marks(w: float) -> void:
+## Vitals-strip variant: label and readout on one line, a slim banded bar below.
+func _draw_compact() -> void:
+	var w := size.x
+	var color := CyberPalette.band_color(band)
+	draw_rect(Rect2(Vector2.ZERO, size), Color(CyberPalette.PANEL_RAISED, 0.6))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(color, 0.18 + 0.5 * _flash), false, 1.0)
+	draw_string(CyberPalette.MONO_FONT, Vector2(5, 14), label_text, HORIZONTAL_ALIGNMENT_LEFT, w - 10, 10, CyberPalette.TEXT_DIM)
+	var readout := "%d" % int(round(_display_value))
+	if absf(delta) >= 0.05:
+		readout = ("▲" if delta > 0.0 else "▼") + readout
+	draw_string(CyberPalette.MONO_BOLD, Vector2(5, 14), readout, HORIZONTAL_ALIGNMENT_RIGHT, w - 10, 12, color)
+	var bar := Rect2(5, 21, w - 10, 7)
+	draw_rect(bar, CyberPalette.BG)
+	var fill_w := bar.size.x * _display_value / 100.0
+	if fill_w > 0.5:
+		draw_rect(Rect2(bar.position, Vector2(fill_w, bar.size.y)), Color(color, 0.55))
+		draw_rect(Rect2(bar.position.x + fill_w - 1.5, bar.position.y - 1, 1.5, bar.size.y + 2), color)
+	_draw_threshold_marks(bar.size.x, bar.position.x, bar.position.y, bar.size.y)
+
+
+func _draw_threshold_marks(w: float, x0: float = 0.0, top: float = BAR_TOP, height: float = BAR_HEIGHT) -> void:
 	if not WorldState.METRIC_INFO.has(metric_key):
 		return
 	var info: Dictionary = WorldState.METRIC_INFO[metric_key]
 	for key in ["warn_high", "warn_low"]:
 		if info[key] != null:
-			var x := w * float(info[key]) / 100.0
-			draw_line(Vector2(x, BAR_TOP - 3), Vector2(x, BAR_TOP + BAR_HEIGHT + 3), Color(CyberPalette.AMBER, 0.7), 1.0)
+			var x := x0 + w * float(info[key]) / 100.0
+			draw_line(Vector2(x, top - 3), Vector2(x, top + height + 3), Color(CyberPalette.AMBER, 0.7), 1.0)
 	for key in ["crit_high", "crit_low"]:
 		if info[key] != null:
-			var x := w * float(info[key]) / 100.0
-			draw_line(Vector2(x, BAR_TOP - 3), Vector2(x, BAR_TOP + BAR_HEIGHT + 3), Color(CyberPalette.CRIMSON, 0.8), 1.0)
+			var x := x0 + w * float(info[key]) / 100.0
+			draw_line(Vector2(x, top - 3), Vector2(x, top + height + 3), Color(CyberPalette.CRIMSON, 0.8), 1.0)
 
 
 func _refresh_tooltip() -> void:

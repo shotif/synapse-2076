@@ -29,8 +29,28 @@ func set_history(entries: Array, keys: Array = WorldState.METRIC_KEYS) -> void:
 
 
 func _plot_rect() -> Rect2:
-	return Rect2(MARGIN_LEFT, MARGIN_TOP, maxf(10.0, size.x - MARGIN_LEFT - MARGIN_RIGHT),
-		maxf(10.0, size.y - MARGIN_TOP - MARGIN_BOTTOM))
+	var items := _legend_items()
+	var legend_bottom: float = (items[-1]["pos"] as Vector2).y if not items.is_empty() else 24.0
+	var top := maxf(MARGIN_TOP, legend_bottom + 16.0)
+	return Rect2(MARGIN_LEFT, top, maxf(10.0, size.x - MARGIN_LEFT - MARGIN_RIGHT),
+		maxf(10.0, size.y - top - MARGIN_BOTTOM))
+
+
+## Legend entries laid out left to right, wrapping onto extra rows when narrow.
+func _legend_items() -> Array:
+	var font := CyberPalette.MONO_FONT
+	var items := []
+	var x := 8.0
+	var y := 24.0
+	for key in series_keys:
+		var series_name := UiFormat.metric_short(key)
+		var width := 22.0 + font.get_string_size(series_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+		if x > 8.0 and x + width > size.x - 4.0:
+			x = 8.0
+			y += 13.0
+		items.append({"key": key, "name": series_name, "pos": Vector2(x, y)})
+		x += width
+	return items
 
 
 func _gui_input(event: InputEvent) -> void:
@@ -56,13 +76,11 @@ func _draw() -> void:
 	draw_string(CyberPalette.SANS_BOLD, Vector2(8, 16), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, CyberPalette.CYAN)
 
 	# Legend.
-	var x := 8.0
-	for key in series_keys:
-		var color: Color = CyberPalette.METRIC_COLORS.get(key, CyberPalette.TEXT)
-		var series_name := UiFormat.metric_short(key)
-		draw_rect(Rect2(x, 24, 10, 3), color)
-		draw_string(font, Vector2(x + 14, 30), series_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, CyberPalette.TEXT_DIM)
-		x += 22.0 + font.get_string_size(series_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+	for item in _legend_items():
+		var color: Color = CyberPalette.METRIC_COLORS.get(item["key"], CyberPalette.TEXT)
+		var pos: Vector2 = item["pos"]
+		draw_rect(Rect2(pos.x, pos.y, 10, 3), color)
+		draw_string(font, Vector2(pos.x + 14, pos.y + 6), item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, CyberPalette.TEXT_DIM)
 
 	# Era bands (2036 and 2050 boundaries).
 	var span_years := SimConstants.YEARS_PER_TURN * float(SimConstants.TOTAL_TURNS)

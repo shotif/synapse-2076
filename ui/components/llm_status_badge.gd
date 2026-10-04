@@ -3,7 +3,8 @@ extends PanelContainer
 ## Header connectivity indicator (PRD section 7.2):
 ##   ● [LLM ONLINE: <MODEL> / <PROVIDER>]                 muted cyan  #00E5FF
 ##   ▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]  alert amber #FFB300
-## Click to open the LLM settings dialog.
+## Click to open the LLM settings dialog. The compact variant (phone header)
+## shortens the text to "● LLM ON" / "▲ LLM OFF".
 
 signal settings_requested
 
@@ -16,6 +17,8 @@ var _style: StyleBoxFlat
 var _pulse := 0.0
 var _online := false
 var _probing := false
+var _compact := false
+var _provider := ""
 
 
 func _ready() -> void:
@@ -56,16 +59,27 @@ func refresh() -> void:
 
 func set_status(online: bool, provider_name: String) -> void:
 	_online = online
+	_provider = provider_name
 	var text := ""
 	if online:
-		text = "● [LLM ONLINE: %s]" % provider_name
+		text = "● LLM ON" if _compact else "● [LLM ONLINE: %s]" % provider_name
 	elif _probing:
-		text = "◌ [LLM PROBING: %s]" % provider_name
+		text = "◌ LLM" if _compact else "◌ [LLM PROBING: %s]" % provider_name
 	else:
-		text = "▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]"
+		text = "▲ LLM OFF" if _compact else "▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]"
 	if _label != null:
 		_label.text = text
 	_apply_colors(1.0)
+
+
+func set_compact(compact: bool) -> void:
+	_compact = compact
+	if _label != null:
+		_label.add_theme_font_size_override("font_size", 12 if compact else 13)
+	if _style != null:
+		_style.content_margin_left = 8 if compact else 10
+		_style.content_margin_right = 8 if compact else 10
+	set_status(_online, _provider)
 
 
 func get_text() -> String:

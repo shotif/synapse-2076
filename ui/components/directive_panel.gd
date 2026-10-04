@@ -6,7 +6,8 @@ extends PanelContainer
 ## role's directive catalog. Each selected directive has an intensity slider
 ## (1.0x-2.0x of its base cost, with diminishing returns on effect). The
 ## Execute button stays locked until the crisis card is resolved and the
-## combined spend is affordable.
+## combined spend is affordable. The compact variant (phone ACT tab) puts the
+## currencies in two columns and enlarges every touch target.
 
 signal execute_requested(directives: Array)
 signal review_crisis_requested
@@ -20,8 +21,11 @@ var _rows := {}
 var _crisis_option_id := ""
 var _crisis_cost := {}
 var _interactive := false
+var _compact := false
 
-var _resource_box: VBoxContainer
+var _title: Label
+var _directives_title: Label
+var _resource_box: GridContainer
 var _crisis_label: RichTextLabel
 var _review_button: Button
 var _list: VBoxContainer
@@ -35,13 +39,15 @@ func _ready() -> void:
 	root.add_theme_constant_override("separation", 8)
 	add_child(root)
 
-	var title := Label.new()
-	title.theme_type_variation = "PanelTitle"
-	title.text = "ACTION / DIRECTIVE CONTROL PANEL"
-	root.add_child(title)
+	_title = Label.new()
+	_title.theme_type_variation = "PanelTitle"
+	_title.text = "ACTION / DIRECTIVE CONTROL PANEL"
+	root.add_child(_title)
 
-	_resource_box = VBoxContainer.new()
-	_resource_box.add_theme_constant_override("separation", 3)
+	_resource_box = GridContainer.new()
+	_resource_box.columns = 1
+	_resource_box.add_theme_constant_override("h_separation", 14)
+	_resource_box.add_theme_constant_override("v_separation", 3)
 	root.add_child(_resource_box)
 	root.add_child(HSeparator.new())
 
@@ -59,12 +65,13 @@ func _ready() -> void:
 	crisis_row.add_child(_review_button)
 	root.add_child(crisis_row)
 
-	var directives_title := Label.new()
-	directives_title.theme_type_variation = "DimLabel"
-	directives_title.text = "DIRECTIVES (select up to %d, drag to set intensity)" % max_directives
-	root.add_child(directives_title)
+	_directives_title = Label.new()
+	_directives_title.theme_type_variation = "DimLabel"
+	_directives_title.text = "DIRECTIVES (select up to %d, drag to set intensity)" % max_directives
+	root.add_child(_directives_title)
 
 	var scroll := ScrollContainer.new()
+	scroll.name = "DirectiveScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	root.add_child(scroll)
@@ -112,9 +119,30 @@ func set_interactive(enabled: bool) -> void:
 	_update_state()
 
 
+func set_compact(compact: bool) -> void:
+	if _compact == compact and _title != null:
+		return
+	_compact = compact
+	if _title == null:
+		return
+	_resource_box.columns = 2 if compact else 1
+	_directives_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if compact else TextServer.AUTOWRAP_OFF
+	_execute_button.custom_minimum_size = Vector2(0, 46 if compact else 40)
+	_review_button.custom_minimum_size = Vector2(76, 40) if compact else Vector2.ZERO
+	_update_title()
+	_rebuild_resources()
+	if not _actions.is_empty():
+		var selected := get_selected_directives()
+		_rebuild_directives()
+		for entry in selected:
+			select_directive(String(entry["action"]), float(entry["intensity"]))
+	_update_state()
+
+
 func update_resources(role: String, resources: Dictionary) -> void:
 	_role = role
 	_resources = resources.duplicate()
+	_update_title()
 	_rebuild_resources()
 	_update_state()
 
@@ -175,32 +203,49 @@ func is_execute_enabled() -> bool:
 	return not _execute_button.disabled
 
 
+func _update_title() -> void:
+	if _title == null:
+		return
+	if _compact and SimConstants.ROLE_INFO.has(_role):
+		_title.text = "DIRECTIVES // %s" % String(SimConstants.ROLE_INFO[_role]["header"])
+	else:
+		_title.text = "ACTION / DIRECTIVE CONTROL PANEL"
+
+
 func _rebuild_resources() -> void:
 	for child in _resource_box.get_children():
+		_resource_box.remove_child(child)
 		child.queue_free()
 	var info := FactionRegistry.resource_info_for(_role)
 	for key in info:
+		var cell := VBoxContainer.new()
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cell.add_theme_constant_override("separation", 3)
 		var row := HBoxContainer.new()
 		var name_label := Label.new()
 		name_label.text = String(info[key]["label"]) + ":"
 		name_label.theme_type_variation = "DimLabel"
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		name_label.clip_text = true
 		row.add_child(name_label)
 		var value_label := Label.new()
 		value_label.theme_type_variation = "ValueLabel"
 		value_label.text = UiFormat.format_resource(_role, key, float(_resources.get(key, 0.0)))
 		row.add_child(value_label)
-		_resource_box.add_child(row)
+		cell.add_child(row)
 		var bar := ProgressBar.new()
 		bar.show_percentage = false
 		bar.custom_minimum_size = Vector2(0, 4)
 		bar.max_value = float(info[key].get("scale", 100.0))
 		bar.value = float(_resources.get(key, 0.0))
-		_resource_box.add_child(bar)
+		cell.add_child(bar)
+		_resource_box.add_child(cell)
 
 
 func _rebuild_directives() -> void:
 	for child in _list.get_children():
+		_list.remove_child(child)
 		child.queue_free()
 	_rows = {}
 	for action in _actions:
@@ -211,11 +256,16 @@ func _rebuild_directives() -> void:
 		box.add_theme_constant_override("separation", 2)
 		card.add_child(box)
 
-		var header := HBoxContainer.new()
+		# Name and cost side by side on desktop; stacked on phones.
+		var header := BoxContainer.new()
+		header.vertical = _compact
 		var check := CheckBox.new()
 		check.text = String(action["name"])
 		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		check.add_theme_font_size_override("font_size", 13)
+		if _compact:
+			check.custom_minimum_size = Vector2(0, 34)
+			check.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		header.add_child(check)
 		var cost_label := Label.new()
 		cost_label.theme_type_variation = "DimLabel"
@@ -227,7 +277,7 @@ func _rebuild_directives() -> void:
 		description.theme_type_variation = "DimLabel"
 		description.text = String(action["description"])
 		description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		description.add_theme_font_size_override("font_size", 11)
+		description.add_theme_font_size_override("font_size", 12 if _compact else 11)
 		box.add_child(description)
 
 		var slider_row := HBoxContainer.new()
@@ -237,6 +287,10 @@ func _rebuild_directives() -> void:
 		slider.step = 0.1
 		slider.value = 1.0
 		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if _compact:
+			slider.custom_minimum_size = Vector2(0, 32)
+			slider.add_theme_icon_override("grabber", CyberTheme.disc_texture(22, CyberPalette.CYAN))
+			slider.add_theme_icon_override("grabber_highlight", CyberTheme.disc_texture(24, Color.WHITE))
 		slider_row.add_child(slider)
 		var intensity_label := Label.new()
 		intensity_label.text = "x1.0"
@@ -262,6 +316,7 @@ func _rebuild_directives() -> void:
 		_rows[action_id] = {"check": check, "slider": slider, "cost_label": cost_label,
 			"blocked": blocked, "max_intensity": float(action.get("max_intensity", 1.0))}
 		_list.add_child(card)
+	UiLayout.pass_touch_through(_list)
 
 
 func _projected_cost() -> Dictionary:

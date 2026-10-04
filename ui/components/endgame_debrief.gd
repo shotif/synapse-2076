@@ -2,11 +2,20 @@ class_name EndgameDebrief
 extends Control
 ## Endgame debrief (PRD milestone 6): the civilizational end-state, the role
 ## verdict, historical trajectory line charts and the affinity of the world to
-## each of the eight end-states.
+## each of the eight end-states. On phones everything stacks in one scrolling
+## column.
 
 signal new_campaign_requested
 signal closed
 
+const DESCRIPTION_WIDTH := 1180.0
+
+var _compact := false
+var _frame: MarginContainer
+var _panel: PanelContainer
+var _columns: BoxContainer
+var _right: VBoxContainer
+var _buttons: BoxContainer
 var _accent_style: StyleBoxFlat
 var _kicker: RichTextLabel
 var _title: Label
@@ -18,25 +27,17 @@ var _stats: RichTextLabel
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	var shade := ColorRect.new()
-	shade.color = Color(0.02, 0.03, 0.05, 0.86)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(shade)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-	var panel := PanelContainer.new()
+	_frame = UiLayout.build_overlay(self, Color(0.02, 0.03, 0.05, 0.86))
+	_panel = PanelContainer.new()
 	_accent_style = CyberTheme.box(CyberPalette.BG, CyberPalette.CYAN, 2, 6, 20)
 	_accent_style.shadow_color = Color(0, 0, 0, 0.7)
 	_accent_style.shadow_size = 24
-	panel.add_theme_stylebox_override("panel", _accent_style)
-	center.add_child(panel)
+	_panel.add_theme_stylebox_override("panel", _accent_style)
+	_frame.add_child(_panel)
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
-	panel.add_child(box)
+	_panel.add_child(box)
 	_kicker = _rich(13)
 	box.add_child(_kicker)
 	_title = Label.new()
@@ -45,32 +46,34 @@ func _ready() -> void:
 	box.add_child(_title)
 	_description = Label.new()
 	_description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_description.custom_minimum_size = Vector2(1180, 0)
+	_description.custom_minimum_size = Vector2(DESCRIPTION_WIDTH, 0)
 	box.add_child(_description)
 	_verdict = _rich(15)
 	box.add_child(_verdict)
 
-	var columns := HBoxContainer.new()
-	columns.add_theme_constant_override("separation", 14)
-	box.add_child(columns)
+	# Chart and matrix side by side on desktop; stacked on phones.
+	_columns = BoxContainer.new()
+	_columns.add_theme_constant_override("separation", 14)
+	box.add_child(_columns)
 	_chart = TrajectoryChart.new()
 	_chart.custom_minimum_size = Vector2(760, 320)
-	columns.add_child(_chart)
-	var right := VBoxContainer.new()
-	right.custom_minimum_size = Vector2(400, 0)
-	right.add_theme_constant_override("separation", 4)
-	columns.add_child(right)
+	_columns.add_child(_chart)
+	_right = VBoxContainer.new()
+	_right.custom_minimum_size = Vector2(400, 0)
+	_right.add_theme_constant_override("separation", 4)
+	_columns.add_child(_right)
 	var affinity_title := Label.new()
 	affinity_title.theme_type_variation = "PanelTitle"
 	affinity_title.text = "CIVILIZATIONAL MATRIX AFFINITY"
-	right.add_child(affinity_title)
+	_right.add_child(affinity_title)
 	_affinity_box = VBoxContainer.new()
 	_affinity_box.add_theme_constant_override("separation", 3)
-	right.add_child(_affinity_box)
+	_right.add_child(_affinity_box)
 	_stats = _rich(12)
-	right.add_child(_stats)
+	_right.add_child(_stats)
 
-	var buttons := HBoxContainer.new()
+	var buttons := BoxContainer.new()
+	_buttons = buttons
 	buttons.alignment = BoxContainer.ALIGNMENT_END
 	buttons.add_theme_constant_override("separation", 10)
 	var close_button := Button.new()
@@ -85,7 +88,39 @@ func _ready() -> void:
 	restart.pressed.connect(func(): new_campaign_requested.emit())
 	buttons.add_child(restart)
 	box.add_child(buttons)
+	UiLayout.pass_touch_through(_panel)
+	resized.connect(_apply_layout)
 	visible = false
+
+
+func set_compact(compact: bool) -> void:
+	if _compact == compact:
+		return
+	_compact = compact
+	_apply_layout()
+	for row in _affinity_box.get_children():
+		_style_affinity_row(row)
+
+
+func _apply_layout() -> void:
+	if _panel == null:
+		return
+	var width := UiLayout.panel_width(size.x, 0.0, _compact)
+	_panel.custom_minimum_size = Vector2(width if _compact else 0.0, 0)
+	for side in ["left", "right", "top", "bottom"]:
+		_accent_style.set("content_margin_" + side, 14 if _compact else 20)
+	_description.custom_minimum_size = Vector2(0.0 if _compact else DESCRIPTION_WIDTH, 0)
+	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if _compact else TextServer.AUTOWRAP_OFF
+	_title.add_theme_font_size_override("font_size", 20 if _compact else 28)
+	_columns.vertical = _compact
+	_chart.custom_minimum_size = Vector2(0, 240) if _compact else Vector2(760, 320)
+	_right.custom_minimum_size = Vector2(0.0 if _compact else 400.0, 0)
+	for label in [_kicker, _verdict, _stats]:
+		(label as Control).custom_minimum_size = Vector2(0.0 if _compact else 380.0, 0)
+	_buttons.vertical = _compact
+	for button in _buttons.get_children():
+		(button as Control).custom_minimum_size = Vector2(0, 44) if _compact else Vector2.ZERO
+	UiLayout.set_overlay_margin(_frame, _compact)
 
 
 func present(result: Dictionary) -> void:
@@ -119,11 +154,14 @@ func present(result: Dictionary) -> void:
 	_chart.set_history(result.get("history", []))
 	_build_affinities(outcome)
 	_build_stats(result)
+	_apply_layout()
+	(get_node("OverlayScroll") as ScrollContainer).scroll_vertical = 0
 	visible = true
 
 
 func _build_affinities(outcome: Dictionary) -> void:
 	for child in _affinity_box.get_children():
+		_affinity_box.remove_child(child)
 		child.queue_free()
 	var affinities: Dictionary = outcome.get("affinities", {})
 	for candidate in VictoryMatrix.OUTCOMES:
@@ -132,9 +170,10 @@ func _build_affinities(outcome: Dictionary) -> void:
 		var chosen := outcome_id == String(outcome.get("id", ""))
 		var row := HBoxContainer.new()
 		var name_label := Label.new()
+		name_label.name = "Name"
 		name_label.text = "%d. %s" % [int(candidate["number"]), candidate["name"]]
-		name_label.custom_minimum_size = Vector2(250, 0)
 		name_label.add_theme_font_size_override("font_size", 12)
+		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		name_label.add_theme_color_override("font_color", CyberPalette.CYAN if chosen else CyberPalette.TEXT_DIM)
 		row.add_child(name_label)
 		var bar := ProgressBar.new()
@@ -151,7 +190,17 @@ func _build_affinities(outcome: Dictionary) -> void:
 		value.text = "%3d%%" % int(round(affinity))
 		value.add_theme_font_size_override("font_size", 12)
 		row.add_child(value)
+		_style_affinity_row(row)
 		_affinity_box.add_child(row)
+	UiLayout.pass_touch_through(_affinity_box)
+
+
+## Fixed-width names on desktop; on phones the name takes what the bar leaves.
+func _style_affinity_row(row: Node) -> void:
+	var name_label: Label = row.get_node("Name")
+	name_label.custom_minimum_size = Vector2(0.0 if _compact else 250.0, 0)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL if _compact else Control.SIZE_FILL
+	name_label.clip_text = _compact
 
 
 func _build_stats(result: Dictionary) -> void:

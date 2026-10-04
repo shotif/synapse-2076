@@ -2,7 +2,8 @@ class_name OrbitCamera
 extends Camera3D
 ## Orbital camera driven by mouse dragging (PRD milestone 5): left-drag orbits,
 ## wheel / pinch zooms, and the view slowly auto-rotates when idle. Receives
-## input forwarded by the SubViewportContainer.
+## input forwarded by the SubViewportContainer. On touch screens one finger
+## orbits and two fingers pinch to zoom.
 
 @export var target := Vector3.ZERO
 @export var distance := 3.2
@@ -16,6 +17,11 @@ extends Camera3D
 
 var _dragging := false
 var _idle_time := 99.0
+var _touches := {}
+var _pinch_distance := 0.0
+## Touches also arrive as emulated mouse events by default; orbiting from
+## both would double the speed, so single-finger drags orbit through one path.
+var _mouse_from_touch := bool(ProjectSettings.get_setting("input_devices/pointing/emulate_mouse_from_touch", true))
 
 
 func _ready() -> void:
@@ -30,6 +36,24 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_touches[event.index] = event.position
+		else:
+			_touches.erase(event.index)
+		_pinch_distance = _touch_spread()
+		_idle_time = 0.0
+		return
+	if event is InputEventScreenDrag:
+		_touches[event.index] = event.position
+		if _touches.size() >= 2:
+			var spread := _touch_spread()
+			if _pinch_distance > 0.0 and spread > 0.0:
+				zoom(_pinch_distance / spread)
+			_pinch_distance = spread
+		elif not _mouse_from_touch:
+			orbit(event.relative)
+		return
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_LEFT:
@@ -41,12 +65,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			MOUSE_BUTTON_WHEEL_DOWN:
 				if event.pressed:
 					zoom(1.1)
-	elif event is InputEventMouseMotion and _dragging:
-		orbit(event.relative)
-	elif event is InputEventScreenDrag:
+	elif event is InputEventMouseMotion and _dragging and _touches.size() < 2:
 		orbit(event.relative)
 	elif event is InputEventMagnifyGesture:
 		zoom(1.0 / maxf(event.factor, 0.01))
+
+
+## Distance between the first two active touches (0 with fewer than two).
+func _touch_spread() -> float:
+	if _touches.size() < 2:
+		return 0.0
+	var points: Array = _touches.values()
+	return (points[0] as Vector2).distance_to(points[1] as Vector2)
 
 
 func orbit(relative: Vector2) -> void:

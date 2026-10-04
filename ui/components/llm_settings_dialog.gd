@@ -1,11 +1,17 @@
 class_name LLMSettingsDialog
 extends Control
-## Endpoint configuration overlay for the LLM decision layer: any
-## OpenAI-compatible chat-completions URL (Ollama, vLLM, Claude API proxy...).
+## Endpoint configuration overlay for the LLM decision layer: Claude's
+## Messages API (Anthropic directly or a proxy) or any OpenAI-compatible
+## chat-completions URL (Ollama, vLLM, LM Studio...).
 
 signal closed
 
+const DESKTOP_WIDTH := 640.0
+
 var service: LLMService
+var _compact := false
+var _frame: MarginContainer
+var _panel: PanelContainer
 var _endpoint: LineEdit
 var _model: LineEdit
 var _api_key: LineEdit
@@ -16,44 +22,47 @@ var _status: Label
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	var shade := ColorRect.new()
-	shade.color = Color(0.02, 0.03, 0.05, 0.75)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(shade)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-	var panel := PanelContainer.new()
-	panel.theme_type_variation = "OverlayPanel"
-	panel.custom_minimum_size = Vector2(640, 0)
-	center.add_child(panel)
+	_frame = UiLayout.build_overlay(self, Color(0.02, 0.03, 0.05, 0.75))
+	_panel = PanelContainer.new()
+	_panel.theme_type_variation = "OverlayPanel"
+	_panel.custom_minimum_size = Vector2(DESKTOP_WIDTH, 0)
+	_frame.add_child(_panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
-	panel.add_child(box)
+	_panel.add_child(box)
 	var title := Label.new()
 	title.theme_type_variation = "PanelTitle"
-	title.text = "LLM DECISION LAYER // OPENAI-COMPATIBLE ENDPOINT"
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.text = "LLM DECISION LAYER // CLAUDE OR OPENAI-COMPATIBLE ENDPOINT"
 	box.add_child(title)
-	_endpoint = _field(box, "Chat completions URL", "http://127.0.0.1:11434/v1/chat/completions")
-	_model = _field(box, "Model", "llama3:8b")
-	_api_key = _field(box, "API key (sent as Bearer token; leave empty for local servers)", "")
+	_endpoint = _field(box, "Endpoint URL. Claude: https://api.anthropic.com/v1/messages or your proxy's /v1/messages. OpenAI-compatible: .../v1/chat/completions",
+		"https://api.anthropic.com/v1/messages")
+	_model = _field(box, "Model", "claude-sonnet-5-5")
+	_api_key = _field(box, "API key or proxy access code (Claude: x-api-key header, otherwise a Bearer token). Leave empty for local servers.", "")
 	_api_key.secret = true
 	_timeout = _field(box, "Timeout (seconds)", "5.0")
 	_enabled = CheckBox.new()
 	_enabled.text = "Enable LLM-driven factions (heuristic fallback is always available)"
 	box.add_child(_enabled)
 	_remember_key = CheckBox.new()
-	_remember_key.text = "Remember API key in user:// (plain text)"
+	_remember_key.text = "Remember the key on this device (plain text in user://, browser site storage on the web)"
 	box.add_child(_remember_key)
+	for check in [_enabled, _remember_key]:
+		(check as CheckBox).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if OS.has_feature("web"):
+		var hint := Label.new()
+		hint.theme_type_variation = "DimLabel"
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hint.text = "On a phone: open this page with #llm-key=YOUR_KEY after the address once. The key is stored on this device and removed from the address bar."
+		box.add_child(hint)
 	_status = Label.new()
 	_status.theme_type_variation = "DimLabel"
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_status)
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_END
-	buttons.add_theme_constant_override("separation", 8)
+	var buttons := HFlowContainer.new()
+	buttons.alignment = FlowContainer.ALIGNMENT_END
+	buttons.add_theme_constant_override("h_separation", 8)
+	buttons.add_theme_constant_override("v_separation", 8)
 	var test_button := Button.new()
 	test_button.text = "TEST CONNECTION"
 	test_button.pressed.connect(_on_test_pressed)
@@ -70,7 +79,28 @@ func _ready() -> void:
 		closed.emit())
 	buttons.add_child(cancel)
 	box.add_child(buttons)
+	for label in box.find_children("*", "Label", true, false):
+		(label as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiLayout.pass_touch_through(_panel)
+	resized.connect(_apply_layout)
 	visible = false
+
+
+func set_compact(compact: bool) -> void:
+	if _compact == compact:
+		return
+	_compact = compact
+	_apply_layout()
+
+
+func _apply_layout() -> void:
+	if _panel == null:
+		return
+	_panel.custom_minimum_size = Vector2(UiLayout.panel_width(size.x, DESKTOP_WIDTH, _compact), 0)
+	UiLayout.set_overlay_margin(_frame, _compact)
+	for button in _panel.find_children("*", "Button", true, false):
+		if not (button is CheckBox):
+			(button as Control).custom_minimum_size = Vector2(0, 42 if _compact else 0)
 
 
 func open(llm_service: LLMService) -> void:

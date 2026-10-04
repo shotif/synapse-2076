@@ -3,6 +3,11 @@ extends Control
 ## embedded 3D SubViewports. Owns the SimulationEngine and the LLMService and
 ## binds them to the widgets purely through signals.
 ##
+## Responsive: large landscape screens get the three-column desktop layout;
+## phones, portrait tablets and small windows get the compact layout (see
+## UiLayout): a vitals strip with the six metrics, one panel at a time behind
+## WORLD / ACT / INTEL / LOG tabs, and phone-sized overlays.
+##
 ## When launched headless as the main scene (`godot --headless --path .`), it
 ## plays one autoplay campaign, prints the result and quits; pass
 ## `-- --role=CEO --seed=42` to choose the perspective.
@@ -10,18 +15,33 @@ extends Control
 const SPECTATE_INTERVALS := [0.8, 0.4, 0.15]
 const NEXT_TURN_DELAY := 0.35
 const FEED_LIMIT := 350
+const TABS := ["world", "act", "intel", "log"]
+const TAB_LABELS := {"world": "WORLD", "act": "ACT", "intel": "INTEL", "log": "LOG"}
 
 var engine: SimulationEngine
 var llm: LLMService
 var spectate := false
+## True while the compact (phone) layout is active.
+var compact := false
+var active_tab := "act"
+var _landscape := true
 var _speed_index := 0
 var _paused := false
 var _pending_option := ""
 var _meters := {}
+var _vitals := {}
 var _feed_entries: Array[Dictionary] = []
+var _feed_follow := true
 var _spectate_timer: Timer
 var _next_turn_timer: Timer
+var _vitals_grid: GridContainer
+var _tab_bar: HBoxContainer
+var _tab_buttons := {}
 
+@onready var _margin: MarginContainer = $Margin
+@onready var _layout: VBoxContainer = $Margin/Layout
+@onready var _header_row: HBoxContainer = %HeaderRow
+@onready var _title_label: Label = %Title
 @onready var _year_label: Label = %YearLabel
 @onready var _role_label: Label = %RoleLabel
 @onready var _phase_label: Label = %PhaseLabel
@@ -30,6 +50,10 @@ var _next_turn_timer: Timer
 @onready var _pause_button: Button = %PauseButton
 @onready var _speed_button: Button = %SpeedButton
 @onready var _menu_button: Button = %MenuButton
+@onready var _body: HBoxContainer = %Body
+@onready var _telemetry_panel: PanelContainer = %TelemetryPanel
+@onready var _center_panel: PanelContainer = %CenterPanel
+@onready var _footer: PanelContainer = %Footer
 @onready var _indices_label: RichTextLabel = %IndicesLabel
 @onready var _globe_button: Button = %GlobeButton
 @onready var _lattice_button: Button = %LatticeButton
@@ -40,6 +64,7 @@ var _next_turn_timer: Timer
 @onready var _viewport_caption: RichTextLabel = %ViewportCaption
 @onready var _directive_panel: DirectivePanel = %DirectivePanel
 @onready var _headline: RichTextLabel = %FeedHeadline
+@onready var _feed_scroll: ScrollContainer = %FeedScroll
 @onready var _feed: RichTextLabel = %EventFeed
 @onready var _dilemma: DilemmaDialog = %DilemmaDialog
 @onready var _debrief: EndgameDebrief = %EndgameDebrief
@@ -57,6 +82,7 @@ func _ready() -> void:
 	llm.name = "LLMService"
 	add_child(llm)
 	llm.load_configuration()
+	llm.import_page_url_settings()
 	_badge.bind(llm)
 	_badge.settings_requested.connect(_open_llm_settings)
 	llm.llm_status_changed.connect(func(_online: bool, _provider: String): _update_llm_hint())
@@ -69,6 +95,8 @@ func _ready() -> void:
 	_next_turn_timer.timeout.connect(_begin_next_turn)
 	add_child(_next_turn_timer)
 
+	_build_compact_chrome()
+	_bind_feed_scroll()
 	_dilemma.option_chosen.connect(_on_dilemma_option_chosen)
 	_directive_panel.execute_requested.connect(_on_execute_requested)
 	_directive_panel.review_crisis_requested.connect(_reopen_crisis)
@@ -83,6 +111,8 @@ func _ready() -> void:
 	_menu_button.pressed.connect(_show_role_select)
 	show_view("globe")
 	_spectate_controls.visible = false
+	get_tree().root.size_changed.connect(_on_window_resized)
+	_on_window_resized()
 
 	if _should_autorun_headless():
 		_run_headless_autoplay.call_deferred()
@@ -112,9 +142,10 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	engine.set_decision_provider(llm)
 	_feed_entries.clear()
 	_feed.clear()
+	_feed_follow = true
 	_headline.text = ""
-	for key in _meters:
-		(_meters[key] as MeterBar).history = PackedFloat32Array()
+	for meter in _meters.values() + _vitals.values():
+		(meter as MeterBar).history = PackedFloat32Array()
 	engine.start_campaign(role, seed_value, {
 		"autoplay": spectate_mode,
 		"max_player_directives": int(ProjectSettings.get_setting("synapse/simulation/max_player_directives", 2)),
@@ -123,9 +154,10 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	_role_select.visible = false
 	_debrief.visible = false
 	_dilemma.close()
-	_role_label.text = "ROLE: %s%s" % [SimConstants.ROLE_INFO[role]["header"], "  [SPECTATE]" if spectate else ""]
+	_update_role_label()
 	_spectate_controls.visible = spectate
 	_directive_panel.set_interactive(false)
+	show_tab("world" if spectate else "act")
 	_refresh_telemetry(engine.get_snapshot(), true)
 	engine.advance()
 	if spectate:
@@ -139,9 +171,141 @@ func show_view(view: String) -> void:
 	_globe_button.disabled = globe
 	_lattice_button.disabled = not globe
 	if globe:
-		_viewport_caption.text = "[color=%s]GLOBE[/color] // node heat = compute & energy saturation · red rings = regional compute embargo (tension ≥ 60) · cable pulses = epistemic trust · drag to orbit, wheel to zoom" % CyberPalette.hex(CyberPalette.CYAN)
+		_viewport_caption.text = "[color=%s]GLOBE[/color] // node heat = compute & energy saturation · red rings = regional compute embargo (tension ≥ 60) · cable pulses = epistemic trust · drag to orbit, %s to zoom" % [
+			CyberPalette.hex(CyberPalette.CYAN), "pinch" if compact else "wheel"]
 	else:
 		_viewport_caption.text = "[color=%s]NEURAL LATTICE[/color] // depth = frontier capability · cyan→crimson + jitter = alignment drift · amber = emergent capabilities · surface = tensor loss landscape · drag to orbit" % CyberPalette.hex(CyberPalette.CYAN)
+
+
+# --- Responsive layout --------------------------------------------------------------
+
+## Picks the layout for the current window. Headless runs (tests, autorun)
+## keep the scene's desktop layout unless a test applies one explicitly.
+func _on_window_resized() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var window := get_tree().root
+	apply_layout(UiLayout.compute(Vector2(window.size), DisplayServer.screen_get_scale(),
+		DisplayServer.is_touchscreen_available()))
+
+
+## Applies a layout from [method UiLayout.compute]: the logical canvas size
+## (so text keeps a readable physical size) and the compact or desktop mode.
+func apply_layout(layout: Dictionary) -> void:
+	var content_size: Vector2i = layout.get("content_size", UiLayout.DESKTOP_SIZE)
+	var root := get_tree().root
+	if root.content_scale_size != content_size:
+		root.content_scale_size = content_size
+	set_compact(bool(layout.get("compact", false)), bool(layout.get("landscape", true)))
+
+
+func set_compact(enabled: bool, landscape: bool = false) -> void:
+	compact = enabled
+	_landscape = landscape
+	_title_label.visible = not enabled
+	_role_label.visible = not enabled
+	_phase_label.visible = not enabled
+	_header_row.add_theme_constant_override("separation", 10 if enabled else 24)
+	for side in ["left", "right"]:
+		_margin.add_theme_constant_override("margin_" + side, 6 if enabled else 10)
+	for side in ["top", "bottom"]:
+		_margin.add_theme_constant_override("margin_" + side, 6 if enabled else 8)
+	_layout.add_theme_constant_override("separation", 6 if enabled else 8)
+	_vitals_grid.visible = enabled
+	_vitals_grid.columns = 6 if landscape else 3
+	_tab_bar.visible = enabled
+	_telemetry_panel.custom_minimum_size = Vector2(0 if enabled else 350, 0)
+	_directive_panel.custom_minimum_size = Vector2(0 if enabled else 380, 0)
+	for panel in [_telemetry_panel, _directive_panel]:
+		(panel as Control).size_flags_horizontal = Control.SIZE_EXPAND_FILL if enabled else Control.SIZE_FILL
+	_footer.custom_minimum_size = Vector2(0, 0 if enabled else 168)
+	_footer.size_flags_vertical = Control.SIZE_EXPAND_FILL if enabled else Control.SIZE_FILL
+	# Touch screens scroll the feed by dragging, so text selection gives way.
+	_feed.selection_enabled = not enabled
+	_badge.set_compact(enabled)
+	_directive_panel.set_compact(enabled)
+	_dilemma.set_compact(enabled)
+	_role_select.set_compact(enabled)
+	_debrief.set_compact(enabled)
+	_settings.set_compact(enabled)
+	_pause_button.text = ("▶" if _paused else "II") if enabled else ("RESUME" if _paused else "PAUSE")
+	_speed_button.text = ("x%d" if enabled else "SPEED x%d") % [1, 2, 4][_speed_index]
+	_update_header()
+	_update_role_label()
+	_lattice_button.text = "LATTICE" if enabled else "NEURAL LATTICE"
+	show_view("globe" if _globe_container.visible else "lattice")
+	show_tab(active_tab)
+	_update_llm_hint()
+
+
+## Compact layout: shows one panel. Desktop: every panel stays visible.
+func show_tab(tab: String) -> void:
+	if not tab in TABS:
+		return
+	active_tab = tab
+	if not compact:
+		_body.visible = true
+		_footer.visible = true
+		for panel in [_telemetry_panel, _center_panel, _directive_panel]:
+			(panel as Control).visible = true
+		return
+	_body.visible = tab != "log"
+	_footer.visible = tab == "log"
+	_telemetry_panel.visible = tab == "intel"
+	_center_panel.visible = tab == "world"
+	_directive_panel.visible = tab == "act"
+	_update_tab_buttons()
+
+
+func _build_compact_chrome() -> void:
+	_vitals_grid = GridContainer.new()
+	_vitals_grid.name = "VitalsStrip"
+	_vitals_grid.columns = 3
+	_vitals_grid.add_theme_constant_override("h_separation", 4)
+	_vitals_grid.add_theme_constant_override("v_separation", 4)
+	_vitals_grid.visible = false
+	for key in WorldState.METRIC_KEYS:
+		var vital := MeterBar.new()
+		vital.metric_key = key
+		vital.compact = true
+		vital.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vital.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		vital.gui_input.connect(func(event: InputEvent):
+			if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				show_tab("intel"))
+		_vitals[key] = vital
+		_vitals_grid.add_child(vital)
+	_layout.add_child(_vitals_grid)
+	_layout.move_child(_vitals_grid, 1)
+
+	_tab_bar = HBoxContainer.new()
+	_tab_bar.name = "TabBar"
+	_tab_bar.add_theme_constant_override("separation", 4)
+	_tab_bar.visible = false
+	for tab in TABS:
+		var button := Button.new()
+		button.text = TAB_LABELS[tab]
+		button.custom_minimum_size = Vector2(0, 44)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.focus_mode = Control.FOCUS_NONE
+		button.pressed.connect(show_tab.bind(tab))
+		_tab_buttons[tab] = button
+		_tab_bar.add_child(button)
+	_layout.add_child(_tab_bar)
+
+
+## Highlights the active tab and flags ACT while a decision is waiting.
+func _update_tab_buttons() -> void:
+	var waiting := engine != null and engine.is_awaiting_player() and not spectate
+	for tab in _tab_buttons:
+		var button: Button = _tab_buttons[tab]
+		var active: bool = tab == active_tab
+		button.theme_type_variation = "AccentButton" if active else ""
+		button.text = TAB_LABELS[tab] + (" ●" if tab == "act" and waiting and not active else "")
+		if tab == "act" and waiting and not active:
+			button.add_theme_color_override("font_color", CyberPalette.AMBER)
+		else:
+			button.remove_theme_color_override("font_color")
 
 
 # --- Engine signal handlers ---------------------------------------------------------
@@ -173,11 +337,17 @@ func _on_phase_changed(phase: int, _turn: int) -> void:
 	}
 	_phase_label.text = "PHASE: " + String(names.get(phase, "?"))
 	_update_header()
+	if compact:
+		_update_tab_buttons()
 
 
 func _on_actor_decisions_requested(faction_ids: Array) -> void:
 	if llm.is_online and not faction_ids.is_empty():
-		_phase_label.text = "PHASE: AWAITING %d AUTONOMOUS ACTORS (LLM)" % faction_ids.size()
+		var waiting := "AWAITING %d AUTONOMOUS ACTORS (LLM)" % faction_ids.size()
+		_phase_label.text = "PHASE: " + waiting
+		if compact:
+			# Phones hide the phase label; say why the turn is paused where the player looks.
+			_directive_panel.set_crisis_status("[color=%s]%s...[/color]" % [CyberPalette.hex(CyberPalette.AMBER), waiting])
 
 
 func _on_player_input_required(context: Dictionary) -> void:
@@ -187,6 +357,7 @@ func _on_player_input_required(context: Dictionary) -> void:
 	_pending_option = ""
 	_directive_panel.setup(context)
 	_directive_panel.set_interactive(true)
+	show_tab("act")
 	_dilemma.present(context["dilemma"], context["resources"], engine.player_role)
 
 
@@ -244,12 +415,15 @@ func _on_spectate_tick() -> void:
 
 func _toggle_pause() -> void:
 	_paused = not _paused
-	_pause_button.text = "RESUME" if _paused else "PAUSE"
+	if compact:
+		_pause_button.text = "▶" if _paused else "II"
+	else:
+		_pause_button.text = "RESUME" if _paused else "PAUSE"
 
 
 func _cycle_speed() -> void:
 	_speed_index = (_speed_index + 1) % SPECTATE_INTERVALS.size()
-	_speed_button.text = "SPEED x%d" % [1, 2, 4][_speed_index]
+	_speed_button.text = ("x%d" if compact else "SPEED x%d") % [1, 2, 4][_speed_index]
 	if spectate:
 		_spectate_timer.start(SPECTATE_INTERVALS[_speed_index])
 
@@ -271,12 +445,27 @@ func _update_llm_hint() -> void:
 	_role_select.set_llm_status(_badge.get_text())
 
 
+# --- Event feed ------------------------------------------------------------------------------
+
+## Keeps the feed pinned to the newest entry until the player scrolls up, and
+## pins it again once they scroll back to the bottom.
+func _bind_feed_scroll() -> void:
+	var bar := _feed_scroll.get_v_scroll_bar()
+	bar.changed.connect(func():
+		if _feed_follow:
+			_feed_scroll.scroll_vertical = int(bar.max_value))
+	bar.value_changed.connect(func(value: float):
+		_feed_follow = value + bar.page >= bar.max_value - 8.0)
+
+
 # --- Telemetry rendering -----------------------------------------------------------------
 
 func _refresh_telemetry(snapshot: Dictionary, record: bool) -> void:
 	var metrics: Dictionary = snapshot.get("metrics", {})
 	for key in _meters:
 		(_meters[key] as MeterBar).set_value(float(metrics.get(key, 0.0)), record)
+	for key in _vitals:
+		(_vitals[key] as MeterBar).set_value(float(metrics.get(key, 0.0)), record)
 	_globe.update_from_snapshot(snapshot)
 	_lattice.update_from_snapshot(snapshot)
 	_indices_label.text = _format_indices(snapshot)
@@ -287,9 +476,20 @@ func _refresh_telemetry(snapshot: Dictionary, record: bool) -> void:
 
 func _update_header() -> void:
 	if engine == null:
-		_year_label.text = "YEAR: 2026 (T:0/100)"
+		_year_label.text = "2026 · T0/100" if compact else "YEAR: 2026 (T:0/100)"
 		return
-	_year_label.text = "YEAR: %d (T:%d/%d)" % [int(floor(engine.get_year())), engine.turn, engine.total_turns]
+	var year := int(floor(engine.get_year()))
+	if compact:
+		_year_label.text = "%d · T%d/%d" % [year, engine.turn, engine.total_turns]
+	else:
+		_year_label.text = "YEAR: %d (T:%d/%d)" % [year, engine.turn, engine.total_turns]
+
+
+func _update_role_label() -> void:
+	if engine == null:
+		_role_label.text = "ROLE: --"
+		return
+	_role_label.text = "ROLE: %s%s" % [SimConstants.ROLE_INFO[engine.player_role]["header"], "  [SPECTATE]" if spectate else ""]
 
 
 func _format_indices(snapshot: Dictionary) -> String:
