@@ -1,7 +1,7 @@
 extends "res://tests/framework/test_case.gd"
-## The recurring cast on screen: aging portraits (Portrait) and the
-## character badge (CharacterBadge) on crisis cards (CrisisCard via
-## DilemmaDialog).
+## The recurring cast on screen: aging portraits (Portrait), the character
+## badge (CharacterBadge) on crisis cards (CrisisCard via DilemmaDialog) and
+## the People page (CastPanel).
 
 const DialogScene := preload("res://ui/components/dilemma_dialog.tscn")
 const PHONE := Vector2(412, 915)
@@ -317,6 +317,100 @@ func test_desktop_card_keeps_its_layout_with_a_badge() -> void:
 	assert_true(card.get_badge().is_visible_in_tree())
 	assert_almost_eq(card.get_global_rect().size.x, DilemmaDialog.DESKTOP_CARD_WIDTH, 0.5, "the card keeps its width")
 	_assert_fits(card, card.get_global_rect().end.x, "the badge stays on the card")
+
+
+# --- CastPanel ----------------------------------------------------------------------------
+
+## Encounters by 2048 (turn 44), in the shapes entries_from accepts.
+func _met() -> Dictionary:
+	return {
+		"maya": {"first_turn": 4, "last_turn": 40, "count": 5},
+		"jonas": {"first": 2, "last": 44, "times": 3},
+		"aria": [9, 30, 44],
+		"lin": {"first_turn": 44, "last_turn": 44, "count": 1},
+		"nobody": {"first_turn": 1, "last_turn": 1, "count": 1},
+	}
+
+
+func test_entries_from_sorts_by_last_meeting() -> void:
+	var entries := CastPanel.entries_from(_met(), {"maya": 3.5, "aria": -2.0}, {"maya": "Remembers.", "lin": "Never forgot."})
+	var ids: Array = []
+	for entry in entries:
+		ids.append(entry["id"])
+	assert_eq(ids, ["aria", "jonas", "lin", "maya"], "most recent first, then most met, then by id; unknown ids left out")
+	assert_eq(entries[0], {"id": "aria", "score": -2.0, "memory": "", "first_turn": 9, "last_turn": 44, "count": 3}, "a list of turns")
+	assert_eq(entries[1]["first_turn"], 2, "first/last/times keys")
+	assert_eq(entries[1]["count"], 3)
+	assert_eq(entries[2]["memory"], "Never forgot.")
+	assert_eq(entries[2]["score"], 0.0, "no score reads as neutral")
+	assert_eq(entries[3]["memory"], "Remembers.")
+	assert_eq(entries[3]["score"], 3.5)
+	assert_eq(CastPanel.entries_from({"sam": 2}, {}, {})[0]["count"], 2, "a bare count")
+	assert_eq(CastPanel.entries_from({}, {}, {}), [])
+	assert_eq(CastPanel.met_line(1, 30), "Met once · 2041")
+	assert_eq(CastPanel.met_line(3, 2), "Met 3 times · since 2027")
+
+
+func test_cast_panel_lists_people_and_fits_a_phone() -> void:
+	var panel := CastPanel.new()
+	holder.add_child(panel)
+	panel.size = PHONE
+	panel.set_compact(true)
+	var entries := CastPanel.entries_from(_met(), {"maya": 3.5}, {"maya": LONG_MEMORY})
+	panel.set_cast(entries, 2048.0)
+	await wait_frames(3)
+	assert_eq(panel.card_count(), 4)
+	assert_eq(panel.column_count(), 1, "one column on phones")
+	assert_false((panel.find_child("Empty", true, false) as Control).visible)
+	var maya: Control = panel.find_child("Person_maya", true, false)
+	assert_not_null(maya)
+	assert_eq((maya.find_child("Role", true, false) as Label).text, "Labor organizer · 49")
+	assert_eq((maya.find_child("StanceLabel", true, false) as Label).text, "Loyal")
+	assert_eq((maya.find_child("Memory", true, false) as Label).text, LONG_MEMORY)
+	var then_face: Portrait = maya.find_child("Then", true, false)
+	var now_face: Portrait = maya.find_child("Now", true, false)
+	assert_eq(then_face.get_age(), 29, "as they were at the first meeting (2028)")
+	assert_eq(now_face.get_age(), 49, "and as they are now")
+	assert_eq((maya.find_child("Portrait", true, false) as Portrait).get_age(), 49, "the large portrait shows them now")
+	var lin: Control = panel.find_child("Person_lin", true, false)
+	assert_null(lin.find_child("ThenNow", true, false), "met this year: nothing to compare")
+	assert_null(lin.find_child("Memory", true, false), "no memory, no line")
+	assert_eq(panel.get_node("CastScroll").vertical_scroll_mode, ScrollContainer.SCROLL_MODE_SHOW_NEVER, "phones scroll by dragging")
+	_assert_fits(panel, PHONE.x, "People page")
+	panel.set_cast([], 2048.0)
+	await wait_frames(2)
+	assert_eq(panel.card_count(), 0)
+	var empty: Control = panel.find_child("Empty", true, false)
+	assert_true(empty.visible)
+	assert_eq((empty.find_child("EmptyLabel", true, false) as Label).text, "You haven't met anyone yet.")
+	_assert_fits(panel, PHONE.x, "empty People page")
+
+
+func test_cast_panel_uses_columns_on_desktop() -> void:
+	holder.size = Vector2(1600, 900)
+	var panel := CastPanel.new()
+	holder.add_child(panel)
+	panel.size = Vector2(1400, 860)
+	panel.set_cast(CastPanel.entries_from(_met(), {}, {}), 2050.0)
+	await wait_frames(2)
+	assert_eq(panel.column_count(), 3, "three columns on a wide page")
+	panel.size = Vector2(800, 860)
+	await wait_frames(2)
+	assert_eq(panel.column_count(), 2)
+	panel.set_compact(true)
+	await wait_frames(2)
+	assert_eq(panel.column_count(), 1, "compact pages use one column")
+	var closed := [false]
+	panel.closed.connect(func(): closed[0] = true)
+	var close: Button = panel.find_child("Close", true, false)
+	assert_false(close.visible, "no close button unless asked")
+	panel.set_closable(true)
+	assert_true(close.visible)
+	close.pressed.emit()
+	assert_true(closed[0])
+	holder.theme = EraTheme.get_theme(2)
+	await wait_frames(2)
+	assert_eq((panel.find_child("Title", true, false) as Label).text, "PEOPLE", "Era II labels in capitals")
 
 
 # --- Helpers ----------------------------------------------------------------------------------
