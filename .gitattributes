@@ -1,0 +1,8 @@
+# Normalize line endings so Godot resources diff cleanly across platforms.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ttf binary
+*.otf binary
+*.woff2 binary

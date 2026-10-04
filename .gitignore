@@ -1,0 +1,28 @@
+# Godot 4 generated data (rebuilt by `godot --headless --import`)
+.godot/
+.import/
+
+# Export output
+/build/
+/exports/
+*.pck
+*.x86_64
+*.exe
+*.dmg
+*.zip
+
+# Local LLM credentials / overrides
+synapse_llm.cfg
+.env
+
+# Test & tooling artifacts
+/tests/output/
+/tools/output/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/

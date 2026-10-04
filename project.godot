@@ -1,0 +1,45 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="SYNAPSE-2076"
+config/description="Hard-systems socio-technological turn-based simulator of AI, energy, labor and alignment (2026-2076)."
+config/version="0.1.0"
+run/main_scene="res://ui/main_dashboard.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.0509804, 0.0666667, 0.0901961, 1)
+
+[synapse]
+
+simulation/total_turns=100
+simulation/default_seed=2076
+simulation/max_player_directives=2
+headless/autorun_campaign=true
+headless/autorun_role="GOVERNANCE_COUNCIL"
+llm/enabled=true
+llm/endpoint_url="http://127.0.0.1:11434/v1/chat/completions"
+llm/model_name="llama3:8b"
+llm/timeout_sec=5.0
+llm/json_mode=true
+llm/probe_on_start=true
