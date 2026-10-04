@@ -187,17 +187,18 @@ From `tools/monte_carlo.gd --runs=60`: 240 autoplay campaigns, 60 per role, ever
 
 | End-state | Share |
 |---|---|
-| Algorithmic Feudalism | 37.1% |
-| Balkanized Cyber-Anarchy | 17.9% |
-| Co-Evolutionary Symbiosis | 13.3% |
-| Neo-Luddite Decoupling | 10.8% |
-| Instrumental Convergence | 9.2% |
-| Post-Biological Diaspora | 9.2% |
+| Algorithmic Feudalism | 34.6% |
+| Co-Evolutionary Symbiosis | 16.7% |
+| Balkanized Cyber-Anarchy | 14.6% |
+| Instrumental Convergence | 12.9% |
+| Post-Biological Diaspora | 11.2% |
+| Neo-Luddite Decoupling | 7.9% |
 | Rogue ASI Containment | 2.1% |
-| Synthetic Eden | 0.4% |
+| Synthetic Eden | 0.0% |
 
-- 39% of campaigns strictly match a signature; the rest resolve to the nearest attractor.
-- 85% of campaigns reach 2076. 7.9% end in autonomous world war and 7.1% in uncontained convergence.
-- Every role wins some autoplay campaigns: CEO 16, Governance 24, ASI 12 and Citizens 35 victories out of 60 each.
+- 37% of campaigns strictly match a signature; the rest resolve to the nearest attractor.
+- 84% of campaigns reach 2076. 5.4% end in autonomous world war, 10.4% in uncontained convergence and 0.4% (one ASI campaign) in an air-gap purge.
+- Every role wins some autoplay campaigns: CEO 10, Governance 23, ASI 11 and Citizens 36 victories out of 60 each.
+- Per-role counts swing by several wins between seed sets at this sample size. Over 250 other seeds (`--role=CEO --runs=250 --seed-offset=5000`) the CEO wins 27%.
 - The player's crisis choices steer the world heavily. On identical seeds, Governance and Citizen players reach Symbiosis, Diaspora and Neo-Luddite endings, while an autopiloted CEO races into Instrumental Convergence far more often.
 - `tests/unit/test_balance.gd` holds loose guardrails on these properties.

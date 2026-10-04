@@ -157,3 +157,23 @@ func test_eligibility_conditions() -> void:
 	assert_true(deck._eligible(claim, _ctx("CEO", 2035.0, null, tech)))
 	tech.unlock_shift(TechTreeManager.MECHANISTIC_INTERPRETABILITY, 1)
 	assert_false(deck._eligible(claim, _ctx("CEO", 2035.0, null, tech)))
+
+
+func test_opening_turns_are_not_one_repeated_card() -> void:
+	var engine := SimulationEngine.new()
+	engine.start_campaign("GOVERNANCE_COUNCIL", 2076, {"autoplay": true})
+	var seen := {}
+	engine.dilemma_presented.connect(func(card: Dictionary): seen[card["id"]] = true)
+	for _i in 12:
+		engine.advance()
+	assert_gte(seen.size(), 3, "first six crises draw from several templates: %s" % [seen.keys()])
+
+
+func test_pending_deferred_card_is_not_drawn_fresh() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var deck := DilemmaDeck.new()
+	deck.deferred.append({"id": "FRONTIER_RELEASE_RACE", "due_turn": 99, "escalation": 1, "origin": "DECK"})
+	for _i in 20:
+		var card := deck.draw(_ctx("CEO", 2027.0), rng)
+		assert_ne(card["id"], "FRONTIER_RELEASE_RACE", "escalated copy is still pending")

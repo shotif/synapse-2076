@@ -4,7 +4,8 @@ extends RefCounted
 ##
 ## Each turn the player faces one card. Priority: deferred cards that have come
 ## due (escalated), then crises injected by autonomous factions, then a weighted
-## draw from templates whose conditions match the current world. Templates are
+## draw from templates whose conditions match the current world and that are not
+## already waiting to return. Templates are
 ## filled with procedural names and numbers. Every card offers at least two
 ## options per role plus a "Defer" option; deferring returns the card two turns
 ## later with harsher penalties and pricier fixes.
@@ -64,7 +65,7 @@ const LABS := ["Prometheus Dynamics", "Helix Frontier", "Arcadia Systems", "Meri
 const CARDS := [
 	{
 		"id": "GRID_BROWNOUT", "category": "ENERGY", "severity": 2, "weight": 1.2,
-		"conditions": {"min": {"compute_energy_sat": 55.0}},
+		"conditions": {"min": {"compute_energy_sat": 45.0}},
 		"title": "Rolling Brownouts Across the {region} Datacenter Corridor",
 		"body": "Training runs at {lab} are drawing {gw} GW through a heatwave. Hospitals report voltage sags and grid operators demand a decision.",
 		"options": [
@@ -144,7 +145,7 @@ const CARDS := [
 	},
 	{
 		"id": "CHIP_EMBARGO", "category": "GEOPOLITICS", "severity": 2, "weight": 1.0,
-		"conditions": {"min": {"geopolitical_tension": 45.0}},
+		"conditions": {"min": {"geopolitical_tension": 35.0}},
 		"title": "{bloc} Imposes Export Controls on Sub-2nm Accelerators",
 		"body": "Fabs in {region} halt shipments. Spot prices for frontier accelerators triple overnight.",
 		"options": [
@@ -174,7 +175,7 @@ const CARDS := [
 	},
 	{
 		"id": "INTERPRETABILITY_CLAIM", "category": "ALIGNMENT", "severity": 1, "weight": 0.8,
-		"conditions": {"min_year": 2029.0, "lacks_shift": "MECHANISTIC_INTERPRETABILITY"},
+		"conditions": {"min_year": 2027.0, "lacks_shift": "MECHANISTIC_INTERPRETABILITY"},
 		"title": "Academic Consortium Claims Circuit-Level Transparency for {model}",
 		"body": "A preprint maps deceptive circuits in a frontier model. Replication would need serious compute.",
 		"options": [
@@ -436,7 +437,7 @@ func draw(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	var pool: Array[Dictionary] = []
 	var total := 0.0
 	for template in CARDS:
-		if template.get("injection_only", false) or not _eligible(template, ctx):
+		if template.get("injection_only", false) or _is_deferred(template["id"]) or not _eligible(template, ctx):
 			continue
 		var weight := float(template["weight"])
 		if recent.has(template["id"]):
@@ -459,6 +460,14 @@ func draw(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	var card := _instantiate(chosen, ctx, rng, "DECK", 0)
 	_remember(card["id"])
 	return card
+
+
+## A card waiting to return escalated is not drawn fresh in the meantime.
+func _is_deferred(card_id: String) -> bool:
+	for entry in deferred:
+		if entry["id"] == card_id:
+			return true
+	return false
 
 
 ## Re-queues a deferred card two turns out with one more level of escalation.
