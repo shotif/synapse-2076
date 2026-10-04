@@ -1,16 +1,30 @@
 class_name DirectivePanel
 extends PanelContainer
-## Asymmetric action allocation grid (PRD section 8.2, right column).
+## The ACT panel (PRD section 8.2), drawn in the active era's style.
 ##
-## Shows the player's currencies, the crisis-card resolution status and the
-## role's directive catalog. Each selected directive has an intensity slider
-## (1.0x-2.0x of its base cost, with diminishing returns on effect). The
-## Execute button stays locked until the crisis card is resolved and the
-## combined spend is affordable. The compact variant (phone ACT tab) puts the
-## currencies in two columns and enlarges every touch target.
+## Shows the player's currencies, the turn's crisis as an inline card and the
+## role's directive catalog. Each directive is a card whose glyph tile works
+## as its check box; selected directives get an intensity slider (1.0x-2.0x
+## of the base cost, with diminishing returns on effect). Execute stays
+## locked until the crisis is resolved and the combined spend is affordable.
+## The compact variant (phones, tablets) enlarges every touch target.
 
 signal execute_requested(directives: Array)
 signal review_crisis_requested
+
+## Crisis category -> glyph and the metric whose color tints its tile.
+const CATEGORY_GLYPHS := {
+	"ALIGNMENT": "drift", "ECONOMY": "capital", "ENERGY": "compute", "EPISTEMIC": "trust",
+	"GEOPOLITICS": "tension", "LABOR": "labor", "RACE": "speed", "SECURITY": "lock",
+	"SOCIETY": "person", "SOVEREIGNTY": "flag", "UNREST": "warning",
+}
+const CATEGORY_METRICS := {
+	"ALIGNMENT": "alignment_drift", "ECONOMY": "labor_displacement", "ENERGY": "compute_energy_sat",
+	"EPISTEMIC": "epistemic_trust", "GEOPOLITICS": "geopolitical_tension", "LABOR": "labor_displacement",
+	"RACE": "algorithmic_autonomy", "SECURITY": "geopolitical_tension", "SOCIETY": "epistemic_trust",
+	"SOVEREIGNTY": "algorithmic_autonomy", "UNREST": "geopolitical_tension",
+}
+const TILE_SIZE := 30
 
 var max_directives := 2
 
@@ -18,16 +32,25 @@ var _role := ""
 var _resources := {}
 var _actions: Array = []
 var _rows := {}
+var _crisis_card := {}
 var _crisis_option_id := ""
 var _crisis_cost := {}
 var _interactive := false
 var _compact := false
+var _focus_tween: Tween
+var _era := 0
 
 var _title: Label
-var _directives_title: Label
 var _resource_box: GridContainer
+var _crisis_panel: PanelContainer
+var _crisis_tile: TextureRect
+var _crisis_kicker: Label
+var _crisis_meta: Label
+var _crisis_title: Label
 var _crisis_label: RichTextLabel
 var _review_button: Button
+var _directives_title: Label
+var _scroll: ScrollContainer
 var _list: VBoxContainer
 var _summary_label: Label
 var _message_label: Label
@@ -36,49 +59,38 @@ var _execute_button: Button
 
 func _ready() -> void:
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 8)
+	root.add_theme_constant_override("separation", 10)
 	add_child(root)
 
 	_title = Label.new()
 	_title.theme_type_variation = "PanelTitle"
-	_title.text = "ACTION / DIRECTIVE CONTROL PANEL"
+	_title.clip_text = true
+	_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	root.add_child(_title)
 
 	_resource_box = GridContainer.new()
-	_resource_box.columns = 1
-	_resource_box.add_theme_constant_override("h_separation", 14)
-	_resource_box.add_theme_constant_override("v_separation", 3)
+	_resource_box.name = "Resources"
+	_resource_box.columns = 4
+	_resource_box.add_theme_constant_override("h_separation", 8)
+	_resource_box.add_theme_constant_override("v_separation", 8)
 	root.add_child(_resource_box)
-	root.add_child(HSeparator.new())
 
-	var crisis_row := HBoxContainer.new()
-	_crisis_label = RichTextLabel.new()
-	_crisis_label.bbcode_enabled = true
-	_crisis_label.fit_content = true
-	_crisis_label.scroll_active = false
-	_crisis_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	crisis_row.add_child(_crisis_label)
-	_review_button = Button.new()
-	_review_button.text = "CRISIS"
-	_review_button.tooltip_text = "Re-open the crisis card"
-	_review_button.pressed.connect(func(): review_crisis_requested.emit())
-	crisis_row.add_child(_review_button)
-	root.add_child(crisis_row)
+	root.add_child(_build_crisis_card())
 
 	_directives_title = Label.new()
 	_directives_title.theme_type_variation = "DimLabel"
-	_directives_title.text = "DIRECTIVES (select up to %d, drag to set intensity)" % max_directives
+	_directives_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(_directives_title)
 
-	var scroll := ScrollContainer.new()
-	scroll.name = "DirectiveScroll"
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root.add_child(scroll)
+	_scroll = ScrollContainer.new()
+	_scroll.name = "DirectiveScroll"
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(_scroll)
 	_list = VBoxContainer.new()
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_list.add_theme_constant_override("separation", 6)
-	scroll.add_child(_list)
+	_list.add_theme_constant_override("separation", 8)
+	_scroll.add_child(_list)
 
 	_summary_label = Label.new()
 	_summary_label.theme_type_variation = "DimLabel"
@@ -86,17 +98,21 @@ func _ready() -> void:
 	root.add_child(_summary_label)
 	_message_label = Label.new()
 	_message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_message_label.add_theme_color_override("font_color", CyberPalette.CRIMSON)
 	_message_label.add_theme_font_size_override("font_size", 12)
 	root.add_child(_message_label)
 
 	_execute_button = Button.new()
+	_execute_button.name = "ExecuteButton"
 	_execute_button.theme_type_variation = "AccentButton"
-	_execute_button.text = "[ EXECUTE DIRECTIVES ]"
-	_execute_button.custom_minimum_size = Vector2(0, 40)
+	_execute_button.custom_minimum_size = Vector2(0, 44)
 	_execute_button.pressed.connect(_on_execute_pressed)
 	root.add_child(_execute_button)
-	_update_state()
+	_restyle()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_THEME_CHANGED and _title != null and EraTheme.style_of(self).era != _era:
+		_restyle()
 
 
 ## Populates the panel for a new player phase (SimulationEngine.get_player_context()).
@@ -108,9 +124,10 @@ func setup(context: Dictionary) -> void:
 	_crisis_option_id = ""
 	_crisis_cost = {}
 	_message_label.text = ""
+	set_crisis_card(context.get("dilemma", {}))
 	_rebuild_resources()
 	_rebuild_directives()
-	set_crisis_status("[color=%s]CRISIS PENDING[/color] - resolve the crisis card to unlock directives." % CyberPalette.hex(CyberPalette.AMBER))
+	_set_pending_status()
 	_update_state()
 
 
@@ -125,18 +142,9 @@ func set_compact(compact: bool) -> void:
 	_compact = compact
 	if _title == null:
 		return
-	_resource_box.columns = 2 if compact else 1
-	_directives_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if compact else TextServer.AUTOWRAP_OFF
-	_execute_button.custom_minimum_size = Vector2(0, 46 if compact else 40)
-	_review_button.custom_minimum_size = Vector2(76, 40) if compact else Vector2.ZERO
-	_update_title()
-	_rebuild_resources()
-	if not _actions.is_empty():
-		var selected := get_selected_directives()
-		_rebuild_directives()
-		for entry in selected:
-			select_directive(String(entry["action"]), float(entry["intensity"]))
-	_update_state()
+	_execute_button.custom_minimum_size = Vector2(0, 48 if compact else 44)
+	_review_button.custom_minimum_size = Vector2(0, 44 if compact else 38)
+	_rebuild_all()
 
 
 func update_resources(role: String, resources: Dictionary) -> void:
@@ -147,13 +155,20 @@ func update_resources(role: String, resources: Dictionary) -> void:
 	_update_state()
 
 
+## Shows [param card] (a crisis-card dictionary) as the inline crisis card.
+func set_crisis_card(card: Dictionary) -> void:
+	_crisis_card = card
+	_restyle_crisis()
+
+
 func set_crisis_choice(option: Dictionary) -> void:
 	_crisis_option_id = String(option.get("id", ""))
 	_crisis_cost = option.get("cost", {})
+	var s := EraTheme.style_of(self)
 	var label := CyberPalette.escape_bbcode(String(option.get("label", "")))
 	var cost := UiFormat.format_cost(_role, _crisis_cost)
-	set_crisis_status("[color=%s]CRISIS RESPONSE:[/color] %s [color=%s](%s)[/color]" % [
-		CyberPalette.hex(CyberPalette.CYAN), label, CyberPalette.hex(CyberPalette.TEXT_DIM), cost])
+	set_crisis_status("[color=%s]%s[/color] %s [color=%s]· %s[/color]" % [
+		CyberPalette.hex(s.accent), s.label("Response:"), label, CyberPalette.hex(s.text_dim), cost])
 	_update_state()
 
 
@@ -169,9 +184,10 @@ func get_crisis_option_id() -> String:
 	return _crisis_option_id
 
 
-func show_message(text: String, color: Color = CyberPalette.CRIMSON) -> void:
+func show_message(text: String, color: Color = Color.TRANSPARENT) -> void:
 	_message_label.text = text
-	_message_label.add_theme_color_override("font_color", color)
+	var s := EraTheme.style_of(self)
+	_message_label.add_theme_color_override("font_color", s.critical if color == Color.TRANSPARENT else color)
 
 
 ## Currently selected directives as engine submissions.
@@ -199,48 +215,183 @@ func select_directive(action_id: String, intensity: float = 1.0) -> bool:
 	return check.button_pressed
 
 
+## Scrolls to [param action_id] and flashes its card (a lens asked for it).
+## Returns false when the role has no such directive.
+func focus_directive(action_id: String) -> bool:
+	if not _rows.has(action_id):
+		return false
+	var card: Control = _rows[action_id]["card"]
+	_scroll.ensure_control_visible.call_deferred(card)
+	if _focus_tween != null:
+		_focus_tween.kill()
+	card.modulate = Color(1.6, 1.6, 1.6)
+	_focus_tween = create_tween()
+	_focus_tween.tween_property(card, "modulate", Color.WHITE, 0.9).set_ease(Tween.EASE_OUT)
+	return true
+
+
+func has_directive(action_id: String) -> bool:
+	return _rows.has(action_id)
+
+
 func is_execute_enabled() -> bool:
 	return not _execute_button.disabled
+
+
+# --- Building -----------------------------------------------------------------------
+
+func _build_crisis_card() -> PanelContainer:
+	_crisis_panel = PanelContainer.new()
+	_crisis_panel.name = "CrisisCard"
+	_crisis_panel.theme_type_variation = "CardPanel"
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	_crisis_panel.add_child(box)
+	var kicker_row := HBoxContainer.new()
+	kicker_row.add_theme_constant_override("separation", 8)
+	_crisis_tile = TextureRect.new()
+	_crisis_tile.custom_minimum_size = Vector2(22, 22)
+	_crisis_tile.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_crisis_tile.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	kicker_row.add_child(_crisis_tile)
+	_crisis_kicker = Label.new()
+	_crisis_kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_crisis_kicker.clip_text = true
+	_crisis_kicker.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	kicker_row.add_child(_crisis_kicker)
+	_crisis_meta = Label.new()
+	kicker_row.add_child(_crisis_meta)
+	box.add_child(kicker_row)
+	_crisis_title = Label.new()
+	_crisis_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_crisis_title)
+	_crisis_label = RichTextLabel.new()
+	_crisis_label.bbcode_enabled = true
+	_crisis_label.fit_content = true
+	_crisis_label.scroll_active = false
+	_crisis_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(_crisis_label)
+	_review_button = Button.new()
+	_review_button.name = "ReviewCrisisButton"
+	_review_button.theme_type_variation = "AccentButton"
+	_review_button.tooltip_text = "Open the crisis card"
+	_review_button.pressed.connect(func(): review_crisis_requested.emit())
+	box.add_child(_review_button)
+	return _crisis_panel
+
+
+func _rebuild_all() -> void:
+	_update_title()
+	_rebuild_resources()
+	if not _actions.is_empty():
+		var selected := get_selected_directives()
+		_rebuild_directives()
+		for entry in selected:
+			select_directive(String(entry["action"]), float(entry["intensity"]))
+	_update_state()
+
+
+func _restyle() -> void:
+	var s := EraTheme.style_of(self)
+	_era = s.era
+	_crisis_kicker.add_theme_font_override("font", s.font_mono if s.era == 3 else s.font_ui_bold)
+	_crisis_kicker.add_theme_font_size_override("font_size", 12)
+	_crisis_kicker.add_theme_color_override("font_color", s.text_dim)
+	_crisis_meta.add_theme_font_override("font", s.font_mono)
+	_crisis_meta.add_theme_font_size_override("font_size", 11)
+	_crisis_title.add_theme_font_override("font", s.font_ui_bold)
+	_crisis_title.add_theme_font_size_override("font_size", 16 if s.era == 1 else 17)
+	_crisis_title.add_theme_color_override("font_color", s.text_bright)
+	_crisis_label.add_theme_font_size_override("normal_font_size", 13)
+	_crisis_label.add_theme_color_override("default_color", s.text_dim)
+	_restyle_crisis()
+	_rebuild_all()
+
+
+func _restyle_crisis() -> void:
+	if _crisis_panel == null:
+		return
+	var s := EraTheme.style_of(self)
+	var category := String(_crisis_card.get("category", ""))
+	var has_card := not _crisis_card.is_empty()
+	var color := s.metric_color(String(CATEGORY_METRICS.get(category, "geopolitical_tension")))
+	_crisis_tile.texture = Glyphs.tile(String(CATEGORY_GLYPHS.get(category, "warning")), 22, color, s.bg, 6 if s.era != 3 else 11)
+	var kicker := "Crisis · %s" % category.capitalize() if has_card else "No crisis"
+	_crisis_kicker.text = kicker.to_lower() if s.era == 3 else kicker.to_upper()
+	var escalation := int(_crisis_card.get("escalation", 0))
+	_crisis_meta.text = ("escalated ×%d" % escalation if s.era == 3 else "Escalated ×%d" % escalation) if escalation > 0 else ""
+	_crisis_meta.add_theme_color_override("font_color", s.warn)
+	_crisis_title.text = UiFormat.strip_escalation(String(_crisis_card.get("title", "")))
+	_crisis_title.visible = has_card
 
 
 func _update_title() -> void:
 	if _title == null:
 		return
-	if _compact and SimConstants.ROLE_INFO.has(_role):
-		_title.text = "DIRECTIVES // %s" % String(SimConstants.ROLE_INFO[_role]["header"])
-	else:
-		_title.text = "ACTION / DIRECTIVE CONTROL PANEL"
+	var s := EraTheme.style_of(self)
+	var heading := "Your move"
+	if SimConstants.ROLE_INFO.has(_role):
+		heading = "Directives · %s" % UiFormat.role_name(_role)
+	_title.text = s.label(heading)
+	_directives_title.text = s.label("Choose up to %d" % max_directives) + (" · slide to raise intensity" if not _compact else "")
+	_execute_button.text = s.label("Execute directives")
+	_review_button.text = s.label("Change response" if has_crisis_choice() else "Review options")
 
 
 func _rebuild_resources() -> void:
 	for child in _resource_box.get_children():
 		_resource_box.remove_child(child)
 		child.queue_free()
+	var s := EraTheme.style_of(self)
 	var info := FactionRegistry.resource_info_for(_role)
+	_resource_box.columns = maxi(mini(info.size(), 4), 1)
 	for key in info:
-		var cell := VBoxContainer.new()
-		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		cell.add_theme_constant_override("separation", 3)
-		var row := HBoxContainer.new()
-		var name_label := Label.new()
-		name_label.text = String(info[key]["label"]) + ":"
-		name_label.theme_type_variation = "DimLabel"
-		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		name_label.clip_text = true
-		row.add_child(name_label)
-		var value_label := Label.new()
-		value_label.theme_type_variation = "ValueLabel"
-		value_label.text = UiFormat.format_resource(_role, key, float(_resources.get(key, 0.0)))
-		row.add_child(value_label)
-		cell.add_child(row)
-		var bar := ProgressBar.new()
-		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(0, 4)
-		bar.max_value = float(info[key].get("scale", 100.0))
-		bar.value = float(_resources.get(key, 0.0))
-		cell.add_child(bar)
-		_resource_box.add_child(cell)
+		_resource_box.add_child(_resource_cell(s, String(key), float(_resources.get(key, 0.0))))
+
+
+## One currency: glyph and name above the value, in the era's frame.
+func _resource_cell(s: EraStyle, key: String, amount: float) -> Control:
+	var cell := PanelContainer.new()
+	cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cell.tooltip_text = UiFormat.resource_label(_role, key)
+	var frame: StyleBoxFlat
+	match s.era:
+		1:
+			frame = EraTheme.box(s.raised, Color(0, 0, 0, 0), 0, 12, 8, 7)
+		2:
+			frame = EraTheme.box(Color(s.accent, 0.04), s.accent, 0, 0, 8, 4)
+			frame.border_width_left = 2
+		_:
+			frame = EraTheme.panel(s, Color(s.accent, 0.05), Color(s.accent, 0.45), 18, 8)
+			frame.content_margin_top = 8
+			frame.content_margin_bottom = 8
+	cell.add_theme_stylebox_override("panel", frame)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	cell.add_child(box)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 4)
+	head.add_child(Glyphs.icon(Glyphs.for_currency(key), 12, s.text_dim))
+	var name_label := Label.new()
+	name_label.text = s.label(UiFormat.resource_name(key))
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.add_theme_font_override("font", s.font_ui)
+	name_label.add_theme_font_size_override("font_size", 10 if s.labels_upper else 11)
+	name_label.add_theme_color_override("font_color", s.text_dim)
+	head.add_child(name_label)
+	box.add_child(head)
+	var value_label := Label.new()
+	value_label.text = UiFormat.format_resource(_role, key, amount)
+	value_label.clip_text = true
+	value_label.add_theme_font_override("font", s.font_ui_bold if s.era == 1 else s.font_mono)
+	value_label.add_theme_font_size_override("font_size", 16 if s.era == 1 else 14)
+	value_label.add_theme_color_override("font_color", s.text_bright)
+	box.add_child(value_label)
+	for child in [box, head, value_label]:
+		(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return cell
 
 
 func _rebuild_directives() -> void:
@@ -248,75 +399,144 @@ func _rebuild_directives() -> void:
 		_list.remove_child(child)
 		child.queue_free()
 	_rows = {}
+	var s := EraTheme.style_of(self)
 	for action in _actions:
-		var action_id := String(action["id"])
-		var card := PanelContainer.new()
-		card.theme_type_variation = "CardPanel"
-		var box := VBoxContainer.new()
-		box.add_theme_constant_override("separation", 2)
-		card.add_child(box)
-
-		# Name and cost side by side on desktop; stacked on phones.
-		var header := BoxContainer.new()
-		header.vertical = _compact
-		var check := CheckBox.new()
-		check.text = String(action["name"])
-		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		check.add_theme_font_size_override("font_size", 13)
-		if _compact:
-			check.custom_minimum_size = Vector2(0, 34)
-			check.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		header.add_child(check)
-		var cost_label := Label.new()
-		cost_label.theme_type_variation = "DimLabel"
-		cost_label.text = UiFormat.format_cost(_role, action["cost"])
-		header.add_child(cost_label)
-		box.add_child(header)
-
-		var description := Label.new()
-		description.theme_type_variation = "DimLabel"
-		description.text = String(action["description"])
-		description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		description.add_theme_font_size_override("font_size", 12 if _compact else 11)
-		box.add_child(description)
-
-		var slider_row := HBoxContainer.new()
-		var slider := HSlider.new()
-		slider.min_value = 1.0
-		slider.max_value = 2.0
-		slider.step = 0.1
-		slider.value = 1.0
-		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		if _compact:
-			slider.custom_minimum_size = Vector2(0, 32)
-			slider.add_theme_icon_override("grabber", CyberTheme.disc_texture(22, CyberPalette.CYAN))
-			slider.add_theme_icon_override("grabber_highlight", CyberTheme.disc_texture(24, Color.WHITE))
-		slider_row.add_child(slider)
-		var intensity_label := Label.new()
-		intensity_label.text = "x1.0"
-		intensity_label.custom_minimum_size = Vector2(44, 0)
-		slider_row.add_child(intensity_label)
-		slider_row.visible = false
-		box.add_child(slider_row)
-
-		var blocked := String(action.get("blocked_reason", ""))
-		if blocked != "":
-			check.disabled = true
-			check.tooltip_text = blocked
-			cost_label.text = blocked.to_upper()
-			cost_label.add_theme_color_override("font_color", CyberPalette.AMBER)
-		if (action["cost"] as Dictionary).is_empty():
-			slider.editable = false
-		check.toggled.connect(func(pressed: bool):
-			slider_row.visible = pressed and not (action["cost"] as Dictionary).is_empty()
-			_update_state())
-		slider.value_changed.connect(func(v: float):
-			intensity_label.text = "x%.1f" % v
-			_update_state())
-		_rows[action_id] = {"check": check, "slider": slider, "cost_label": cost_label,
-			"blocked": blocked, "max_intensity": float(action.get("max_intensity", 1.0))}
-		_list.add_child(card)
+		_list.add_child(_directive_card(s, action))
 	UiLayout.pass_touch_through(_list)
+
+
+func _directive_card(s: EraStyle, action: Dictionary) -> PanelContainer:
+	var action_id := String(action["id"])
+	var card := PanelContainer.new()
+	card.name = action_id
+	card.theme_type_variation = "CardPanel"
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	card.add_child(box)
+
+	# The glyph tile is the check box: tinted when selected.
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 8)
+	var check := CheckBox.new()
+	check.text = String(action["name"])
+	check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	check.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	check.add_theme_font_override("font", s.font_ui_bold)
+	check.add_theme_font_size_override("font_size", 14)
+	check.add_theme_constant_override("h_separation", 10)
+	check.custom_minimum_size = Vector2(0, 40 if _compact else 34)
+	var glyph := _action_glyph(action)
+	var radius := 8 if s.era != 3 else 14
+	check.add_theme_icon_override("unchecked", Glyphs.tile(glyph, TILE_SIZE, Color(s.accent, 0.18), s.accent, radius))
+	check.add_theme_icon_override("checked", Glyphs.tile("check", TILE_SIZE, s.accent, s.on_accent, radius))
+	check.add_theme_icon_override("unchecked_disabled", Glyphs.tile(glyph, TILE_SIZE, Color(s.text_dim, 0.12), Color(s.text_dim, 0.6), radius))
+	check.add_theme_icon_override("checked_disabled", Glyphs.tile("check", TILE_SIZE, Color(s.text_dim, 0.4), s.bg, radius))
+	header.add_child(check)
+	var cost_label := Label.new()
+	cost_label.add_theme_font_override("font", s.font_mono)
+	cost_label.add_theme_font_size_override("font_size", 12)
+	cost_label.add_theme_color_override("font_color", s.text_dim)
+	cost_label.text = UiFormat.format_cost(_role, action["cost"])
+	header.add_child(cost_label)
+	box.add_child(header)
+
+	var description := Label.new()
+	description.theme_type_variation = "DimLabel"
+	description.text = String(action["description"])
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 12)
+	box.add_child(description)
+	var effects := _effect_chips(s, action.get("effects", {}))
+	if effects != null:
+		box.add_child(effects)
+
+	var slider_row := HBoxContainer.new()
+	var slider := HSlider.new()
+	slider.min_value = 1.0
+	slider.max_value = 2.0
+	slider.step = 0.1
+	slider.value = 1.0
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.custom_minimum_size = Vector2(0, 32 if _compact else 24)
+	slider_row.add_child(slider)
+	var intensity_label := Label.new()
+	intensity_label.text = "×1.0"
+	intensity_label.custom_minimum_size = Vector2(44, 0)
+	intensity_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	intensity_label.add_theme_font_override("font", s.font_mono)
+	slider_row.add_child(intensity_label)
+	slider_row.visible = false
+	box.add_child(slider_row)
+
+	var blocked := String(action.get("blocked_reason", ""))
+	if blocked != "":
+		check.disabled = true
+		check.tooltip_text = blocked
+		cost_label.text = blocked
+		cost_label.add_theme_color_override("font_color", s.warn)
+	if (action["cost"] as Dictionary).is_empty():
+		slider.editable = false
+	check.toggled.connect(func(pressed: bool):
+		slider_row.visible = pressed and not (action["cost"] as Dictionary).is_empty()
+		card.theme_type_variation = "CardPanelSelected" if pressed else "CardPanel"
+		_update_state())
+	slider.value_changed.connect(func(v: float):
+		intensity_label.text = "×%.1f" % v
+		_update_state())
+	_rows[action_id] = {"check": check, "slider": slider, "cost_label": cost_label, "card": card,
+		"blocked": blocked, "max_intensity": float(action.get("max_intensity", 1.0))}
+	return card
+
+
+## Glyph chips with pips for the metrics a directive moves ("Compute ▲▲").
+func _effect_chips(s: EraStyle, effects: Dictionary) -> Control:
+	var metrics: Dictionary = effects.get("metrics", {})
+	if metrics.is_empty():
+		return null
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 10)
+	flow.add_theme_constant_override("v_separation", 4)
+	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for key in WorldState.METRIC_KEYS:
+		if not metrics.has(key) or absf(float(metrics[key])) < 0.05:
+			continue
+		var amount := float(metrics[key])
+		var color := s.good if UiFormat.is_improvement(key, amount) else s.bad
+		var chip := HBoxContainer.new()
+		chip.add_theme_constant_override("separation", 3)
+		chip.tooltip_text = "%s %s" % [UiFormat.metric_name(key), UiFormat.signed(amount)]
+		chip.add_child(Glyphs.icon(Glyphs.for_metric(key), 13, s.metric_color(key)))
+		var pips := Label.new()
+		pips.text = UiFormat.pips(amount)
+		pips.add_theme_font_override("font", s.font_mono)
+		pips.add_theme_font_size_override("font_size", 10)
+		pips.add_theme_color_override("font_color", color)
+		chip.add_child(pips)
+		flow.add_child(chip)
+	return flow
+
+
+## The metric a directive moves most, else its first currency, as a glyph.
+func _action_glyph(action: Dictionary) -> String:
+	var metrics: Dictionary = (action.get("effects", {}) as Dictionary).get("metrics", {})
+	var best := ""
+	var best_size := 0.0
+	for key in metrics:
+		if absf(float(metrics[key])) > best_size:
+			best_size = absf(float(metrics[key]))
+			best = String(key)
+	if best != "":
+		return Glyphs.for_metric(best)
+	var cost: Dictionary = action.get("cost", {})
+	return Glyphs.for_currency(String(cost.keys()[0])) if not cost.is_empty() else "spark"
+
+
+# --- State --------------------------------------------------------------------------
+
+func _set_pending_status() -> void:
+	var s := EraTheme.style_of(self)
+	set_crisis_status("[color=%s]%s[/color] Resolve the crisis to unlock your directives." % [
+		CyberPalette.hex(s.warn), s.label("Decision pending.")])
 
 
 func _projected_cost() -> Dictionary:
@@ -334,6 +554,7 @@ func _projected_cost() -> Dictionary:
 func _update_state() -> void:
 	if _execute_button == null:
 		return
+	var s := EraTheme.style_of(self)
 	var selected := get_selected_directives().size()
 	for action_id in _rows:
 		var row: Dictionary = _rows[action_id]
@@ -347,14 +568,16 @@ func _update_state() -> void:
 	var shortfalls: Array[String] = []
 	for key in projected:
 		if float(_resources.get(key, 0.0)) + 0.0001 < float(projected[key]):
-			shortfalls.append(UiFormat.resource_short(_role, key))
-	var summary := "Selected %d/%d · total spend: %s" % [selected, max_directives, UiFormat.format_cost(_role, projected)]
+			shortfalls.append(UiFormat.resource_name(key))
+	var summary := "%d of %d selected · spend %s" % [selected, max_directives, UiFormat.format_cost(_role, projected)]
 	if not shortfalls.is_empty():
-		summary += "\nINSUFFICIENT: " + ", ".join(shortfalls)
+		summary += "\nNot enough " + ", ".join(shortfalls)
 	_summary_label.text = summary
-	_summary_label.add_theme_color_override("font_color", CyberPalette.CRIMSON if not shortfalls.is_empty() else CyberPalette.TEXT_DIM)
+	_summary_label.add_theme_color_override("font_color", s.critical if not shortfalls.is_empty() else s.text_dim)
 	_execute_button.disabled = not _interactive or not has_crisis_choice() or not shortfalls.is_empty()
 	_review_button.disabled = not _interactive
+	_review_button.theme_type_variation = &"GhostButton" if has_crisis_choice() else &"AccentButton"
+	_update_title()
 
 
 func _on_execute_pressed() -> void:

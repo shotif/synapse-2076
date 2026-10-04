@@ -20,16 +20,6 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_main")
 
-[node name="Background" type="ColorRect" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-color = Color(0.0509804, 0.0666667, 0.0901961, 1)
-
 [node name="Margin" type="MarginContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
@@ -37,133 +27,214 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/margin_left = 10
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 10
-theme_override_constants/margin_bottom = 8
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
 
 [node name="Layout" type="VBoxContainer" parent="Margin"]
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 10
 
 [node name="Header" type="PanelContainer" parent="Margin/Layout"]
+unique_name_in_owner = true
 layout_mode = 2
 
 [node name="HeaderRow" type="HBoxContainer" parent="Margin/Layout/Header"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 24
+theme_override_constants/separation = 14
 
-[node name="Title" type="Label" parent="Margin/Layout/Header/HeaderRow"]
+[node name="RoleMark" type="TextureRect" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(36, 36)
+layout_mode = 2
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+
+[node name="TitleBox" type="VBoxContainer" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_constants/separation = 0
+
+[node name="Kicker" type="Label" parent="Margin/Layout/Header/HeaderRow/TitleBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Kicker"
+text = "FRONTIER LAB // OPS"
+
+[node name="Title" type="Label" parent="Margin/Layout/Header/HeaderRow/TitleBox"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"HeaderTitle"
-text = "[SYNAPSE-2076]"
+text = "SYNAPSE-2076"
 
-[node name="YearLabel" type="Label" parent="Margin/Layout/Header/HeaderRow"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_type_variation = &"ValueLabel"
-text = "YEAR: 2026 (T:0/100)"
-
-[node name="RoleLabel" type="Label" parent="Margin/Layout/Header/HeaderRow"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_type_variation = &"ValueLabel"
-text = "ROLE: --"
-
-[node name="PhaseLabel" type="Label" parent="Margin/Layout/Header/HeaderRow"]
+[node name="Subtitle" type="Label" parent="Margin/Layout/Header/HeaderRow/TitleBox"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"DimLabel"
-text = "PHASE: STANDBY"
+text = "Era I · Silicon & Nuclear"
 
-[node name="Spacer" type="Control" parent="Margin/Layout/Header/HeaderRow"]
+[node name="HeaderSpacer" type="Control" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="ClockBox" type="VBoxContainer" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_constants/separation = 0
+
+[node name="YearLabel" type="Label" parent="Margin/Layout/Header/HeaderRow/ClockBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"ValueLabel"
+text = "H1 2026 · Turn 0 of 100"
+horizontal_alignment = 2
+
+[node name="PhaseLabel" type="Label" parent="Margin/Layout/Header/HeaderRow/ClockBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"DimLabel"
+text = "Standby"
+horizontal_alignment = 2
 
 [node name="SpectateControls" type="HBoxContainer" parent="Margin/Layout/Header/HeaderRow"]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_vertical = 4
+theme_override_constants/separation = 6
 
 [node name="PauseButton" type="Button" parent="Margin/Layout/Header/HeaderRow/SpectateControls"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 36)
 layout_mode = 2
-text = "PAUSE"
+tooltip_text = "Pause or resume autoplay"
+focus_mode = 0
 
 [node name="SpeedButton" type="Button" parent="Margin/Layout/Header/HeaderRow/SpectateControls"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 36)
 layout_mode = 2
-text = "SPEED x1"
-
-[node name="MenuButton" type="Button" parent="Margin/Layout/Header/HeaderRow"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "MENU"
+tooltip_text = "Autoplay speed"
+focus_mode = 0
+text = "×1"
 
 [node name="LLMStatusBadge" parent="Margin/Layout/Header/HeaderRow" instance=ExtResource("2_badge")]
 unique_name_in_owner = true
+layout_mode = 2
+
+[node name="MenuButton" type="Button" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 36)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Menu"
+focus_mode = 0
+
+[node name="CompactVitals" type="MarginContainer" parent="Margin/Layout"]
+unique_name_in_owner = true
+visible = false
 layout_mode = 2
 
 [node name="Body" type="HBoxContainer" parent="Margin/Layout"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_constants/separation = 8
+theme_override_constants/separation = 10
 
 [node name="TelemetryPanel" type="PanelContainer" parent="Margin/Layout/Body"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(350, 0)
+custom_minimum_size = Vector2(372, 0)
 layout_mode = 2
 
-[node name="TelemetryScroll" type="ScrollContainer" parent="Margin/Layout/Body/TelemetryPanel"]
+[node name="LeftBox" type="VBoxContainer" parent="Margin/Layout/Body/TelemetryPanel"]
 layout_mode = 2
-horizontal_scroll_mode = 0
+theme_override_constants/separation = 10
 
-[node name="TelemetryBox" type="VBoxContainer" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll"]
+[node name="LeftSwitch" type="HBoxContainer" parent="Margin/Layout/Body/TelemetryPanel/LeftBox"]
+unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
 theme_override_constants/separation = 4
 
-[node name="TelemetryTitle" type="Label" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox"]
+[node name="LensButton" type="Button" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/LeftSwitch"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
-theme_type_variation = &"PanelTitle"
-text = "TELEMETRY METERS"
+size_flags_horizontal = 3
+focus_mode = 0
+theme_type_variation = &"ChipButton"
+toggle_mode = true
+text = "Lens"
 
-[node name="ComputeMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
+[node name="IntelButton" type="Button" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/LeftSwitch"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
-metric_key = "compute_energy_sat"
+size_flags_horizontal = 3
+focus_mode = 0
+theme_type_variation = &"ChipButton"
+toggle_mode = true
+text = "Intel"
 
-[node name="LaborMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
-layout_mode = 2
-metric_key = "labor_displacement"
-
-[node name="GeopoliticsMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
-layout_mode = 2
-metric_key = "geopolitical_tension"
-
-[node name="AutonomyMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
-layout_mode = 2
-metric_key = "algorithmic_autonomy"
-
-[node name="DriftMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
-layout_mode = 2
-metric_key = "alignment_drift"
-
-[node name="TrustMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox" instance=ExtResource("3_meter")]
-layout_mode = 2
-metric_key = "epistemic_trust"
-
-[node name="Separator" type="HSeparator" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox"]
-layout_mode = 2
-
-[node name="IndicesLabel" type="RichTextLabel" parent="Margin/Layout/Body/TelemetryPanel/TelemetryScroll/TelemetryBox"]
+[node name="LensHost" type="MarginContainer" parent="Margin/Layout/Body/TelemetryPanel/LeftBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
+
+[node name="IntelScroll" type="ScrollContainer" parent="Margin/Layout/Body/TelemetryPanel/LeftBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="IntelBox" type="VBoxContainer" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+
+[node name="MeterGrid" type="GridContainer" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll/IntelBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
+columns = 2
+
+[node name="ComputeMeter" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll/IntelBox/MeterGrid" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "compute_energy_sat"
+
+[node name="LaborMeter" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll/IntelBox/MeterGrid" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "labor_displacement"
+
+[node name="GeopoliticsMeter" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll/IntelBox/MeterGrid" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "geopolitical_tension"
+
+[node name="AutonomyMeter" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll/IntelBox/MeterGrid" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "algorithmic_autonomy"
+
+[node name="DriftMeter" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll/IntelBox/MeterGrid" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "alignment_drift"
+
+[node name="TrustMeter" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll/IntelBox/MeterGrid" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "epistemic_trust"
+
+[node name="IndicesLabel" type="RichTextLabel" parent="Margin/Layout/Body/TelemetryPanel/LeftBox/IntelScroll/IntelBox"]
+unique_name_in_owner = true
+layout_mode = 2
 mouse_filter = 1
-theme_override_font_sizes/normal_font_size = 12
 bbcode_enabled = true
 fit_content = true
 scroll_active = false
@@ -173,87 +244,118 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="CenterBox" type="VBoxContainer" parent="Margin/Layout/Body/CenterPanel"]
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="ViewportHeader" type="HBoxContainer" parent="Margin/Layout/Body/CenterPanel/CenterBox"]
-layout_mode = 2
-
-[node name="ViewportTitle" type="Label" parent="Margin/Layout/Body/CenterPanel/CenterBox/ViewportHeader"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_type_variation = &"PanelTitle"
-text = "3D HOLOGRAPHIC VIEWPORT"
-clip_text = true
-text_overrun_behavior = 3
-
-[node name="GlobeButton" type="Button" parent="Margin/Layout/Body/CenterPanel/CenterBox/ViewportHeader"]
+[node name="WorldStack" type="Control" parent="Margin/Layout/Body/CenterPanel"]
 unique_name_in_owner = true
+clip_contents = true
 layout_mode = 2
-text = "GLOBE"
 
-[node name="LatticeButton" type="Button" parent="Margin/Layout/Body/CenterPanel/CenterBox/ViewportHeader"]
+[node name="GlobeContainer" type="SubViewportContainer" parent="Margin/Layout/Body/CenterPanel/WorldStack"]
 unique_name_in_owner = true
-layout_mode = 2
-text = "NEURAL LATTICE"
-
-[node name="GlobeContainer" type="SubViewportContainer" parent="Margin/Layout/Body/CenterPanel/CenterBox"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 3
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 stretch = true
 
-[node name="GlobeSubViewport" type="SubViewport" parent="Margin/Layout/Body/CenterPanel/CenterBox/GlobeContainer"]
+[node name="GlobeSubViewport" type="SubViewport" parent="Margin/Layout/Body/CenterPanel/WorldStack/GlobeContainer"]
 own_world_3d = true
 handle_input_locally = false
-size = Vector2i(820, 560)
+size = Vector2i(800, 560)
 render_target_update_mode = 3
 
-[node name="Globe" parent="Margin/Layout/Body/CenterPanel/CenterBox/GlobeContainer/GlobeSubViewport" instance=ExtResource("6_globe")]
+[node name="Globe" parent="Margin/Layout/Body/CenterPanel/WorldStack/GlobeContainer/GlobeSubViewport" instance=ExtResource("6_globe")]
 unique_name_in_owner = true
 
-[node name="LatticeContainer" type="SubViewportContainer" parent="Margin/Layout/Body/CenterPanel/CenterBox"]
+[node name="LatticeContainer" type="SubViewportContainer" parent="Margin/Layout/Body/CenterPanel/WorldStack"]
 unique_name_in_owner = true
 visible = false
-layout_mode = 2
-size_flags_vertical = 3
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 stretch = true
 
-[node name="LatticeSubViewport" type="SubViewport" parent="Margin/Layout/Body/CenterPanel/CenterBox/LatticeContainer"]
+[node name="LatticeSubViewport" type="SubViewport" parent="Margin/Layout/Body/CenterPanel/WorldStack/LatticeContainer"]
 own_world_3d = true
 handle_input_locally = false
-size = Vector2i(820, 560)
+size = Vector2i(800, 560)
 render_target_update_mode = 3
 
-[node name="Lattice" parent="Margin/Layout/Body/CenterPanel/CenterBox/LatticeContainer/LatticeSubViewport" instance=ExtResource("7_lattice")]
+[node name="Lattice" parent="Margin/Layout/Body/CenterPanel/WorldStack/LatticeContainer/LatticeSubViewport" instance=ExtResource("7_lattice")]
 unique_name_in_owner = true
 
-[node name="ViewportCaption" type="RichTextLabel" parent="Margin/Layout/Body/CenterPanel/CenterBox"]
+[node name="ViewSwitch" type="HBoxContainer" parent="Margin/Layout/Body/CenterPanel/WorldStack"]
 unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -232.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 46.0
+grow_horizontal = 0
+theme_override_constants/separation = 4
+alignment = 2
+
+[node name="GlobeButton" type="Button" parent="Margin/Layout/Body/CenterPanel/WorldStack/ViewSwitch"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
-theme_override_font_sizes/normal_font_size = 11
+focus_mode = 0
+theme_type_variation = &"ChipButton"
+toggle_mode = true
+text = "Globe"
+
+[node name="LatticeButton" type="Button" parent="Margin/Layout/Body/CenterPanel/WorldStack/ViewSwitch"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+focus_mode = 0
+theme_type_variation = &"ChipButton"
+toggle_mode = true
+text = "Lattice"
+
+[node name="ViewportCaption" type="RichTextLabel" parent="Margin/Layout/Body/CenterPanel/WorldStack"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 14.0
+offset_top = -40.0
+offset_right = -14.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
 bbcode_enabled = true
 fit_content = true
 scroll_active = false
 
 [node name="DirectivePanel" parent="Margin/Layout/Body" instance=ExtResource("4_directive")]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(404, 0)
 layout_mode = 2
 
 [node name="Footer" type="PanelContainer" parent="Margin/Layout"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 168)
+custom_minimum_size = Vector2(0, 176)
 layout_mode = 2
 
 [node name="FooterBox" type="VBoxContainer" parent="Margin/Layout/Footer"]
+unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 6
 
 [node name="FeedHeadline" type="RichTextLabel" parent="Margin/Layout/Footer/FooterBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/normal_font_size = 14
 bbcode_enabled = true
 fit_content = true
 scroll_active = false
@@ -269,7 +371,6 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 1
-theme_override_font_sizes/normal_font_size = 12
 bbcode_enabled = true
 fit_content = true
 scroll_active = false

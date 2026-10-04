@@ -167,6 +167,32 @@ static func icon(glyph: String, size: int = 20, color: Color = Color.WHITE, stro
 	return rect
 
 
+## [param glyph] centered on a rounded tile, as a texture (check boxes, role
+## marks, crisis badges). [param glyph_scale] is the glyph's share of the tile.
+static func tile(glyph: String, size: int, bg: Color, fg: Color, radius: int, glyph_scale: float = 0.56) -> Texture2D:
+	var key := "tile|%s|%d|%s|%s|%d|%.2f" % [glyph, size, bg.to_html(), fg.to_html(), radius, glyph_scale]
+	if _cache.has(key):
+		return _cache[key]
+	var entry: Variant = PATHS.get(glyph, PATHS["info"])
+	var data := String(entry["d"]) if entry is Dictionary else String(entry)
+	var filled := entry is Dictionary and bool(entry.get("fill", false))
+	var stroke := float(entry.get("stroke", 2.0)) if entry is Dictionary else 2.0
+	var px := maxi(2, int(round(float(size) * OVERSAMPLE)))
+	var inset := float(size) * (1.0 - glyph_scale) / 2.0
+	var scale := float(size) * glyph_scale / 24.0
+	var paint := "fill=\"#%s\"" % fg.to_html(false) if filled else \
+		"fill=\"none\" stroke=\"#%s\" stroke-width=\"%.2f\" stroke-linecap=\"round\" stroke-linejoin=\"round\"" % [fg.to_html(false), stroke]
+	var svg := "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">" % [px, px, size, size]
+	svg += "<rect width=\"%d\" height=\"%d\" rx=\"%d\" fill=\"#%s\" fill-opacity=\"%.3f\"/>" % [size, size, radius, bg.to_html(false), bg.a]
+	svg += "<g transform=\"translate(%.2f %.2f) scale(%.4f)\" opacity=\"%.3f\"><path %s d=\"%s\"/></g></svg>" % [
+		inset, inset, scale, fg.a, paint, data]
+	var result := svg_texture(svg)
+	if result is ImageTexture:
+		(result as ImageTexture).set_size_override(Vector2i(size, size))
+	_cache[key] = result
+	return result
+
+
 ## Rasterizes an SVG document (cached by content). Returns a 1x1 texture when
 ## the document cannot be parsed.
 static func svg_texture(svg: String, scale: float = 1.0) -> Texture2D:

@@ -1,15 +1,13 @@
 class_name LLMStatusBadge
 extends PanelContainer
 ## Header connectivity indicator (PRD section 7.2):
-##   ● [LLM ONLINE: <MODEL> / <PROVIDER>]                 muted cyan  #00E5FF
-##   ▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]  alert amber #FFB300
-## Click to open the LLM settings dialog. The compact variant (phone header)
-## shortens the text to "● LLM ON" / "▲ LLM OFF".
+##   ● [LLM ONLINE: <MODEL> / <PROVIDER>]                 the era's accent
+##   ▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]  the era's warning
+## drawn as a pill in the active era's shape. Click to open the LLM settings
+## dialog. The compact variant (phone header) shortens the text to
+## "● LLM ON" / "▲ LLM OFF".
 
 signal settings_requested
-
-const ONLINE_COLOR := Color("#00E5FF")
-const OFFLINE_COLOR := Color("#FFB300")
 
 var service: LLMService
 var _label: Label
@@ -19,6 +17,7 @@ var _online := false
 var _probing := false
 var _compact := false
 var _provider := ""
+var _era_style: EraStyle
 
 
 func _ready() -> void:
@@ -27,19 +26,18 @@ func _ready() -> void:
 	tooltip_text = "LLM decision layer status. Click to configure the endpoint."
 	_style = StyleBoxFlat.new()
 	_style.set_border_width_all(1)
-	_style.set_corner_radius_all(3)
-	_style.content_margin_left = 10
-	_style.content_margin_right = 10
-	_style.content_margin_top = 4
-	_style.content_margin_bottom = 4
+	_style.content_margin_left = 12
+	_style.content_margin_right = 12
+	_style.content_margin_top = 5
+	_style.content_margin_bottom = 5
 	add_theme_stylebox_override("panel", _style)
 	_label = get_node_or_null("Label")
 	if _label == null:
 		_label = Label.new()
 		_label.name = "Label"
 		add_child(_label)
-	_label.add_theme_font_override("font", CyberPalette.MONO_BOLD)
-	_label.add_theme_font_size_override("font_size", 13)
+	_label.add_theme_font_size_override("font_size", 12)
+	_restyle()
 	set_status(false, "")
 
 
@@ -75,11 +73,28 @@ func set_status(online: bool, provider_name: String) -> void:
 func set_compact(compact: bool) -> void:
 	_compact = compact
 	if _label != null:
-		_label.add_theme_font_size_override("font_size", 12 if compact else 13)
+		_label.add_theme_font_size_override("font_size", 11 if compact else 12)
 	if _style != null:
-		_style.content_margin_left = 8 if compact else 10
-		_style.content_margin_right = 8 if compact else 10
+		_style.content_margin_left = 9 if compact else 12
+		_style.content_margin_right = 9 if compact else 12
 	set_status(_online, _provider)
+
+
+func _notification(what: int) -> void:
+	# Our own style box edits re-send this notification; only a new era restyles.
+	if what == NOTIFICATION_THEME_CHANGED and _style != null and _label != null \
+			and EraTheme.style_of(self) != _era_style:
+		_restyle()
+
+
+## Shape and type follow the era: pills in Eras I and III, a chamfered tag in II.
+func _restyle() -> void:
+	var s := EraTheme.style_of(self)
+	_era_style = s
+	_label.add_theme_font_override("font", s.font_mono_bold)
+	_style.corner_detail = s.corner_detail
+	_style.set_corner_radius_all(6 if s.era == 2 else 999)
+	_apply_colors(1.0)
 
 
 func get_text() -> String:
@@ -101,10 +116,11 @@ func _process(delta: float) -> void:
 func _apply_colors(intensity: float) -> void:
 	if _label == null or _style == null:
 		return
-	var color := ONLINE_COLOR if _online else OFFLINE_COLOR
+	var s := _era_style if _era_style != null else EraTheme.style_of(self)
+	var color := s.accent if _online else s.warn
 	_label.add_theme_color_override("font_color", Color(color, intensity))
-	_style.bg_color = Color(color, 0.07)
-	_style.border_color = Color(color, 0.55 * intensity)
+	_style.bg_color = Color(color, 0.1)
+	_style.border_color = Color(color, 0.5 * intensity)
 
 
 func _on_status_changed(_is_online: bool, _provider: String) -> void:

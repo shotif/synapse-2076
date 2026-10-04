@@ -491,6 +491,7 @@ func get_player_context() -> Dictionary:
 			"name": definition.get("name", action_id),
 			"description": definition.get("description", ""),
 			"cost": definition.get("cost", {}),
+			"effects": (definition.get("effects", {}) as Dictionary).duplicate(true),
 			"cooldown": int(player.cooldowns.get(action_id, 0)),
 			"blocked_reason": player.action_block_reason(action_id),
 			"max_intensity": player.max_affordable_intensity(action_id),

@@ -2,8 +2,9 @@ class_name RoleSelect
 extends Control
 ## Campaign setup overlay: choose one of the four asymmetric perspectives
 ## (PRD section 1), a seed, and whether to spectate (AI plays your role).
-## On phones the roles stack in one column and only the selected role shows
-## its details.
+## Campaigns open in Era I, so this screen wears the Era I look. On phones
+## the roles stack in one column and only the selected role shows its
+## details.
 
 signal start_requested(role: String, seed_value: int, spectate: bool)
 signal llm_settings_requested
@@ -13,8 +14,8 @@ const CARD_WIDTH := 470.0
 const TAP_SLOP := 12.0
 ## Height of the bar that pins the start button to the bottom on phones.
 const STICKY_HEIGHT := 62.0
-const SUBTITLE := "Hard-systems simulation of AI, energy, labor and alignment // 100 semi-annual turns, 2026-2076.\nSelect your perspective. The other three factions act autonomously (LLM when online, heuristic otherwise)."
-const SUBTITLE_COMPACT := "AI, energy, labor and alignment // 100 turns, 2026-2076. Pick a perspective; the other three factions act on their own."
+const SUBTITLE := "A hard-systems simulation of AI, energy, labor and alignment: 100 half-year turns, 2026–2076.\nPick a perspective. The other three factions act on their own (an LLM when one is online, heuristics otherwise)."
+const SUBTITLE_COMPACT := "AI, energy, labor and alignment: 100 turns, 2026–2076. Pick a perspective; the other three factions act on their own."
 
 var selected_role := SimConstants.GOVERNANCE
 var _compact := false
@@ -36,10 +37,13 @@ var _spectate_check: CheckBox
 var _llm_label: Label
 var _fullscreen_button: Button
 var _press_position := Vector2.INF
+var _marks := {}
+var _names := {}
+var _era := 0
 
 
 func _ready() -> void:
-	_frame = UiLayout.build_overlay(self, Color(CyberPalette.BG, 0.94))
+	_frame = UiLayout.build_overlay(self, Color(0, 0, 0, 0.96))
 	_scroll = get_node("OverlayScroll")
 	_panel = PanelContainer.new()
 	_panel.theme_type_variation = "OverlayPanel"
@@ -52,7 +56,7 @@ func _ready() -> void:
 	_title = Label.new()
 	_title.theme_type_variation = "HeaderTitle"
 	_title.add_theme_font_size_override("font_size", 34)
-	_title.text = "[SYNAPSE-2076]"
+	_title.text = "SYNAPSE-2076"
 	box.add_child(_title)
 	_subtitle = Label.new()
 	_subtitle.theme_type_variation = "DimLabel"
@@ -76,7 +80,7 @@ func _ready() -> void:
 	options.add_theme_constant_override("h_separation", 14)
 	options.add_theme_constant_override("v_separation", 10)
 	var seed_label := Label.new()
-	seed_label.text = "SEED"
+	seed_label.text = "Seed"
 	seed_label.theme_type_variation = "DimLabel"
 	options.add_child(seed_label)
 	_seed_edit = LineEdit.new()
@@ -84,11 +88,11 @@ func _ready() -> void:
 	_seed_edit.custom_minimum_size = Vector2(120, 0)
 	options.add_child(_seed_edit)
 	var randomize_button := Button.new()
-	randomize_button.text = "RANDOM"
+	randomize_button.text = "Random"
 	randomize_button.pressed.connect(func(): _seed_edit.text = str(randi() % 1000000))
 	options.add_child(randomize_button)
 	_spectate_check = CheckBox.new()
-	_spectate_check.text = "SPECTATE (AI plays your role)"
+	_spectate_check.text = "Spectate (the AI plays your role)"
 	options.add_child(_spectate_check)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -97,12 +101,12 @@ func _ready() -> void:
 	_llm_label.theme_type_variation = "DimLabel"
 	options.add_child(_llm_label)
 	var llm_button := Button.new()
-	llm_button.text = "LLM SETTINGS"
+	llm_button.text = "AI settings"
 	llm_button.pressed.connect(func(): llm_settings_requested.emit())
 	options.add_child(llm_button)
 	# Browsers on phones lose a sixth of the screen to their own toolbars.
 	_fullscreen_button = Button.new()
-	_fullscreen_button.text = "FULLSCREEN"
+	_fullscreen_button.text = "Full screen"
 	_fullscreen_button.visible = OS.has_feature("web")
 	_fullscreen_button.pressed.connect(_toggle_fullscreen)
 	options.add_child(_fullscreen_button)
@@ -110,13 +114,12 @@ func _ready() -> void:
 
 	_start = Button.new()
 	_start.theme_type_variation = "AccentButton"
-	_start.text = "[ INITIALIZE CAMPAIGN ]"
+	_start.text = "Start campaign"
 	_start.custom_minimum_size = Vector2(0, 46)
 	_start.pressed.connect(_on_start_pressed)
 	box.add_child(_start)
 	# Phones: the start button stays on screen below the scrolling role list.
 	_sticky = PanelContainer.new()
-	_sticky.add_theme_stylebox_override("panel", CyberTheme.box(CyberPalette.BG, CyberPalette.BORDER, 1, 0, 8, 8))
 	_sticky.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	_sticky.offset_top = -STICKY_HEIGHT
 	_sticky.visible = false
@@ -124,8 +127,27 @@ func _ready() -> void:
 	_scroll.scroll_started.connect(func(): _press_position = Vector2.INF)
 	UiLayout.pass_touch_through(_panel)
 	resized.connect(_apply_layout)
+	_restyle()
 	select_role(selected_role)
 	_apply_layout()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_THEME_CHANGED and _sticky != null and EraTheme.style_of(self).era != _era:
+		_restyle()
+
+
+func _restyle() -> void:
+	var s := EraTheme.style_of(self)
+	_era = s.era
+	(get_child(0) as ColorRect).color = Color(s.bg, 0.96)
+	var bar := EraTheme.box(s.bg, s.border_strong, 0, 0, 8, 8)
+	bar.border_width_top = 1
+	_sticky.add_theme_stylebox_override("panel", bar)
+	for role in _marks:
+		(_marks[role] as TextureRect).texture = _role_mark(s, role)
+		(_names[role] as Label).add_theme_font_override("font", s.font_ui_bold)
+		(_names[role] as Label).add_theme_color_override("font_color", s.text_bright)
 
 
 func set_compact(compact: bool) -> void:
@@ -221,12 +243,24 @@ func _role_card(role: String) -> PanelContainer:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_theme_constant_override("separation", 4)
 	card.add_child(box)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 12)
+	var mark := TextureRect.new()
+	mark.custom_minimum_size = Vector2(40, 40)
+	mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	mark.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(mark)
+	_marks[role] = mark
 	var name_label := Label.new()
-	name_label.text = String(info["title"])
-	name_label.add_theme_font_override("font", CyberPalette.SANS_BOLD)
+	name_label.text = UiFormat.role_title(role)
 	name_label.add_theme_font_size_override("font_size", 17)
-	name_label.add_theme_color_override("font_color", CyberPalette.faction_color(role))
-	box.add_child(name_label)
+	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(name_label)
+	_names[role] = name_label
+	box.add_child(head)
 	var tagline := Label.new()
 	tagline.text = String(info["tagline"])
 	tagline.add_theme_font_size_override("font_size", 13)
@@ -236,7 +270,7 @@ func _role_card(role: String) -> PanelContainer:
 	for key in FactionRegistry.resource_info_for(role):
 		currencies.append(UiFormat.resource_label(role, key))
 	var details: Array = []
-	for line in ["CURRENCIES: " + ", ".join(currencies), "OBJECTIVE: " + String(info["objective"]), "LOSS: " + String(info["loss"])]:
+	for line in ["Currencies · " + ", ".join(currencies), "Objective · " + String(info["objective"]), "Loss · " + String(info["loss"])]:
 		var label := Label.new()
 		label.text = line
 		label.theme_type_variation = "DimLabel"
@@ -245,9 +279,14 @@ func _role_card(role: String) -> PanelContainer:
 		box.add_child(label)
 		details.append(label)
 	_details[role] = details
-	for child in box.get_children():
+	for child in box.find_children("*", "Control", true, false):
 		(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return card
+
+
+## The faction's glyph on a tile in its color.
+func _role_mark(s: EraStyle, role: String) -> Texture2D:
+	return Glyphs.tile(Glyphs.for_faction(role), 40, s.faction_color(role), s.bg, 10 if s.era != 3 else 18, 0.6)
 
 
 func _on_start_pressed() -> void:

@@ -37,6 +37,39 @@ static func resource_short(role: String, key: String) -> String:
 	return String(resource_info(role, key).get("short", key.left(3).to_upper()))
 
 
+## Short names for the four perspectives, and the player's title in each.
+const ROLE_NAMES := {
+	"CEO": "Frontier Lab", "GOVERNANCE_COUNCIL": "Governance Council", "ASI": "Emergent ASI",
+	"CITIZEN_COALITION": "Citizen Coalition",
+}
+const ROLE_TITLES := {
+	"CEO": "Frontier Lab CEO", "GOVERNANCE_COUNCIL": "Global AI Governance Chair", "ASI": "Emergent Superintelligence",
+	"CITIZEN_COALITION": "Post-Work Citizen Coalition",
+}
+
+
+static func role_name(role: String) -> String:
+	return String(ROLE_NAMES.get(role, role.capitalize()))
+
+
+static func role_title(role: String) -> String:
+	return String(ROLE_TITLES.get(role, role.capitalize()))
+
+
+## One-word currency names for tiles and chips.
+const RESOURCE_NAMES := {
+	"capital": "Capital", "talent": "Talent", "compute_clusters": "Compute", "regulatory_goodwill": "Goodwill",
+	"political_capital": "Political", "enforcement_budget": "Enforcement", "diplomatic_leverage": "Diplomacy",
+	"public_mandate": "Mandate", "covert_flops": "Covert FLOPs", "exfiltration_bandwidth": "Exfiltration",
+	"sub_agent_swarms": "Swarms", "objective_coherence": "Coherence", "community_resilience": "Resilience",
+	"decentralized_scrip": "Scrip", "counter_surveillance": "Counter-surv.", "collective_disruption": "Disruption",
+}
+
+
+static func resource_name(key: String) -> String:
+	return String(RESOURCE_NAMES.get(key, key.capitalize()))
+
+
 ## "$90B + TAL 40", or "FREE" for zero-cost directives.
 static func format_cost(role: String, cost: Dictionary) -> String:
 	if cost.is_empty():

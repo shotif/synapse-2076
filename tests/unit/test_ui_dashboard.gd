@@ -59,7 +59,7 @@ func test_interactive_turn_through_widgets() -> void:
 	await wait_seconds(0.6)
 	assert_eq(engine.turn, 2, "next turn started automatically")
 	assert_true(dialog.visible, "next crisis presented")
-	assert_string_contains(dashboard.get_node("%YearLabel").text, "T:2/100")
+	assert_string_contains(dashboard.get_node("%YearLabel").text, "Turn 2 of 100")
 	var meter: MeterBar = dashboard._meters["alignment_drift"]
 	assert_almost_eq(meter.value, engine.world.alignment_drift, 0.001, "meters track the world")
 	assert_gt(dashboard._feed_entries.size(), 3, "event feed populated")
@@ -158,6 +158,11 @@ func test_layout_breakpoints() -> void:
 	var phone := UiLayout.compute(Vector2(1080, 2400), 2.625, true)
 	assert_true(phone["compact"], "portrait phone")
 	assert_false(phone["landscape"])
+	assert_eq(phone["mode"], UiLayout.MODE_PHONE)
+	assert_eq(UiLayout.compute(Vector2(2400, 1080), 2.625, true)["mode"], UiLayout.MODE_SPLIT, "landscape phone splits")
+	assert_eq(UiLayout.compute(Vector2(2360, 1640), 2.0, true)["mode"], UiLayout.MODE_SPLIT, "landscape tablet splits")
+	assert_eq(UiLayout.compute(Vector2(1640, 2360), 2.0, true)["mode"], UiLayout.MODE_PHONE, "portrait tablet uses tabs")
+	assert_eq(UiLayout.compute(Vector2(1920, 1080), 1.0, false)["mode"], UiLayout.MODE_DESKTOP)
 	assert_eq(phone["content_size"], Vector2i(411, 914), "about one logical px per CSS px")
 	var landscape := UiLayout.compute(Vector2(2400, 1080), 2.625, true)
 	assert_true(landscape["compact"], "landscape phone")
@@ -177,17 +182,20 @@ func test_layout_breakpoints() -> void:
 
 func test_desktop_layout_is_the_default() -> void:
 	assert_false(dashboard.compact)
-	assert_false(dashboard.get_node("Margin/Layout/TabBar").visible)
-	assert_false(dashboard.get_node("Margin/Layout/VitalsStrip").visible)
+	assert_eq(dashboard.screen_mode, UiLayout.MODE_DESKTOP)
+	assert_false(dashboard.get_node("Margin/Layout/NavBar").visible)
+	assert_false(dashboard.get_node("%CompactVitals").visible)
 	for panel in ["%TelemetryPanel", "%CenterPanel", "%DirectivePanel", "%Footer"]:
 		assert_true(dashboard.get_node(panel).visible, panel)
+	assert_eq(dashboard.get_node("%Footer").get_parent(), dashboard.get_node("Margin/Layout"), "newswire strip under the panels")
 
 
 func test_phone_layout_fits_and_switches_tabs() -> void:
 	var screen := await _use_phone_screen()
 	assert_true(dashboard.compact)
+	assert_eq(dashboard.screen_mode, UiLayout.MODE_PHONE)
 	assert_almost_eq(screen.x, 412.0, 1.0, "logical width matches the phone's CSS width")
-	assert_true(dashboard.get_node("Margin/Layout/TabBar").visible)
+	assert_true(dashboard.get_node("Margin/Layout/NavBar").visible)
 	assert_eq(dashboard._vitals.size(), 6, "vitals strip shows all six metrics")
 	_assert_fits(screen.x, "role select")
 
@@ -198,15 +206,25 @@ func test_phone_layout_fits_and_switches_tabs() -> void:
 	var dialog: DilemmaDialog = dashboard.get_node("%DilemmaDialog")
 	dialog.choose(DilemmaDeck.DEFER_ID)
 	await wait_frames(2)
-	for tab in ["act", "world", "intel", "log"]:
+	for tab in ["act", "world", "lens", "news"]:
 		dashboard.show_tab(tab)
 		await wait_frames(2)
 		_assert_fits(screen.x, tab + " tab")
-	assert_false(dashboard.get_node("%Body").visible, "LOG replaces the panels")
-	assert_true(dashboard.get_node("%Footer").visible)
+	assert_true(dashboard.get_node("%Footer").visible, "NEWS shows the newswire")
+	assert_false(dashboard.get_node("%DirectivePanel").visible, "one panel at a time")
+	assert_true(dashboard.get_node("%CompactVitals").visible, "vitals above every tab but WORLD")
+	dashboard.show_tab("intel")
+	assert_eq(dashboard.active_tab, "lens", "old tab names still work")
+	assert_eq(dashboard.left_view, "intel")
+	await wait_frames(2)
+	_assert_fits(screen.x, "intel view")
 	dashboard.show_tab("world")
 	assert_true(dashboard.get_node("%CenterPanel").visible)
 	assert_false(dashboard.get_node("%DirectivePanel").visible)
+	assert_false(dashboard.get_node("%CompactVitals").visible, "the world shows the vitals itself")
+	dashboard._open_menu()
+	await wait_frames(2)
+	_assert_fits(screen.x, "menu")
 	var engine: SimulationEngine = dashboard.engine
 	assert_almost_eq((dashboard._vitals["epistemic_trust"] as MeterBar).value, engine.world.epistemic_trust, 0.001,
 		"vitals track the world")
@@ -227,3 +245,71 @@ func test_phone_debrief_and_settings_fit() -> void:
 	dashboard._open_llm_settings()
 	await wait_frames(3)
 	_assert_fits(screen.x, "LLM settings")
+
+
+const TABLET_PX := Vector2i(2360, 1640)  # 1180 x 820 CSS px (iPad Air, landscape) at ratio 2
+
+
+func test_split_layout_on_landscape_tablet() -> void:
+	_saved_root_size = tree.root.size
+	tree.root.size = TABLET_PX
+	dashboard.apply_layout(UiLayout.compute(Vector2(TABLET_PX), 2.0, true))
+	await wait_frames(3)
+	var screen: Vector2 = dashboard.get_viewport_rect().size
+	assert_eq(dashboard.screen_mode, UiLayout.MODE_SPLIT)
+	dashboard.start_campaign("CITIZEN_COALITION", 9, false)
+	await wait_frames(3)
+	assert_true(dashboard.get_node("%CenterPanel").visible, "the world stays on screen")
+	assert_true(dashboard.get_node("%DirectivePanel").visible, "ACT beside it")
+	assert_false(dashboard.get_node("%Footer").visible)
+	assert_false((dashboard.get_node("Margin/Layout/NavBar") as NavBar).get_button("world").visible,
+		"no WORLD tab: the world is always visible")
+	dashboard.get_node("%DilemmaDialog").choose(DilemmaDeck.DEFER_ID)
+	for tab in ["news", "lens", "act"]:
+		dashboard.show_tab(tab)
+		await wait_frames(2)
+		_assert_fits(screen.x, "split " + tab)
+	dashboard.show_tab("world")
+	assert_true(dashboard.get_node("%DirectivePanel").visible, "WORLD keeps the side panel")
+
+
+func test_era_change_swaps_theme_and_holds_the_crisis() -> void:
+	dashboard.start_campaign("CEO", 2076, false)
+	await tree.process_frame
+	var dialog: DilemmaDialog = dashboard.get_node("%DilemmaDialog")
+	dialog.choose(DilemmaDeck.DEFER_ID)
+	assert_eq(dashboard.era, 1)
+	assert_eq(dashboard.theme, EraTheme.get_theme(1))
+	var upgrade: EraUpgrade = dashboard.get_node("EraUpgrade")
+	dashboard._on_event_logged({"turn": 20, "year": 2036.0, "category": "ERA", "severity": "WARN", "text": "Era II", "era": 2})
+	assert_true(upgrade.is_playing(), "system upgrade starts")
+	dashboard._on_player_input_required(dashboard.engine.get_player_context())
+	assert_false(dialog.visible, "crisis held back during the upgrade")
+	upgrade.finish_now()
+	assert_eq(dashboard.era, 2)
+	assert_eq(dashboard.theme, EraTheme.get_theme(2), "Era II theme applied")
+	assert_true(dialog.visible, "crisis presented once the upgrade ends")
+	assert_string_contains(dashboard.get_node("%YearLabel").text, "TURN")
+	dashboard._show_role_select()
+	assert_eq(dashboard.era, 1, "a new campaign starts in Era I")
+
+
+func test_era_upgrade_plays_through() -> void:
+	var upgrade: EraUpgrade = dashboard.get_node("EraUpgrade")
+	var swapped := []
+	upgrade.swap_theme.connect(func(era_number: int): swapped.append(era_number))
+	upgrade.play(3, 2050)
+	await wait_seconds(EraUpgrade.T_DONE + 0.4)
+	assert_false(upgrade.is_playing())
+	assert_eq(swapped, [3], "theme swapped once")
+	assert_eq(dashboard.era, 3)
+
+
+func test_meters_follow_the_era() -> void:
+	var meter: MeterBar = dashboard._meters["epistemic_trust"]
+	meter.set_value(64.0)
+	for era_number in [1, 2, 3]:
+		dashboard._apply_era(era_number)
+		await wait_frames(2)
+		assert_eq(meter.custom_minimum_size, MeterBar.SIZES[era_number], "era %d meter size" % era_number)
+	assert_eq(dashboard.get_node("%MeterGrid").columns, 3, "rings and cells sit three abreast")

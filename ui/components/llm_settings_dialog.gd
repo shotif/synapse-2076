@@ -33,7 +33,7 @@ func _ready() -> void:
 	var title := Label.new()
 	title.theme_type_variation = "PanelTitle"
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	title.text = "LLM DECISION LAYER // CLAUDE OR OPENAI-COMPATIBLE ENDPOINT"
+	title.text = "AI decision layer · Claude or any OpenAI-compatible endpoint"
 	box.add_child(title)
 	_endpoint = _field(box, "Endpoint URL. Claude: https://api.anthropic.com/v1/messages or your proxy's /v1/messages. OpenAI-compatible: .../v1/chat/completions",
 		"https://api.anthropic.com/v1/messages")
@@ -64,16 +64,16 @@ func _ready() -> void:
 	buttons.add_theme_constant_override("h_separation", 8)
 	buttons.add_theme_constant_override("v_separation", 8)
 	var test_button := Button.new()
-	test_button.text = "TEST CONNECTION"
+	test_button.text = "Test connection"
 	test_button.pressed.connect(_on_test_pressed)
 	buttons.add_child(test_button)
 	var save_button := Button.new()
 	save_button.theme_type_variation = "AccentButton"
-	save_button.text = "SAVE & CLOSE"
+	save_button.text = "Save & close"
 	save_button.pressed.connect(_on_save_pressed)
 	buttons.add_child(save_button)
 	var cancel := Button.new()
-	cancel.text = "CANCEL"
+	cancel.text = "Cancel"
 	cancel.pressed.connect(func():
 		visible = false
 		closed.emit())
@@ -84,6 +84,11 @@ func _ready() -> void:
 	UiLayout.pass_touch_through(_panel)
 	resized.connect(_apply_layout)
 	visible = false
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_THEME_CHANGED and _frame != null:
+		(get_child(0) as ColorRect).color = EraTheme.style_of(self).shade
 
 
 func set_compact(compact: bool) -> void:
