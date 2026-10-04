@@ -9,13 +9,24 @@ extends Control
 ## the era's own chrome: the trajectory chart, the eight end-state affinities,
 ## final statistics and the buttons.
 ##
+## The epilogue lists the campaign's turning points (TurningPoints: the
+## player's weightiest crisis choices, crises that broke, the moments that
+## changed the era and collapses), each with a "What if?" button that asks
+## to rewind to the last decision before it, and offers Share (the ending as
+## a front page) and Endings (the collection).
+##
 ##   debrief.present(result, engine.event_log)
+##   debrief.rewind_requested.connect(func(turn): ...)   # SimulationEngine.from_record(record, turn)
 ##
 ## Desktop: a two-page spread about 1300 px wide. Compact: one column. The book
 ## keeps its typography in every era; the appendix follows the era theme.
 
 signal new_campaign_requested
 signal closed
+## "What if?": rebuild the campaign at the player phase of [param turn].
+signal rewind_requested(turn: int)
+signal share_requested
+signal endings_requested
 
 const SPREAD_WIDTH := 1300.0
 const PAPER := Color("#FBF7EF")
@@ -34,11 +45,18 @@ const JUSTIFY := TextServer.JUSTIFICATION_WORD_BOUND | TextServer.JUSTIFICATION_
 const BOOK_TITLE := "A HISTORY OF THE ALGORITHMIC CENTURY"
 const REASONS := {"TURN_LIMIT": "The century ran its course", "PLAYER_LOSS": "Instant loss",
 	"CATASTROPHE": "Catastrophic threshold"}
+const MAX_TURNING_POINTS := 5
+const KIND_LABELS := {TurningPoints.CHOICE: "YOUR CHOICE", TurningPoints.FALLOUT: "LEFT TOO LONG",
+	TurningPoints.MOMENT: "THE ERA TURNS", TurningPoints.COLLAPSE: "COLLAPSE"}
 
+## Show the "What if?" buttons (the dashboard turns them off when it cannot
+## rewind, e.g. for a campaign without a record).
+var allow_rewind := true
 var _compact := false
 var _result := {}
 var _chapters: Array = []
 var _epilogue := {}
+var _turning_points: Array = []
 var _page_index := 0
 var _frame: MarginContainer
 var _book: VBoxContainer
@@ -115,6 +133,10 @@ func present(result: Dictionary, event_log: Array = []) -> void:
 	var history: Array = result.get("history", [])
 	_chapters = EraChronicle.chapters(event_log, history, result)
 	_epilogue = EraChronicle.epilogue(result)
+	var humans: Array = result.get("humans", [])
+	if humans.is_empty():
+		humans = [String(result.get("player_role", ""))]
+	_turning_points = TurningPoints.find_for(event_log, humans, MAX_TURNING_POINTS)
 	_chart.set_history(history)
 	_build_affinities(result.get("outcome", {}))
 	_build_stats(result)
@@ -142,6 +164,16 @@ func page_count() -> int:
 
 func current_page() -> int:
 	return _page_index
+
+
+## The turning points the epilogue lists (TurningPoints.find_for).
+func turning_points() -> Array:
+	return _turning_points.duplicate()
+
+
+## Opens the epilogue (the page after the last chapter).
+func show_epilogue() -> void:
+	show_chapter(_chapters.size())
 
 
 func _apply_layout() -> void:
@@ -243,6 +275,8 @@ func _build_left(page: Dictionary, epilogue: bool) -> void:
 		for i in notes.size():
 			_left_box.add_child(_wrapped("%s %s" % [_superscript(i + 1), notes[i]], "EBGaramond-Regular.ttf",
 				12 if _compact else 13, NOTE, HORIZONTAL_ALIGNMENT_LEFT))
+	if epilogue and not _turning_points.is_empty():
+		_left_box.add_child(_turning_points_section())
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_left_box.add_child(spacer)
@@ -276,6 +310,8 @@ func _build_right(page: Dictionary, epilogue: bool) -> void:
 			CAPTION, HORIZONTAL_ALIGNMENT_LEFT)
 		_right_box.add_child(line)
 	_right_box.add_child(_verdict_box())
+	if epilogue:
+		_right_box.add_child(_epilogue_actions())
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_right_box.add_child(spacer)
@@ -379,6 +415,119 @@ func _verdict_box() -> PanelContainer:
 		DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	box.add_child(column)
 	return box
+
+
+## "Turning points": the moments the campaign turned on, oldest first, each
+## with a "What if?" button.
+func _turning_points_section() -> Control:
+	var section := VBoxContainer.new()
+	section.name = "TurningPoints"
+	section.add_theme_constant_override("separation", 8)
+	section.add_child(_rule(RULE))
+	section.add_child(_text("TURNING POINTS", "Cinzel-SemiBold.ttf", 11 if _compact else 12, OXBLOOD, HORIZONTAL_ALIGNMENT_CENTER, 3))
+	var intro := "Go back to any of these moments and choose again." if allow_rewind else "The moments the century turned on."
+	section.add_child(_wrapped(intro, "EBGaramond-Italic.ttf", 13 if _compact else 14, DIM, HORIZONTAL_ALIGNMENT_CENTER))
+	var several := (_result.get("humans", []) as Array).size() > 1
+	for i in _turning_points.size():
+		var point: Dictionary = _turning_points[i]
+		if i > 0:
+			section.add_child(_rule(GUTTER))
+		var row := HBoxContainer.new()
+		row.name = "Point%d" % i
+		row.add_theme_constant_override("separation", 10)
+		var text_box := VBoxContainer.new()
+		text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text_box.add_theme_constant_override("separation", 1)
+		var kind := String(point.get("kind", ""))
+		var kicker := "%d · %s" % [int(floor(float(point.get("year", 2026.0)))), KIND_LABELS.get(kind, "TURNING POINT")]
+		if several and kind in [TurningPoints.CHOICE, TurningPoints.FALLOUT]:
+			kicker += " · " + UiFormat.role_name(String(point.get("faction", ""))).to_upper()
+		text_box.add_child(_wrapped(kicker, "Cinzel-SemiBold.ttf", 9 if _compact else 10, OXBLOOD if kind == TurningPoints.COLLAPSE else DIM,
+			HORIZONTAL_ALIGNMENT_LEFT, 2))
+		text_box.add_child(_wrapped(point_title(point), "EBGaramond-Italic.ttf", 16 if _compact else 18, INK,
+			HORIZONTAL_ALIGNMENT_LEFT))
+		text_box.add_child(_wrapped(String(point.get("summary", "")), "EBGaramond-Regular.ttf", 13 if _compact else 14, CAPTION,
+			HORIZONTAL_ALIGNMENT_LEFT))
+		row.add_child(text_box)
+		if allow_rewind:
+			var rewind_turn := int(point.get("rewind_turn", point.get("turn", 1)))
+			var button := _book_button("What if?", "WhatIf%d" % i)
+			button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			button.tooltip_text = "Go back to %s and choose differently" % UiFormat.year_label(SimConstants.year_for_turn(rewind_turn))
+			button.pressed.connect(_on_what_if.bind(rewind_turn))
+			row.add_child(button)
+		section.add_child(row)
+	return section
+
+
+func _on_what_if(turn: int) -> void:
+	rewind_requested.emit(turn)
+
+
+## A turning point's title as the book prints it: crises in sentence case with
+## their proper nouns ("Rolling brownouts across the Nordic Arctic corridor").
+static func point_title(point: Dictionary) -> String:
+	var title := String(point.get("title", ""))
+	var card := String(point.get("card", ""))
+	if card != "" and String(point.get("kind", "")) in [TurningPoints.CHOICE, TurningPoints.FALLOUT]:
+		return StoryCopy.sentence_case_title(card, title)
+	return title
+
+
+## Share (the ending as a front page) and Endings (the collection).
+func _epilogue_actions() -> Control:
+	var row := HBoxContainer.new()
+	row.name = "EpilogueActions"
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	var share := _book_button("Share", "ShareButton", "share")
+	share.tooltip_text = "Save the ending as a front page of The Ledger"
+	share.pressed.connect(func(): share_requested.emit())
+	row.add_child(share)
+	var endings := _book_button("Endings", "EndingsButton", "book")
+	endings.tooltip_text = "Every ending you have reached"
+	endings.pressed.connect(func(): endings_requested.emit())
+	row.add_child(endings)
+	for button in [share, endings]:
+		(button as Button).size_flags_horizontal = Control.SIZE_EXPAND_FILL if _compact else Control.SIZE_SHRINK_CENTER
+		(button as Button).custom_minimum_size = Vector2(0.0 if _compact else 150.0, 44.0)
+	return row
+
+
+## A ruled button in the book's ink: Cinzel capitals, oxblood border.
+func _book_button(text: String, node_name: String, glyph: String = "") -> Button:
+	var button := Button.new()
+	button.name = node_name
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.custom_minimum_size = Vector2(0, 44 if _compact else 36)
+	button.add_theme_font_override("font", EraStyle.font("Cinzel-SemiBold.ttf", 1))
+	button.add_theme_font_size_override("font_size", 12)
+	for state in ["font_color", "font_focus_color", "font_hover_color", "font_disabled_color"]:
+		button.add_theme_color_override(state, OXBLOOD)
+	for state in ["font_pressed_color", "font_hover_pressed_color"]:
+		button.add_theme_color_override(state, PAPER)
+	if glyph != "":
+		button.icon = Glyphs.texture(glyph, 16)
+		for state in ["icon_normal_color", "icon_focus_color", "icon_hover_color", "icon_disabled_color"]:
+			button.add_theme_color_override(state, OXBLOOD)
+		for state in ["icon_pressed_color", "icon_hover_pressed_color"]:
+			button.add_theme_color_override(state, PAPER)
+	var styles := {"normal": Color(OXBLOOD, 0.0), "hover": Color(OXBLOOD, 0.08), "pressed": OXBLOOD, "hover_pressed": OXBLOOD,
+		"disabled": Color(OXBLOOD, 0.0)}
+	for state in styles:
+		var box := StyleBoxFlat.new()
+		box.bg_color = styles[state]
+		box.border_color = OXBLOOD
+		box.set_border_width_all(1)
+		box.set_corner_radius_all(2)
+		box.content_margin_left = 12
+		box.content_margin_right = 12
+		box.content_margin_top = 6
+		box.content_margin_bottom = 6
+		button.add_theme_stylebox_override(state, box)
+	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	return button
 
 
 ## I · II · III · Epilogue.
