@@ -116,6 +116,8 @@ func test_kinds_from_a_written_log() -> void:
 	var role := SimConstants.CEO
 	var log := [
 		_entry("SYSTEM", 0, {}),
+		_entry("ERA", 1, {"era": 1}),
+		_entry("ERA", 3, {"era": 2}),
 		_entry("PARADIGM", 4, {"shift": "OPTICAL_COMPUTING", "name": "Optical Computing", "summary": "Light replaces copper"}),
 		_entry("DILEMMA", 5, {"card": "CHIP_EMBARGO", "title": "[ESCALATED x2] Export controls", "option": "D",
 			"option_label": "Let it ride", "deferred": true, "fallout": true, "escalation": 2,
@@ -139,7 +141,11 @@ func test_kinds_from_a_written_log() -> void:
 	var by_turn := {}
 	for point in points:
 		by_turn[int(point["turn"])] = point
-	assert_eq(points.size(), 7, "the light choice, the other player's, the routine emergence and the return are left out")
+	assert_eq(points.size(), 8, "the light choice, the other player's, the routine emergence, the return and Era I are left out")
+	assert_eq(by_turn[3]["kind"], TurningPoints.MOMENT)
+	assert_eq(by_turn[3]["title"], "Era II begins")
+	assert_eq(by_turn[3]["rewind_turn"], 2, "replay the new era from its eve")
+	assert_false(by_turn.has(1), "the campaign's first era is its start, not a turning point")
 	assert_eq(by_turn[4]["kind"], TurningPoints.MOMENT)
 	assert_eq(by_turn[4]["rewind_turn"], 3, "a shift happens before the player decides")
 	assert_eq(by_turn[4]["title"], "Paradigm shift: Optical Computing")
@@ -157,7 +163,7 @@ func test_kinds_from_a_written_log() -> void:
 	assert_eq(by_turn[12]["rewind_turn"], 12)
 	# Both players' choices in pass-and-play, the shared moments once.
 	var both := TurningPoints.find_for(log, [role, SimConstants.CITIZEN], 10)
-	assert_eq(both.size(), 8)
+	assert_eq(both.size(), 9)
 	var limited := TurningPoints.find(log, role, 3)
 	assert_eq(limited.size(), 3)
 	var choices := limited.filter(func(p: Dictionary) -> bool: return p["kind"] in [TurningPoints.CHOICE, TurningPoints.FALLOUT])

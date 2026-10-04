@@ -5,8 +5,9 @@ extends RefCounted
 ##   choice    a crisis the player answered, weighted by how far the answer moved
 ##             the world (the sum of its |metric deltas|)
 ##   fallout   a crisis the player put off twice until it broke
-##   moment    what changed the era: a paradigm shift, the AGI milestone, a
-##             large emergent capability, the catastrophe that ended the world
+##   moment    what changed the era: a new hardware era, a paradigm shift, the
+##             AGI milestone, a large emergent capability, the catastrophe that
+##             ended the world
 ##   collapse  a faction that went under (the player's own loss included)
 ##
 ##   for point in TurningPoints.find(engine.event_log, engine.player_role):
@@ -33,6 +34,7 @@ const COLLAPSE_SCORE := 30.0
 const PLAYER_COLLAPSE_SCORE := 45.0
 const CATASTROPHE_SCORE := 50.0
 const MILESTONE_SCORE := 14.0
+const ERA_SCORE := 12.0
 const PARADIGM_SCORE := 10.0
 ## An emergent capability scores its drift jump times this; smaller jumps than
 ## MIN_EMERGENCE_SPIKE are routine.
@@ -57,6 +59,11 @@ const COLLAPSE_TITLES := {
 const CATASTROPHE_TITLES := {
 	"AUTONOMOUS_WORLD_WAR": "The war swarms launch",
 	"UNCONTAINED_CONVERGENCE": "Containment fails",
+}
+const ERA_ROMAN := {1: "I", 2: "II", 3: "III"}
+const ERA_SUMMARIES := {
+	2: "Optical interconnects and modular reactors take over from silicon and nuclear.",
+	3: "Neuromorphic and post-biological substrates take over.",
 }
 
 
@@ -91,6 +98,10 @@ static func find_for(event_log: Array, roles: Array, max_count: int = DEFAULT_CO
 					point = _choice(entry)
 			"COLLAPSE":
 				point = _collapse(entry, roles)
+			"ERA":
+				# The era a late start begins in is the campaign's start, not a turn.
+				if turn > first_turn:
+					point = _era(entry)
 			"PARADIGM":
 				point = _paradigm(entry, first_turn)
 			"MILESTONE":
@@ -190,6 +201,15 @@ static func _collapse(entry: Dictionary, roles: Array) -> Dictionary:
 		summary = _sentence(text)
 	return _point(entry, COLLAPSE, title, summary, int(entry.get("turn", 0)),
 		PLAYER_COLLAPSE_SCORE if player else COLLAPSE_SCORE, {"code": code, "player": player})
+
+
+## A new hardware era: going back means replaying the era from its eve.
+static func _era(entry: Dictionary) -> Dictionary:
+	var era := int(entry.get("era", 0))
+	if not ERA_SUMMARIES.has(era):
+		return {}
+	return _point(entry, MOMENT, "Era %s begins" % ERA_ROMAN[era], String(ERA_SUMMARIES[era]), int(entry.get("turn", 0)) - 1,
+		ERA_SCORE, {"era": era})
 
 
 static func _paradigm(entry: Dictionary, first_turn: int) -> Dictionary:
