@@ -353,29 +353,6 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="FeedHeadline" type="RichTextLabel" parent="Margin/Layout/Footer/FooterBox"]
-unique_name_in_owner = true
-layout_mode = 2
-bbcode_enabled = true
-fit_content = true
-scroll_active = false
-
-[node name="FeedScroll" type="ScrollContainer" parent="Margin/Layout/Footer/FooterBox"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 3
-horizontal_scroll_mode = 0
-
-[node name="EventFeed" type="RichTextLabel" parent="Margin/Layout/Footer/FooterBox/FeedScroll"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-mouse_filter = 1
-bbcode_enabled = true
-fit_content = true
-scroll_active = false
-selection_enabled = true
-
 [node name="DilemmaDialog" parent="." instance=ExtResource("5_dilemma")]
 unique_name_in_owner = true
 layout_mode = 1

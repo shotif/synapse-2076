@@ -19,7 +19,6 @@ extends Control
 
 const SPECTATE_INTERVALS := [0.8, 0.4, 0.15]
 const NEXT_TURN_DELAY := 0.35
-const FEED_LIMIT := 350
 const TABS := ["world", "act", "lens", "news"]
 const TAB_INFO := [
 	{"id": "world", "label": "World", "glyph": "world"},
@@ -57,9 +56,9 @@ var _speed_index := 0
 var _paused := false
 var _pending_option := ""
 var _deferred_context := {}
+## The era the front page and the upgrade are leading to.
+var _pending_era := 0
 var _meters := {}
-var _feed_entries: Array[Dictionary] = []
-var _feed_follow := true
 var _lens: LensPanel
 ## A directive a lens asked for before the crisis was resolved.
 var _queued_directive := ""
@@ -71,6 +70,8 @@ var _nav: NavBar
 var _vitals_strip: VitalsStrip
 var _world_overlay: WorldOverlay
 var _drift_glitch: DriftGlitch
+var _newswire: Newswire
+var _front_page: FrontPage
 var _index_bars := {}
 var _index_values := {}
 var _index_names := {}
@@ -117,9 +118,7 @@ var _effects_check: CheckBox
 @onready var _viewport_caption: RichTextLabel = %ViewportCaption
 @onready var _directive_panel: DirectivePanel = %DirectivePanel
 @onready var _footer: PanelContainer = %Footer
-@onready var _headline: RichTextLabel = %FeedHeadline
-@onready var _feed_scroll: ScrollContainer = %FeedScroll
-@onready var _feed: RichTextLabel = %EventFeed
+@onready var _footer_box: VBoxContainer = %FooterBox
 @onready var _dilemma: DilemmaDialog = %DilemmaDialog
 @onready var _debrief: EndgameDebrief = %EndgameDebrief
 @onready var _settings: LLMSettingsDialog = %LLMSettingsDialog
@@ -150,7 +149,6 @@ func _ready() -> void:
 	_next_turn_timer.timeout.connect(_begin_next_turn)
 	add_child(_next_turn_timer)
 
-	_bind_feed_scroll()
 	_dilemma.option_chosen.connect(_on_dilemma_option_chosen)
 	_directive_panel.execute_requested.connect(_on_execute_requested)
 	_directive_panel.review_crisis_requested.connect(_reopen_crisis)
@@ -186,6 +184,8 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	_spectate_timer.stop()
 	_next_turn_timer.stop()
 	_era_upgrade.cancel()
+	_front_page.close()
+	_pending_era = 0
 	if engine != null:
 		engine.set_decision_provider(null)
 	spectate = spectate_mode
@@ -202,10 +202,8 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	engine.turn_completed.connect(_on_turn_completed)
 	engine.campaign_ended.connect(_on_campaign_ended)
 	engine.set_decision_provider(llm)
-	_feed_entries.clear()
-	_feed.clear()
-	_feed_follow = true
-	_headline.text = ""
+	_newswire.clear()
+	_newswire.player_role = role
 	_world_overlay.set_headline("WIRE", "")
 	_world_overlay.set_focus("")
 	for meter in _meters.values():
@@ -271,16 +269,30 @@ func _apply_era(era_number: int) -> void:
 		_update_indices(engine.get_snapshot())
 
 
+## An era just closed: print its front page, then upgrade the interface once
+## the player turns the page.
 func _begin_era_change(new_era: int) -> void:
 	if new_era == era and not _era_upgrade.is_playing():
 		return
+	_pending_era = new_era
+	if engine != null and new_era > 1:
+		_front_page.set_compact(compact)
+		_front_page.present(EraChronicle.summarize_era(engine.event_log, engine.world.history, new_era - 1, engine.player_role))
+		return
+	_play_era_upgrade()
+
+
+func _play_era_upgrade() -> void:
+	if _pending_era <= 0:
+		return
 	_era_upgrade.set_compact(compact)
-	_era_upgrade.play(new_era, int(floor(engine.get_year())) if engine != null else 0)
+	_era_upgrade.play(_pending_era, int(floor(engine.get_year())) if engine != null else 0)
+	_pending_era = 0
 
 
-## True while an era change holds the next crisis back.
+## True while an era change (front page or upgrade) holds the next crisis back.
 func _story_busy() -> bool:
-	return _era_upgrade.is_playing()
+	return _era_upgrade.is_playing() or _front_page.visible
 
 
 func _on_story_finished() -> void:
@@ -310,9 +322,6 @@ func _restyle_chrome() -> void:
 	_viewport_caption.add_theme_color_override("default_color", s.text_dim)
 	_indices_label.add_theme_font_size_override("normal_font_size", 12)
 	_indices_label.add_theme_font_size_override("mono_font_size", 12)
-	_headline.add_theme_font_size_override("normal_font_size", 14)
-	_feed.add_theme_font_size_override("normal_font_size", 12)
-	_feed.add_theme_font_size_override("mono_font_size", 12)
 	if _menu_panel != null:
 		_restyle_menu(s)
 
@@ -419,8 +428,6 @@ func set_screen_mode(mode: String, landscape: bool = true) -> void:
 		(panel as Control).size_flags_horizontal = Control.SIZE_EXPAND_FILL if compact else Control.SIZE_FILL
 		(panel as Control).size_flags_stretch_ratio = 1.0
 	_center_panel.size_flags_stretch_ratio = 1.15 if screen_mode == UiLayout.MODE_SPLIT else 1.0
-	# Touch screens scroll the feed by dragging, so text selection gives way.
-	_feed.selection_enabled = not compact
 	for button in [_menu_button, _pause_button, _speed_button]:
 		(button as Control).custom_minimum_size = Vector2(44, 44) if compact else Vector2(40, 36)
 	_badge.set_compact(compact)
@@ -430,7 +437,10 @@ func set_screen_mode(mode: String, landscape: bool = true) -> void:
 	_debrief.set_compact(compact)
 	_settings.set_compact(compact)
 	_era_upgrade.set_compact(compact)
+	_front_page.set_compact(compact)
 	_world_overlay.set_compact(compact)
+	_newswire.set_compact(compact)
+	_newswire.set_horizontal(not compact)
 	if _lens != null:
 		_lens.set_compact(compact)
 	_restyle_chrome()
@@ -504,10 +514,18 @@ func _build_chrome() -> void:
 	# The world is the interface: chips, captions and the news ticker over the globe.
 	_world_overlay = WorldOverlay.new()
 	_world_overlay.name = "WorldOverlay"
-	_world_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_world_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_world_stack.add_child(_world_overlay)
 	_world_stack.move_child(_world_overlay, _lattice_container.get_index() + 1)
 	_world_overlay.bind_globe(_globe)
+	_world_overlay.headline_writer = func(entry: Dictionary) -> Dictionary:
+		return HeadlineWriter.headline(entry, engine.player_role if engine != null else "")
+
+	# Headlines instead of a log: a strip under the panels, the NEWS tab on phones.
+	_newswire = Newswire.new()
+	_newswire.name = "Newswire"
+	_newswire.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_footer_box.add_child(_newswire)
 
 	# Alignment drift tears the interface (not the dialogs above it).
 	_drift_glitch = DriftGlitch.new()
@@ -521,8 +539,19 @@ func _build_chrome() -> void:
 	_nav.tab_selected.connect(show_tab)
 	_layout.add_child(_nav)
 
+	# The era's front page sits above the crisis dialog; the upgrade above all.
+	# The swiped crisis card draws at z 1; these must cover it.
+	_front_page = FrontPage.new()
+	_front_page.name = "FrontPage"
+	_front_page.z_index = 2
+	_front_page.visible = false
+	_front_page.dismissed.connect(_play_era_upgrade)
+	add_child(_front_page)
+	move_child(_front_page, _dilemma.get_index() + 1)
+
 	_era_upgrade = EraUpgrade.new()
 	_era_upgrade.name = "EraUpgrade"
+	_era_upgrade.z_index = 3
 	_era_upgrade.swap_theme.connect(_apply_era)
 	_era_upgrade.finished.connect(_on_story_finished)
 	add_child(_era_upgrade)
@@ -534,7 +563,8 @@ func _build_chrome() -> void:
 func _build_menu() -> void:
 	_menu_layer = Control.new()
 	_menu_layer.name = "MenuLayer"
-	_menu_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_menu_layer.z_index = 2
+	_menu_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_menu_layer.visible = false
 	_menu_layer.gui_input.connect(func(event: InputEvent):
 		if event is InputEventMouseButton and event.pressed:
@@ -671,20 +701,7 @@ func _on_lens_directive(action_id: String) -> void:
 
 func _on_event_logged(entry: Dictionary) -> void:
 	_world_overlay.show_log_entry(entry)
-	_feed_entries.append(entry)
-	if _feed_entries.size() > FEED_LIMIT:
-		_feed_entries = _feed_entries.slice(_feed_entries.size() - FEED_LIMIT)
-		_feed.clear()
-		for old in _feed_entries:
-			_feed.append_text(_format_entry(old) + "\n")
-	else:
-		_feed.append_text(_format_entry(entry) + "\n")
-	var severity := String(entry.get("severity", "INFO"))
-	if severity != "INFO" or _headline.text == "":
-		var s := EraStyle.for_era(era)
-		_headline.text = "[color=%s]%s[/color]  [color=%s]%s[/color]" % [
-			CyberPalette.hex(s.accent), s.label("Latest"), CyberPalette.hex(_severity_color(s, severity)),
-			CyberPalette.escape_bbcode(String(entry.get("text", ""))).left(220)]
+	_newswire.add_entry(entry)
 	if String(entry.get("category", "")) == "ERA":
 		_begin_era_change(int(entry.get("era", era)))
 
@@ -752,11 +769,15 @@ func _on_turn_completed(_turn: int, _snapshot: Dictionary) -> void:
 func _on_campaign_ended(result: Dictionary) -> void:
 	_spectate_timer.stop()
 	_next_turn_timer.stop()
+	_front_page.close()
+	if _pending_era > 0:
+		_apply_era(_pending_era)
+		_pending_era = 0
 	_era_upgrade.finish_now()
 	_deferred_context = {}
 	_directive_panel.set_interactive(false)
 	_dilemma.close()
-	_debrief.present(result)
+	_debrief.present(result, engine.event_log)
 
 
 # --- Player interaction -------------------------------------------------------------
@@ -821,6 +842,8 @@ func _show_role_select() -> void:
 	_spectate_timer.stop()
 	_next_turn_timer.stop()
 	_era_upgrade.cancel()
+	_front_page.close()
+	_pending_era = 0
 	_debrief.visible = false
 	_dilemma.close()
 	_update_llm_hint()
@@ -837,41 +860,6 @@ func _update_llm_hint() -> void:
 	_role_select.set_llm_status(_badge.get_text())
 
 
-# --- Event feed ---------------------------------------------------------------------
-
-## Keeps the feed pinned to the newest entry until the player scrolls up, and
-## pins it again once they scroll back to the bottom.
-func _bind_feed_scroll() -> void:
-	var bar := _feed_scroll.get_v_scroll_bar()
-	bar.changed.connect(func():
-		if _feed_follow:
-			_feed_scroll.scroll_vertical = int(bar.max_value))
-	bar.value_changed.connect(func(value: float):
-		_feed_follow = value + bar.page >= bar.max_value - 8.0)
-
-
-func _format_entry(entry: Dictionary) -> String:
-	var s := EraStyle.for_era(era)
-	var faction := String(entry.get("faction", ""))
-	var tag := ""
-	if faction != "":
-		tag = "[color=%s]%s[/color] " % [CyberPalette.hex(s.faction_color(faction)), UiFormat.role_name(faction)]
-	var category := String(entry.get("category", "")).capitalize()
-	return "[color=%s][code]T%02d %d[/code][/color]  [color=%s]%s[/color]  %s[color=%s]%s[/color]" % [
-		CyberPalette.hex(s.text_dim), int(entry.get("turn", 0)), int(float(entry.get("year", 2026.0))),
-		CyberPalette.hex(s.accent), s.label(category), tag, CyberPalette.hex(_severity_color(s, String(entry.get("severity", "INFO")))),
-		CyberPalette.escape_bbcode(String(entry.get("text", "")))]
-
-
-func _severity_color(s: EraStyle, severity: String) -> Color:
-	match severity:
-		"WARN":
-			return s.warn
-		"CRITICAL":
-			return s.critical
-	return s.text
-
-
 # --- Telemetry rendering ------------------------------------------------------------
 
 func _refresh_telemetry(snapshot: Dictionary, record: bool) -> void:
@@ -884,6 +872,7 @@ func _refresh_telemetry(snapshot: Dictionary, record: bool) -> void:
 	_drift_glitch.set_drift(float(metrics.get("alignment_drift", 0.0)))
 	_lattice.update_from_snapshot(snapshot)
 	_update_indices(snapshot)
+	_newswire.set_public_trust(float(metrics.get("epistemic_trust", 100.0)))
 	if engine != null:
 		_directive_panel.update_resources(engine.player_role, engine.get_player().resources)
 	_update_header()

@@ -41,6 +41,7 @@ var _clip: Control
 var _boot: Control
 var _boot_bg: ColorRect
 var _scan: ColorRect
+var _frame: MarginContainer
 var _content: VBoxContainer
 var _kicker: Label
 var _title: Label
@@ -51,12 +52,12 @@ var _log_rows: Array[HBoxContainer] = []
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 	_glitch = ColorRect.new()
 	_glitch.name = "Glitch"
-	_glitch.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_glitch.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_glitch.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_glitch_material = ShaderMaterial.new()
 	_glitch_material.shader = TRANSITION_SHADER
@@ -75,17 +76,23 @@ func _ready() -> void:
 	_boot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_clip.add_child(_boot)
 	_boot_bg = ColorRect.new()
-	_boot_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_boot_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_boot_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_boot.add_child(_boot_bg)
 	_scan = ColorRect.new()
 	_scan.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_boot.add_child(_scan)
 
+	# The boot text is a column centered vertically; phones keep it left-aligned.
+	_frame = MarginContainer.new()
+	_frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_boot.add_child(_frame)
 	_content = VBoxContainer.new()
+	_content.alignment = BoxContainer.ALIGNMENT_CENTER
 	_content.add_theme_constant_override("separation", 14)
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_boot.add_child(_content)
+	_frame.add_child(_content)
 	_kicker = _mono_label(12, 3)
 	_content.add_child(_kicker)
 	_title = Label.new()
@@ -268,13 +275,12 @@ func _layout() -> void:
 	_boot.size = size
 	_clip_progress(0.0 if not _swapped else 1.0)
 	_scan.size = Vector2(size.x, 2)
-	var width := minf(size.x - 60.0, 620.0) if not _compact else size.x - 60.0
 	_title.add_theme_font_size_override("font_size", 34 if _compact else 46)
-	_content.custom_minimum_size = Vector2(maxf(width, 200.0), 0)
-	_content.size = Vector2(maxf(width, 200.0), 0)
-	_content.reset_size()
-	_content.position = Vector2((size.x - _content.size.x) / 2.0 if not _compact else 30.0,
-		maxf((size.y - _content.get_combined_minimum_size().y) / 2.0, 20.0))
+	var side := 30.0 if _compact else maxf((size.x - 620.0) / 2.0, 30.0)
+	for margin in ["margin_left", "margin_right"]:
+		_frame.add_theme_constant_override(margin, int(side))
+	for margin in ["margin_top", "margin_bottom"]:
+		_frame.add_theme_constant_override(margin, 20)
 	_set_step(_current_step())
 
 

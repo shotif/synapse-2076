@@ -87,6 +87,10 @@ var show_numbers := true:
 ## Seconds since the overlay started; drives the headline alternation and the
 ## misreport schedule. Tests may set it and call refresh().
 var clock := 0.0
+## Optional wording for the ticker: called with a log entry, returns
+## {kicker, title, counter} (e.g. HeadlineWriter.headline). The overlay's own
+## rules still decide which entries make the ticker and how long they hold it.
+var headline_writer: Callable
 
 var _globe: GlobeViewport
 var _focused := ""
@@ -191,6 +195,13 @@ func show_log_entry(entry: Dictionary) -> bool:
 	var fresh := turn >= _news_turn and turn - _news_turn < NEWS_HOLD_TURNS
 	if priority < 2 and _news_priority >= 2 and fresh:
 		return false
+	if headline_writer.is_valid():
+		var written: Dictionary = headline_writer.call(entry)
+		if String(written.get("title", "")) != "":
+			news["kicker"] = String(written.get("kicker", news["kicker"]))
+			news["title"] = String(written["title"])
+			if String(written.get("counter", "")) != "":
+				news["counter"] = String(written["counter"])
 	set_headline(news["kicker"], news["title"], news["counter"])
 	_news_priority = priority
 	_news_turn = turn

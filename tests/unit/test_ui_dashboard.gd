@@ -62,7 +62,7 @@ func test_interactive_turn_through_widgets() -> void:
 	assert_string_contains(dashboard.get_node("%YearLabel").text, "Turn 2 of 100")
 	var meter: MeterBar = dashboard._meters["alignment_drift"]
 	assert_almost_eq(meter.value, engine.world.alignment_drift, 0.001, "meters track the world")
-	assert_gt(dashboard._feed_entries.size(), 3, "event feed populated")
+	assert_gt(dashboard._newswire.entry_count(), 3, "newswire populated")
 
 
 func test_unaffordable_crisis_options_are_disabled() -> void:
@@ -90,6 +90,8 @@ func test_spectate_mode_reaches_debrief() -> void:
 	assert_true(engine.is_ended())
 	var debrief: EndgameDebrief = dashboard.get_node("%EndgameDebrief")
 	assert_true(debrief.visible, "debrief shown")
+	assert_gt(debrief.page_count(), 1, "the history book has chapters")
+	assert_false(dashboard.get_node("FrontPage").visible, "no front page left over the debrief")
 	assert_eq((debrief._chart.history as Array).size(), engine.world.history.size(), "trajectory chart bound to history")
 	assert_eq(debrief._affinity_box.get_child_count(), 8, "eight end-state affinities")
 
@@ -124,7 +126,8 @@ func test_event_text_is_bbcode_escaped() -> void:
 	dashboard.start_campaign("CITIZEN_COALITION", 1, false)
 	dashboard._on_event_logged({"turn": 1, "year": 2026.5, "category": "ACTION", "severity": "INFO",
 		"faction": "ASI", "text": "[color=red]injected[/color] [url=x]link[/url]"})
-	assert_string_contains(dashboard._feed.get_parsed_text(), "[color=red]injected[/color]", "markup rendered literally")
+	assert_has(dashboard._newswire.get_headline_titles(), "[color=red]injected[/color] [url=x]link[/url]",
+		"markup shown as text in the newswire")
 
 
 # --- Responsive layout ----------------------------------------------------------
@@ -281,10 +284,15 @@ func test_era_change_swaps_theme_and_holds_the_crisis() -> void:
 	assert_eq(dashboard.era, 1)
 	assert_eq(dashboard.theme, EraTheme.get_theme(1))
 	var upgrade: EraUpgrade = dashboard.get_node("EraUpgrade")
+	var front_page: FrontPage = dashboard.get_node("FrontPage")
 	dashboard._on_event_logged({"turn": 20, "year": 2036.0, "category": "ERA", "severity": "WARN", "text": "Era II", "era": 2})
-	assert_true(upgrade.is_playing(), "system upgrade starts")
+	assert_true(front_page.visible, "the closing era's front page comes first")
+	assert_false(upgrade.is_playing())
 	dashboard._on_player_input_required(dashboard.engine.get_player_context())
-	assert_false(dialog.visible, "crisis held back during the upgrade")
+	assert_false(dialog.visible, "crisis held back while the page is up")
+	front_page._turn_page()
+	assert_true(upgrade.is_playing(), "turning the page starts the system upgrade")
+	assert_false(dialog.visible, "crisis still held back during the upgrade")
 	upgrade.finish_now()
 	assert_eq(dashboard.era, 2)
 	assert_eq(dashboard.theme, EraTheme.get_theme(2), "Era II theme applied")

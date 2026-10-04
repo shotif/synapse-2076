@@ -17,14 +17,14 @@ var _motion := true
 func _init() -> void:
 	name = "Backdrop"
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_material = ShaderMaterial.new()
 	_material.shader = BACKDROP_SHADER
 	material = _material
 	scanlines = ColorRect.new()
 	scanlines.name = "Scanlines"
 	scanlines.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	scanlines.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scanlines.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var scan_material := ShaderMaterial.new()
 	scan_material.shader = SCANLINE_SHADER
 	scanlines.material = scan_material
