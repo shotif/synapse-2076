@@ -13,7 +13,7 @@ extends RefCounted
 ##   var art := CrisisArt.texture_for("ENERGY", 2, Vector2i(420, 190))
 
 const CATEGORIES := ["ALIGNMENT", "ECONOMY", "ENERGY", "EPISTEMIC", "GEOPOLITICS", "LABOR", "RACE", "SECURITY",
-	"SOCIETY", "SOVEREIGNTY", "UNREST", "CRISIS"]
+	"SOCIETY", "SOVEREIGNTY", "UNREST", "BIOSECURITY", "ROBOTICS", "CULTURE", "PERSONHOOD", "SPACE", "CRISIS"]
 const FALLBACK := "CRISIS"
 const DESIGN := Vector2(440.0, 180.0)
 const OVERSAMPLE := 2.0
@@ -22,7 +22,9 @@ const TINT := {
 	"ALIGNMENT": "algorithmic_autonomy", "ECONOMY": "labor_displacement", "ENERGY": "compute_energy_sat",
 	"EPISTEMIC": "epistemic_trust", "GEOPOLITICS": "geopolitical_tension", "LABOR": "labor_displacement",
 	"RACE": "algorithmic_autonomy", "SECURITY": "geopolitical_tension", "SOCIETY": "epistemic_trust",
-	"SOVEREIGNTY": "compute_energy_sat", "UNREST": "labor_displacement", "CRISIS": "alignment_drift",
+	"SOVEREIGNTY": "compute_energy_sat", "UNREST": "labor_displacement", "BIOSECURITY": "alignment_drift",
+	"ROBOTICS": "labor_displacement", "CULTURE": "epistemic_trust", "PERSONHOOD": "algorithmic_autonomy",
+	"SPACE": "compute_energy_sat", "CRISIS": "alignment_drift",
 }
 
 static var _cache := {}
@@ -119,6 +121,17 @@ static func scene_svg(category: String, p: Dictionary) -> String:
 			return _sovereignty(p)
 		"UNREST":
 			return _unrest(p)
+		# Placeholders until these categories get scenes of their own.
+		"BIOSECURITY":
+			return _security(p)
+		"ROBOTICS":
+			return _labor(p)
+		"CULTURE":
+			return _society(p)
+		"PERSONHOOD":
+			return _alignment(p)
+		"SPACE":
+			return _energy(p)
 	return _crisis(p)
 
 
