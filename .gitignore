@@ -5,8 +5,9 @@
 # Engine binaries downloaded by CI
 .godot-bin/
 
-# Export output
-/build/
+# Export output. build/.gdignore stays tracked so Godot never imports exported files.
+/build/*
+!/build/.gdignore
 /exports/
 *.pck
 *.x86_64

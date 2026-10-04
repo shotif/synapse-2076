@@ -13,11 +13,13 @@ godot --headless --path . --script res://tools/monte_carlo.gd -- --runs=60  # ba
 godot --headless --path . --script res://tests/headless_sim_test.gd        # PRD smoke test
 xvfb-run -a godot --path . --rendering-driver opengl3 --resolution 1600x900 \
   --script res://tools/capture_dashboard.gd -- --out=/tmp/shots             # screenshot the real UI (no GPU needed)
+mkdir -p build/web && godot --headless --path . --export-release "Web" build/web/index.html  # needs the web_nothreads templates
 ```
 
 - **Godot binary.** Set `GODOT=/path/to/godot` if `godot` isn't on PATH.
 - **Fresh clones** need `godot --headless --path . --import` once to build the `class_name` cache. `run_tests.sh` does this for you.
 - **CI** (`.github/workflows/ci.yml`) runs `tools/run_tests.sh` on Godot 4.3 and 4.7.
+- **Pages** (`.github/workflows/pages.yml`) runs the same script on every push to `main`, then exports the Web preset with Godot 4.3 and deploys it to https://shotif.github.io/synapse-2076/.
 
 ## Architecture rules
 
@@ -51,6 +53,7 @@ xvfb-run -a godot --path . --rendering-driver opengl3 --resolution 1600x900 \
 6. **The headless dummy renderer prints `mesh_get_surface_count` errors** when a mesh instance and its mesh are freed together. Viewports call `GlobeViewport.release_meshes(self)` in `_exit_tree()`, and line meshes are rebuilt in place (`clear_surfaces()`) instead of being replaced.
 7. **`const` Dictionaries and Arrays are read-only.** `duplicate(true)` before mutating templates (see `DilemmaDeck._resolve_option`).
 8. **Don't load class_name scripts with `CACHE_MODE_IGNORE`:** it can segfault 4.3 (seen in `tools/check_scripts.gd`).
+9. **The Web build is single-threaded.** Keep `variant/thread_support=false`: GitHub Pages can't send COOP/COEP headers, so a threaded build won't start there. Export into `build/`, whose `.gdignore` stops Godot from importing the output and packing it into the next export. Web builds never auto-probe the default localhost LLM endpoint (`LLMService.should_auto_probe()`).
 
 ## Layout
 

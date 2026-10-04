@@ -10,6 +10,8 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
 |---|---|---|
 | ![Crisis card](docs/screenshots/crisis_card.png) | ![Neural lattice](docs/screenshots/dashboard_lattice.png) | ![Debrief](docs/screenshots/endgame_debrief.png) |
 
+**Play it in your browser at https://shotif.github.io/synapse-2076/.** It needs a desktop browser with WebGL 2 and nothing to install. The web build starts with the heuristic engine driving the other factions; see the [web build note](#llm-decision-layer) to connect a model. Every push to `main` redeploys it.
+
 ## Quick start
 
 **Requirements:** the [Godot 4.3+](https://godotengine.org/download) standard build (not .NET). The project uses the GL Compatibility renderer, so it runs on modest GPUs and exports to the web.
@@ -42,7 +44,7 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
 ```
 
 - **`tests/run_tests.gd`** is a zero-dependency runner. Assertion names mirror [GUT](https://github.com/bitwes/Gut) (`assert_eq`, `assert_almost_eq`, `assert_between`, …), so suites port to GUT by changing their `extends` line.
-- **Suites** live in `tests/unit/`. There are 13 of them with 144 tests:
+- **Suites** live in `tests/unit/`. There are 13 of them with 147 tests:
   - world dynamics fuzzing (2,000 extreme ticks with no NaN or overflow)
   - tech tree, compute physics, factions and the PRD loss conditions
   - heuristic decision trees (PRD 7.4 rules)
@@ -56,6 +58,7 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
   - full 100-turn campaigns in automated and scripted-interactive modes
 - **The wrapper fails on script errors.** `tools/run_tests.sh` fails if Godot prints any `SCRIPT ERROR`, because GDScript runtime errors don't change the exit code.
 - **CI** runs the same script on every push against Godot 4.3 (the minimum) and 4.7 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The suite has also been verified locally on 4.4.1 and 4.6.
+- **Pages** runs it again on every push to `main` before exporting and deploying the web build ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
 
 Other tools:
 
@@ -122,7 +125,7 @@ SYNAPSE_LLM_API_KEY=sk-ant-... SYNAPSE_LLM_JSON_MODE=0 godot --path .
 
 API keys are sent as `Authorization: Bearer`. If an endpoint rejects `response_format`, set JSON mode off; the prompt still demands JSON-only output and the parser copes with prose.
 
-> **Web exports:** browsers enforce CORS and anything shipped to the client is public. Point a web build at your own proxy rather than embedding a provider key.
+> **Web build:** the browser build never contacts the default localhost endpoint on its own, because a public page reaching into your machine triggers browser permission prompts. To use a local model, click the LLM badge and press **TEST CONNECTION** or **SAVE & CLOSE**. Your browser may ask you to allow access to local services, and the endpoint must allow the page's origin through CORS, for example `OLLAMA_ORIGINS=https://shotif.github.io ollama serve`. Anything shipped to the client is public, so point a web build at your own proxy rather than embedding a provider key. A key you choose to remember is stored in that browser's site storage.
 
 ## Architecture
 
@@ -203,7 +206,13 @@ The coupled equations, scaling laws, faction economies and endgame logic are spe
 
 ```bash
 godot --headless --path . --export-release "Linux" build/linux/synapse-2076.x86_64
+mkdir -p build/web && godot --headless --path . --export-release "Web" build/web/index.html
+python3 -m http.server 8000 --directory build/web    # browsers won't run it from file://
 ```
+
+- **Web.** The preset is single-threaded (`variant/thread_support=false`), so it runs on hosts that can't send cross-origin isolation (COOP/COEP) headers, GitHub Pages included. It needs only the `web_nothreads_*` export templates.
+- **GitHub Pages.** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs the test suite, exports the Web preset with Godot 4.3 and deploys it on every push to `main`. You can also start it from the Actions tab. In a fork, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions** once.
+- **`build/.gdignore`** keeps Godot from importing exported files back into the project, where the next export would pack them.
 
 ## Credits
 

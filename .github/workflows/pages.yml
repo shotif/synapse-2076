@@ -1,0 +1,98 @@
+name: Deploy to GitHub Pages
+
+# Tests main, exports the single-threaded Web preset and publishes it to
+# https://<owner>.github.io/<repo>/. One-time setup: Settings -> Pages ->
+# Build and deployment -> Source: "GitHub Actions".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. A newer push queues behind a running deploy
+# instead of cancelling it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Test and export the Web build (Godot 4.3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GODOT_BIN: ${{ github.workspace }}/.godot-bin/Godot_v4.3-stable_linux.x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot 4.3
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: .godot-bin
+          key: godot-4.3-stable-linux-x86_64
+
+      - name: Download Godot 4.3
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .godot-bin
+          curl -fsSL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d .godot-bin
+          chmod +x "$GODOT_BIN"
+          # Keep Godot's filesystem scan out of the engine download.
+          touch .godot-bin/.gdignore
+
+      - name: Cache Web export templates
+        id: cache-templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/4.3.stable
+          key: godot-4.3-stable-web-nothreads-templates
+
+      - name: Download Web export templates
+        if: steps.cache-templates.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz"
+          # The archive holds every platform (~1 GB). Keep only the single-threaded Web templates.
+          dest="$HOME/.local/share/godot/export_templates/4.3.stable"
+          mkdir -p "$dest"
+          unzip -j -o /tmp/templates.tpz templates/version.txt \
+            templates/web_nothreads_release.zip templates/web_nothreads_debug.zip -d "$dest"
+          rm /tmp/templates.tpz
+
+      - name: Lint, unit tests and 100-turn headless simulation
+        run: GODOT="$GODOT_BIN" tools/run_tests.sh
+
+      - name: Export the Web build
+        run: |
+          mkdir -p build/web
+          "$GODOT_BIN" --headless --path . --export-release "Web" build/web/index.html
+          for file in index.html index.js index.wasm index.pck; do
+            test -s "build/web/$file" || { echo "::error::export is missing $file"; exit 1; }
+          done
+          ls -la build/web
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
