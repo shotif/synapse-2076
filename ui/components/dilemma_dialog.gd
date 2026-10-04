@@ -74,6 +74,8 @@ var _row_disabled: StyleBoxFlat
 var _row_focus: StyleBoxFlat
 var _badge_box: StyleBoxFlat
 var _badge_text := Color.WHITE
+## [year, character scores, memories] for the card's character badge.
+var _story_context: Array = []
 
 var _shade: ColorRect
 var _backdrop: Backdrop
@@ -192,6 +194,15 @@ func get_card() -> CrisisCard:
 	return _card
 
 
+## Story context for the card's character badge (CrisisCard.set_story_context):
+## call it before present() with the campaign year, DilemmaDeck.characters and
+## {character id: memory line}.
+func set_story_context(year: float, character_scores: Dictionary, memories: Dictionary) -> void:
+	_story_context = [year, character_scores, memories]
+	if _card != null:
+		_card.set_story_context(year, character_scores, memories)
+
+
 ## Previews a response on the vitals as if its row were hovered (tests,
 ## tooling); "" clears it.
 func preview_option(option_id: String) -> void:
@@ -269,6 +280,8 @@ func _build_card() -> void:
 	_card.gui_input.connect(_on_card_input)
 	_slot.card = _card
 	_slot.add_child(_card)
+	if not _story_context.is_empty():
+		_card.set_story_context(_story_context[0], _story_context[1], _story_context[2])
 
 
 func _build_options() -> void:

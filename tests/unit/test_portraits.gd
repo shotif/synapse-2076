@@ -1,8 +1,12 @@
 extends "res://tests/framework/test_case.gd"
-## The recurring cast on screen: aging portraits (Portrait).
+## The recurring cast on screen: aging portraits (Portrait) and the
+## character badge (CharacterBadge) on crisis cards (CrisisCard via
+## DilemmaDialog).
 
+const DialogScene := preload("res://ui/components/dilemma_dialog.tscn")
 const PHONE := Vector2(412, 915)
 const SIZES := [40.0, 96.0, 240.0]
+const LONG_MEMORY := "Remembers that you funded the retraining program when nobody else in the Council would, and says so at every meeting."
 
 var holder: Control
 
@@ -18,6 +22,16 @@ func before_each() -> void:
 func after_each() -> void:
 	holder.queue_free()
 	await tree.process_frame
+
+
+## Every visible control under [param root_control] stays within [param width].
+func _assert_fits(root_control: Control, width: float, context: String) -> void:
+	var overflowing: Array[String] = []
+	for node in root_control.find_children("*", "Control", true, false):
+		var control := node as Control
+		if control.is_visible_in_tree() and control.get_global_rect().end.x > width + 0.5:
+			overflowing.append("%s (%s) ends at %.0f" % [control.name, control.get_class(), control.get_global_rect().end.x])
+	assert_eq(overflowing.size(), 0, "%s fits %.0f px: %s" % [context, width, ", ".join(overflowing.slice(0, 5))])
 
 
 func _born(character_id: String) -> int:
@@ -184,6 +198,125 @@ func test_portrait_follows_the_era_theme() -> void:
 	face.set_era_override(2)
 	assert_eq(face.get_era(), 2, "an override wins")
 	assert_eq(face.mouse_filter, Control.MOUSE_FILTER_IGNORE, "takes no input")
+
+
+# --- CharacterBadge ---------------------------------------------------------------------------
+
+func test_badge_presents_a_character_and_fits_a_phone() -> void:
+	var badge := CharacterBadge.new()
+	holder.add_child(badge)
+	badge.size = Vector2(340, 0)
+	badge.position = Vector2(36, 120)
+	assert_false(badge.visible, "hidden until a character is presented")
+	badge.set_compact(true)
+	badge.present("maya", 2040.0, 3.5, LONG_MEMORY)
+	await wait_frames(3)
+	assert_true(badge.visible)
+	assert_eq((badge.find_child("BadgeName", true, false) as Label).text, "Maya Okafor")
+	assert_eq((badge.find_child("BadgeRole", true, false) as Label).text, "Labor organizer · 41")
+	assert_eq((badge.find_child("BadgeStanceLabel", true, false) as Label).text, "Loyal")
+	var memory: Label = badge.find_child("BadgeMemory", true, false)
+	assert_true(memory.visible)
+	assert_eq(memory.text, LONG_MEMORY)
+	assert_eq(badge.get_portrait().get_age(), 41)
+	_assert_fits(holder, PHONE.x, "badge")
+	badge.present("aria", 2052.0, -2.0, "")
+	assert_eq((badge.find_child("BadgeRole", true, false) as Label).text, "Something else · v4")
+	assert_eq((badge.find_child("BadgeStanceLabel", true, false) as Label).text, "Wary")
+	assert_false(memory.visible, "no memory, no line")
+	badge.present("", 2052.0, 0.0, "")
+	assert_false(badge.visible, "an empty id hides the badge")
+	badge.present("nobody", 2052.0, 0.0, "")
+	assert_false(badge.visible, "so does an unknown one")
+	assert_eq(CharacterBadge.role_line("jonas", 2070.0), "Retired grid elder · 90")
+
+
+func test_badge_speaks_in_the_era_voice() -> void:
+	var badge := CharacterBadge.new()
+	holder.add_child(badge)
+	badge.present("nadia", 2040.0, -4.0, "")
+	holder.theme = EraTheme.get_theme(2)
+	await wait_frames(2)
+	assert_eq((badge.find_child("BadgeStanceLabel", true, false) as Label).text, "HOSTILE")
+	holder.theme = EraTheme.get_theme(3)
+	await wait_frames(2)
+	assert_eq((badge.find_child("BadgeStanceLabel", true, false) as Label).text, "hostile")
+	assert_eq(badge.get_portrait().get_era(), 3)
+
+
+# --- The badge on the crisis card ------------------------------------------------------------
+
+## A crisis dialog [param width] px wide; [param context] ([year, scores,
+## memories]) is set before the dialog joins the tree.
+func _dialog(width: float, context: Array = []) -> DilemmaDialog:
+	holder.size = Vector2(width, 915)
+	var dialog: DilemmaDialog = DialogScene.instantiate()
+	if not context.is_empty():
+		dialog.set_story_context(context[0], context[1], context[2])
+	holder.add_child(dialog)
+	return dialog
+
+
+func _card(card_id: String, character_id: String) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var card := DilemmaDeck.new()._instantiate(DilemmaDeck.get_template(card_id),
+		{"role": "CEO", "turn": 30, "year": SimConstants.year_for_turn(30)}, rng, "DECK", 0)
+	card["character"] = character_id
+	return card
+
+
+func test_crisis_card_shows_the_badge_for_its_character() -> void:
+	var dialog := _dialog(PHONE.x)
+	await tree.process_frame
+	dialog.set_compact(true)
+	dialog.present(_card("GRID_BROWNOUT", "jonas"), {"capital": 500.0}, "CEO")
+	await wait_frames(3)
+	var badge := dialog.get_card().get_badge()
+	assert_true(badge.is_visible_in_tree(), "the card names Jonas")
+	assert_eq((badge.find_child("BadgeName", true, false) as Label).text, "Jonas Brandt")
+	assert_eq(badge.get_portrait().get_age(), 61, "dated by the card's turn without a story context")
+	assert_eq(badge.get_stance(), "Neutral", "neutral without a story context")
+	assert_false((badge.find_child("BadgeMemory", true, false) as Label).visible, "and no memory")
+	var art := dialog.get_card().find_child("Art", true, false) as Control
+	assert_lt(badge.get_portrait().get_global_rect().position.y, art.get_global_rect().end.y, "the portrait sits on the illustration")
+	_assert_fits(dialog, PHONE.x, "phone card with a badge")
+	dialog.present(_card("GRID_BROWNOUT", ""), {"capital": 500.0}, "CEO")
+	await wait_frames(2)
+	assert_false(badge.is_visible_in_tree(), "no character, no badge")
+	assert_false((dialog.find_child("BadgeMargin", true, false) as Control).visible)
+	_assert_fits(dialog, PHONE.x, "phone card without a badge")
+
+
+func test_story_context_updates_the_badge() -> void:
+	var dialog := _dialog(PHONE.x, [2048.0, {"maya": 4.0}, {"maya": "Remembers the strike you backed."}])
+	await tree.process_frame
+	dialog.set_compact(true)
+	dialog.present(_card("MASS_LAYOFF_WAVE", "maya"), {"capital": 500.0}, "CEO")
+	await wait_frames(3)
+	var badge := dialog.get_card().get_badge()
+	assert_eq(badge.get_stance(), "Loyal", "context set before the dialog was ready")
+	assert_eq(badge.get_portrait().get_age(), 49, "the context's year")
+	assert_eq((badge.find_child("BadgeMemory", true, false) as Label).text, "Remembers the strike you backed.")
+	dialog.set_story_context(2050.0, {"maya": -3.5}, {})
+	await tree.process_frame
+	assert_eq(badge.get_stance(), "Hostile", "updates the card on show")
+	assert_eq((badge.find_child("BadgeStanceLabel", true, false) as Label).text, "Hostile")
+	assert_false((badge.find_child("BadgeMemory", true, false) as Label).visible)
+	assert_eq(badge.get_portrait().get_age(), 51)
+	_assert_fits(dialog, PHONE.x, "phone card with a story context")
+
+
+func test_desktop_card_keeps_its_layout_with_a_badge() -> void:
+	var dialog := _dialog(1600.0)
+	await tree.process_frame
+	dialog.set_story_context(2061.0, {"aria": -2.0}, {"aria": LONG_MEMORY})
+	dialog.present(_card("SELF_MODIFICATION_SIGNAL", "aria"), {"capital": 500.0}, "CEO")
+	await wait_seconds(DilemmaDialog.ENTER_TIME + 0.1)
+	var card := dialog.get_card()
+	assert_true(card.get_badge().is_visible_in_tree())
+	assert_almost_eq(card.get_global_rect().size.x, DilemmaDialog.DESKTOP_CARD_WIDTH, 0.5, "the card keeps its width")
+	_assert_fits(card, card.get_global_rect().end.x, "the badge stays on the card")
 
 
 # --- Helpers ----------------------------------------------------------------------------------
