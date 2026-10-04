@@ -28,27 +28,27 @@ const MODES := {
 	CENTURY: {
 		"start_turn": 1, "total_turns": SimConstants.TOTAL_TURNS, "era": 0,
 		"name": "Full century", "short": "Century",
-		"blurb": "All three hardware eras, 2026 to 2076. The whole arc, about two hours.",
+		"blurb": "All three hardware eras: the whole arc.",
 	},
 	QUARTER: {
 		"start_turn": 1, "total_turns": 50, "era": 0,
 		"name": "Quarter century", "short": "Quarter",
-		"blurb": "From 2026 into the first years of Era III. Half the length, most of the arc.",
+		"blurb": "Into the first years of Era III: most of the arc in half the turns.",
 	},
 	DECADE_1: {
 		"start_turn": 1, "total_turns": 19, "era": 1,
 		"name": "Era I decade", "short": "Era I",
-		"blurb": "Silicon and nuclear, 2026 to 2035: the frontier race from the first turn.",
+		"blurb": "Silicon and nuclear: the frontier race from its first turn.",
 	},
 	DECADE_2: {
 		"start_turn": 20, "total_turns": 39, "era": 2,
 		"name": "Era II decade", "short": "Era II",
-		"blurb": "Optical grids, 2036 to 2045. The first decade plays out on its own; you take over in 2036.",
+		"blurb": "The optical years. The first decade plays out on its own; you take over in 2036.",
 	},
 	DECADE_3: {
 		"start_turn": 48, "total_turns": 67, "era": 3,
 		"name": "Era III decade", "short": "Era III",
-		"blurb": "Neuromorphic machines, 2050 to 2059. You inherit whatever the first quarter century built.",
+		"blurb": "The neuromorphic age. You inherit whatever the first quarter century built.",
 	},
 }
 
