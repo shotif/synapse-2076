@@ -19,6 +19,9 @@ extends Control
 
 const SPECTATE_INTERVALS := [0.8, 0.4, 0.15]
 const NEXT_TURN_DELAY := 0.35
+## Log entries replayed into a fresh newswire or lens (resumed games, late
+## starts, the next player's lens in pass-and-play).
+const NEWSWIRE_BACKFILL := 40
 const TABS := ["world", "act", "lens", "news"]
 const TAB_INFO := [
 	{"id": "world", "label": "World", "glyph": "world"},
@@ -179,8 +182,55 @@ func _ready() -> void:
 	_show_role_select()
 
 
-## Starts a campaign from the perspective of [param role].
-func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) -> void:
+## Starts a campaign from the perspective of [param role]. [param options]
+## go to SimulationEngine.start_campaign (difficulty, scenario, start_turn,
+## total_turns, human_roles for pass-and-play).
+func start_campaign(role: String, seed_value: int, spectate_mode: bool = false, options: Dictionary = {}) -> void:
+	_reset_views(spectate_mode)
+	engine = SimulationEngine.new()
+	_connect_engine()
+	_newswire.player_role = role
+	var campaign_options := {
+		"autoplay": spectate_mode,
+		"max_player_directives": int(ProjectSettings.get_setting("synapse/simulation/max_player_directives", 2)),
+		"total_turns": int(ProjectSettings.get_setting("synapse/simulation/total_turns", SimConstants.TOTAL_TURNS)),
+	}
+	campaign_options.merge(options, true)
+	engine.start_campaign(role, seed_value, campaign_options)
+	# A later start played its prologue on autopilot: show where the world stands.
+	for entry in engine.event_log.slice(-NEWSWIRE_BACKFILL):
+		_newswire.add_entry(entry)
+	_show_engine()
+	engine.advance()
+	if spectate:
+		_spectate_timer.start(SPECTATE_INTERVALS[_speed_index])
+
+
+## Continues [param resumed], a campaign rebuilt from its record (a saved
+## game or a "what if?" rewind), at the decision it stopped on.
+func resume_campaign(resumed: SimulationEngine) -> void:
+	_reset_views(false)
+	engine = resumed
+	engine.autoplay_player = false
+	_connect_engine()
+	_newswire.player_role = engine.player_role
+	for entry in engine.event_log.slice(-NEWSWIRE_BACKFILL):
+		_newswire.add_entry(entry)
+	var history: Array = engine.world.history
+	for key in _meters:
+		var values: Array = []
+		for entry in history.slice(-MeterBar.HISTORY_LENGTH):
+			values.append(float(entry.get(key, 0.0)))
+		(_meters[key] as MeterBar).set_history(values)
+	_show_engine()
+	if engine.is_awaiting_player():
+		_on_player_input_required(engine.get_player_context())
+	elif engine.phase == SimulationEngine.Phase.IDLE and not engine.is_ended():
+		engine.advance()
+
+
+## Stops whatever the previous campaign had running and clears its views.
+func _reset_views(spectate_mode: bool) -> void:
 	_spectate_timer.stop()
 	_next_turn_timer.stop()
 	_era_upgrade.cancel()
@@ -193,7 +243,14 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	_pending_option = ""
 	_queued_directive = ""
 	_deferred_context = {}
-	engine = SimulationEngine.new()
+	_newswire.clear()
+	_world_overlay.set_headline("WIRE", "")
+	_world_overlay.set_focus("")
+	for meter in _meters.values():
+		(meter as MeterBar).history = PackedFloat32Array()
+
+
+func _connect_engine() -> void:
 	engine.event_logged.connect(_on_event_logged)
 	engine.phase_changed.connect(_on_phase_changed)
 	engine.actor_decisions_requested.connect(_on_actor_decisions_requested)
@@ -202,17 +259,10 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	engine.turn_completed.connect(_on_turn_completed)
 	engine.campaign_ended.connect(_on_campaign_ended)
 	engine.set_decision_provider(llm)
-	_newswire.clear()
-	_newswire.player_role = role
-	_world_overlay.set_headline("WIRE", "")
-	_world_overlay.set_focus("")
-	for meter in _meters.values():
-		(meter as MeterBar).history = PackedFloat32Array()
-	engine.start_campaign(role, seed_value, {
-		"autoplay": spectate_mode,
-		"max_player_directives": int(ProjectSettings.get_setting("synapse/simulation/max_player_directives", 2)),
-		"total_turns": int(ProjectSettings.get_setting("synapse/simulation/total_turns", SimConstants.TOTAL_TURNS)),
-	})
+
+
+## Brings every panel to the engine's current state.
+func _show_engine() -> void:
 	_apply_era(int(engine.get_snapshot().get("era", 1)))
 	_role_select.visible = false
 	_debrief.visible = false
@@ -223,9 +273,6 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	_rebuild_lens()
 	show_tab("world" if spectate else "act")
 	_refresh_telemetry(engine.get_snapshot(), true)
-	engine.advance()
-	if spectate:
-		_spectate_timer.start(SPECTATE_INTERVALS[_speed_index])
 
 
 ## "globe": the world with its metric layers, chips and news ticker.
@@ -666,6 +713,8 @@ func _rebuild_lens() -> void:
 	if _lens != null:
 		_lens_host.add_child(_lens)
 		_lens.set_compact(compact)
+		for entry in engine.event_log.slice(-NEWSWIRE_BACKFILL):
+			_lens.record_event(entry)
 		engine.event_logged.connect(_lens.record_event)
 		_lens.directive_requested.connect(_on_lens_directive)
 		_lens.update_state(engine.get_snapshot(), engine.get_player().resources)
@@ -734,6 +783,11 @@ func _on_player_input_required(context: Dictionary) -> void:
 	_refresh_telemetry(engine.get_snapshot(), false)
 	if spectate:
 		return
+	if _lens == null or _lens.role != engine.player_role:
+		# Pass-and-play: the next player sees their own lens and headlines.
+		_rebuild_lens()
+		_newswire.player_role = engine.player_role
+		_update_header()
 	_pending_option = ""
 	_directive_panel.setup(context)
 	_directive_panel.set_interactive(true)
@@ -803,6 +857,9 @@ func _on_execute_requested(directives: Array) -> void:
 	var response := engine.submit_player_turn(directives, _pending_option)
 	if not response["ok"]:
 		_directive_panel.show_message("\n".join(response["errors"]))
+		return
+	if engine.is_awaiting_player():
+		# Pass-and-play: the next player's desk is already set up.
 		return
 	_directive_panel.set_interactive(false)
 	var s := EraStyle.for_era(era)
