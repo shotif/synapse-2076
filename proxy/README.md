@@ -35,7 +35,7 @@ For `POST /v1/messages`, in order:
 8. `system` and each message's `content` must be text: a string or `text` blocks (`400`). Image and document blocks are refused, because URL, file and PDF sources can bring in far more tokens than the character limit allows.
 9. `system` plus all message content may hold at most 48,000 characters (`413`).
 
-Only `model`, `max_tokens`, `system`, `messages`, `temperature`, `top_p`, `top_k`, `stop_sequences` and `metadata` are forwarded. Everything else (`tools`, `stream`, `thinking`, `mcp_servers`, `container`, ...) is dropped. `max_tokens` is clamped to `MAX_TOKENS_CAP` and set to the cap when it is missing or invalid.
+Only `model`, `max_tokens`, `system`, `messages`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `metadata` and `output_config` are forwarded. `output_config` may only be `{"effort": "low" | "medium" | "high"}` (`400` otherwise); the game sends `low` so Claude keeps its thinking short. Everything else (`tools`, `stream`, `thinking`, `mcp_servers`, `container`, ...) is dropped. `max_tokens` is clamped to `MAX_TOKENS_CAP` and set to the cap when it is missing or invalid.
 
 Requests to Anthropic carry only `x-api-key` (the real key), `anthropic-version: 2023-06-01` and, for `POST`, `content-type: application/json`. No client header reaches Anthropic: not cookies, not the access code. If Anthropic can't be reached, the proxy answers `502`.
 
@@ -49,7 +49,7 @@ Know what each control does and what it doesn't do.
 - **Access code.** This is the real gate. With `ACCESS_CODE` set, every API request must carry it. Anyone who has the code can use the proxy, and players' browsers may store it, so share it only with people you trust and change it when it leaks. Never put it in the web build, the repository or a public variable. Without an access code, anyone who sends an allowed `Origin` header can use the proxy.
 - **Requests without an Origin header** (curl, scripts) are refused unless an access code is set and supplied. This stops casual use of the URL as a free API. It is not a security boundary, because `Origin` is easy to fake.
 - **Model allowlist, `max_tokens` cap, text-only content and size limits** bound the cost of a single request. They don't limit how many requests arrive.
-- **Rate limiter.** `wrangler.toml` binds 30 requests per 60 seconds per client IP. Cloudflare counts per location and approximately, so it slows a single client down but not a distributed one. Without the binding, the proxy runs unthrottled.
+- **Rate limiter.** `wrangler.toml` binds 60 requests per 60 seconds per client IP (one game turn sends three). Cloudflare counts per location and approximately, so it slows a single client down but not a distributed one. Without the binding, the proxy runs unthrottled.
 - **Spend limit.** This is the only hard ceiling on cost. Create a separate workspace in the Anthropic Console, give it a monthly spend limit, and create the proxy's API key in that workspace. If the proxy is abused, spending stops at the limit and nothing else in your organization is affected. Revoke the key there if you need to shut the proxy off immediately.
 - **No request logging.** The Worker never logs request bodies, keys or access codes. Cloudflare still sees request metadata, and Workers Logs record more if you turn on observability.
 
@@ -61,8 +61,8 @@ Know what each control does and what it doesn't do.
 | `ACCESS_CODE` | secret | unset | When set, API requests must send it as `x-api-key` or `Authorization: Bearer`. An empty value means no access code. Use a long random value, for example `openssl rand -hex 16`. |
 | `ALLOWED_ORIGINS` | var | `https://shotif.github.io` | Comma-separated origins allowed to call the proxy from a browser. Paths and trailing slashes are ignored, so a page URL works too. Add `http://localhost:8060` to test a local web export. |
 | `ALLOWED_MODELS` | var | the model in `wrangler.toml` | Comma-separated exact model ids. If empty, every message request is rejected. |
-| `MAX_TOKENS_CAP` | var | `1024` | Upper bound for `max_tokens`, and the value used when a request omits it. |
-| `RATE_LIMITER` | binding | 30 requests / 60 s per IP | Workers rate limiting binding in `wrangler.toml`. Optional. |
+| `MAX_TOKENS_CAP` | var | `2048` | Upper bound for `max_tokens`, and the value used when a request omits it. Thinking counts toward it. |
+| `RATE_LIMITER` | binding | 60 requests / 60 s per IP | Workers rate limiting binding in `wrangler.toml`. Optional. |
 
 Secrets live in Cloudflare's secret store and take effect without a redeploy. Vars come from `[vars]` in `wrangler.toml` unless the deploy overrides them.
 
@@ -120,7 +120,7 @@ Repository variables (same page, Variables tab):
 |---|---|---|
 | `SYNAPSE_PROXY_ALLOWED_ORIGINS` | `https://<repository owner, lowercased>.github.io` | `ALLOWED_ORIGINS` |
 | `SYNAPSE_PROXY_ALLOWED_MODELS` | the `SYNAPSE_LLM_MODEL` variable, else the model in `wrangler.toml` | `ALLOWED_MODELS` |
-| `SYNAPSE_PROXY_MAX_TOKENS` | `1024` | `MAX_TOKENS_CAP` |
+| `SYNAPSE_PROXY_MAX_TOKENS` | `2048` | `MAX_TOKENS_CAP` |
 
 These override `[vars]` in `wrangler.toml`.
 

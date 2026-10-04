@@ -75,7 +75,7 @@ jobs:
           ACCESS_CODE: ${{ secrets.SYNAPSE_PROXY_ACCESS_CODE }}
           ALLOWED_ORIGINS: ${{ vars.SYNAPSE_PROXY_ALLOWED_ORIGINS }}
           ALLOWED_MODELS: ${{ vars.SYNAPSE_PROXY_ALLOWED_MODELS || vars.SYNAPSE_LLM_MODEL || 'claude-sonnet-5-5' }}
-          MAX_TOKENS: ${{ vars.SYNAPSE_PROXY_MAX_TOKENS || '1024' }}
+          MAX_TOKENS: ${{ vars.SYNAPSE_PROXY_MAX_TOKENS || '2048' }}
         run: |
           # Lists become one comma-separated line; the Worker splits on commas and whitespace.
           one_line() { printf '%s' "$1" | tr -s '\r\n\t ' ',' | sed 's/^,*//; s/,*$//'; }

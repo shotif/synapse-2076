@@ -3,6 +3,15 @@ name: Deploy to GitHub Pages
 # Tests main, exports the single-threaded Web preset and publishes it to
 # https://<owner>.github.io/<repo>/. One-time setup: Settings -> Pages ->
 # Build and deployment -> Source: "GitHub Actions".
+#
+# Optional LLM endpoint for the web build, from repository *variables*
+# (Settings -> Secrets and variables -> Actions -> Variables):
+#   SYNAPSE_LLM_ENDPOINT    e.g. https://api.anthropic.com/v1/messages or a proxy URL
+#   SYNAPSE_LLM_MODEL       e.g. claude-sonnet-5-5 (the default for Claude endpoints)
+#   SYNAPSE_LLM_TIMEOUT     seconds before a faction falls back to the heuristic
+#   SYNAPSE_LLM_API_FORMAT  auto (default), anthropic or openai
+#   SYNAPSE_LLM_EFFORT      Claude thinking effort: low (default), medium, high or none
+# Never put an API key here: the build is public. See README, "Claude on the web build".
 
 on:
   push:
@@ -69,6 +78,15 @@ jobs:
 
       - name: Lint, unit tests and 100-turn headless simulation
         run: GODOT="$GODOT_BIN" tools/run_tests.sh
+
+      - name: Point the web build at the configured LLM endpoint
+        env:
+          SYNAPSE_LLM_ENDPOINT: ${{ vars.SYNAPSE_LLM_ENDPOINT }}
+          SYNAPSE_LLM_MODEL: ${{ vars.SYNAPSE_LLM_MODEL }}
+          SYNAPSE_LLM_TIMEOUT: ${{ vars.SYNAPSE_LLM_TIMEOUT }}
+          SYNAPSE_LLM_API_FORMAT: ${{ vars.SYNAPSE_LLM_API_FORMAT }}
+          SYNAPSE_LLM_EFFORT: ${{ vars.SYNAPSE_LLM_EFFORT }}
+        run: '"$GODOT_BIN" --headless --path . --script res://tools/configure_web_build.gd'
 
       - name: Export the Web build
         run: |

@@ -13,12 +13,12 @@ workers_dev = true
 [vars]
 ALLOWED_ORIGINS = "https://shotif.github.io"
 ALLOWED_MODELS = "claude-sonnet-5-5"
-MAX_TOKENS_CAP = "1024"
+MAX_TOKENS_CAP = "2048"
 
-# 30 requests per 60 seconds per client IP. Counters are kept per Cloudflare
+# 60 requests per 60 seconds per client IP (a game turn sends three). Counters are kept per Cloudflare
 # location and are approximate. namespace_id is any positive integer that is
 # unique among the rate limiters in your Cloudflare account.
 [[ratelimits]]
 name = "RATE_LIMITER"
 namespace_id = "2076"
-simple = { limit = 30, period = 60 }
+simple = { limit = 60, period = 60 }

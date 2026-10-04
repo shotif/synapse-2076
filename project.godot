@@ -43,4 +43,6 @@ llm/endpoint_url="http://127.0.0.1:11434/v1/chat/completions"
 llm/model_name="llama3:8b"
 llm/timeout_sec=5.0
 llm/json_mode=true
+llm/api_format="auto"
+llm/effort="low"
 llm/probe_on_start=true

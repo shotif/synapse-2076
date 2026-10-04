@@ -98,6 +98,26 @@ static func build_request_body(model: String, faction: String, observation: Dict
 	return body
 
 
+## Claude Messages API request body (POST /v1/messages): the system prompt is a
+## top-level field and max_tokens is required. No sampling parameters: current
+## Claude models reject non-default temperature / top_p / top_k. [param effort]
+## ("low" by default in LLMService) keeps adaptive thinking short; thinking
+## counts toward max_tokens, so the budget leaves room for it. The prompt
+## demands JSON-only output, and [method parse_completion] reads text blocks
+## only, skipping thinking blocks, and copes with prose or fences.
+static func build_anthropic_body(model: String, faction: String, observation: Dictionary,
+		max_tokens: int = 2048, effort: String = "") -> Dictionary:
+	var body := {
+		"model": model,
+		"max_tokens": max_tokens,
+		"system": build_system_prompt(faction),
+		"messages": [{"role": "user", "content": build_user_prompt(faction, observation)}],
+	}
+	if effort != "":
+		body["output_config"] = {"effort": effort}
+	return body
+
+
 static func compact_observation(faction: String, observation: Dictionary) -> Dictionary:
 	var keys: Array = OBSERVATION_KEYS.duplicate()
 	if faction == SimConstants.ASI:
@@ -109,7 +129,8 @@ static func compact_observation(faction: String, observation: Dictionary) -> Dic
 	return out
 
 
-## Parses an OpenAI-style chat completion and extracts the decision object.
+## Parses an OpenAI-style chat completion or a Claude Messages API response and
+## extracts the decision object.
 ## Returns {"ok": bool, "payload": Dictionary, "content": String, "error": String}.
 static func parse_completion(body_text: String) -> Dictionary:
 	var json := JSON.new()
@@ -119,18 +140,24 @@ static func parse_completion(body_text: String) -> Dictionary:
 	if not (data is Dictionary):
 		return _parse_error("response body is not an object")
 	if data.has("error"):
-		return _parse_error("provider error: %s" % sanitize_text(str(data["error"]), 200))
-	var choices: Variant = data.get("choices")
-	if not (choices is Array) or (choices as Array).is_empty():
-		return _parse_error("response has no choices")
-	var first: Variant = choices[0]
+		var error: Variant = data["error"]
+		var message: String = str(error.get("message", error)) if error is Dictionary else str(error)
+		return _parse_error("provider error: %s" % sanitize_text(message, 200))
 	var content := ""
-	if first is Dictionary:
-		var message: Variant = first.get("message")
-		if message is Dictionary:
-			content = _content_to_text(message.get("content"))
-		elif first.has("text"):
-			content = _content_to_text(first["text"])
+	if data.get("content") is Array:
+		# Claude Messages API: a list of content blocks; the text blocks hold the answer.
+		content = _content_to_text(data["content"])
+	else:
+		var choices: Variant = data.get("choices")
+		if not (choices is Array) or (choices as Array).is_empty():
+			return _parse_error("response has no choices")
+		var first: Variant = choices[0]
+		if first is Dictionary:
+			var message: Variant = first.get("message")
+			if message is Dictionary:
+				content = _content_to_text(message.get("content"))
+			elif first.has("text"):
+				content = _content_to_text(first["text"])
 	if content.strip_edges() == "":
 		return _parse_error("completion content is empty")
 	var payload: Variant = extract_json_object(content)
@@ -249,7 +276,7 @@ static func _content_to_text(content: Variant) -> String:
 	if content is Array:
 		var pieces := PackedStringArray()
 		for part in content:
-			if part is Dictionary and part.has("text"):
+			if part is Dictionary and part.has("text") and String(part.get("type", "text")) == "text":
 				pieces.append(str(part["text"]))
 			elif part is String:
 				pieces.append(part)

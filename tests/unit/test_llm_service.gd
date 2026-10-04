@@ -3,6 +3,7 @@ extends "res://tests/framework/test_case.gd"
 ## online decisions, every fallback path, timeouts, probing and status signals.
 
 const MockServer := preload("res://tests/support/mock_llm_server.gd")
+const WebBuildConfig := preload("res://tools/configure_web_build.gd")
 
 var server: Node
 var service: LLMService
@@ -199,11 +200,152 @@ func test_auto_probe_respects_enabled_flag() -> void:
 	assert_false(service.should_auto_probe(), "disabled service never probes on its own")
 
 
+func test_claude_messages_round_trip() -> void:
+	service.configure({"endpoint_url": server.claude_url(), "api_key": "sk-ant-test", "model_name": "claude-mock"})
+	assert_true(service.uses_anthropic_format(), "a /v1/messages endpoint speaks the Claude format")
+	service.set_online(true)
+	service.query_actor_decision("GOVERNANCE_COUNCIL", _state())
+	assert_true(await _wait_for_decisions(1, 3.0), "decision arrived")
+	var payload: Dictionary = received[0]["payload"]
+	assert_eq(payload["source"], "LLM")
+	assert_eq(payload["selected_action"], "PASS_AUTOMATION_DIVIDEND")
+	var request: Dictionary = server.requests[0]
+	assert_eq(request["path"], "/v1/messages")
+	assert_eq(request["headers"].get("x-api-key", ""), "sk-ant-test")
+	assert_eq(request["headers"].get("anthropic-version", ""), LLMService.ANTHROPIC_VERSION)
+	assert_false(request["headers"].has("authorization"), "Claude takes the key in x-api-key")
+	assert_false(request["headers"].has("anthropic-dangerous-direct-browser-access"), "browser header only on web builds")
+	var body: Dictionary = request["body"]
+	assert_eq(body["model"], "claude-mock")
+	assert_string_contains(String(body["system"]), "GLOBAL AI GOVERNANCE")
+	assert_eq((body["messages"] as Array).size(), 1, "system prompt is a top-level field")
+	assert_eq(body["messages"][0]["role"], "user")
+	assert_eq(int(body["max_tokens"]), LLMService.CLAUDE_MAX_TOKENS, "room for adaptive thinking plus the answer")
+	assert_eq(body["output_config"], {"effort": "low"}, "short thinking for a latency-bound decision")
+	assert_false(body.has("temperature"), "current Claude models reject non-default sampling parameters")
+	assert_false(body.has("response_format"), "no OpenAI-only fields")
+
+
+func test_effort_support_by_model() -> void:
+	for model in ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-4-6", "claude-opus-4-5",
+			"claude-opus-4-5-20251101", "claude-mock"]:
+		assert_true(LLMService.supports_effort(model), model)
+	for model in ["claude-haiku-4-5", "claude-haiku-4-5-20251001", "claude-sonnet-4-5", "claude-sonnet-4-5-20250929",
+			"claude-sonnet-4-20250514", "claude-opus-4-1", "claude-3-7-sonnet-latest"]:
+		assert_false(LLMService.supports_effort(model), model)
+	server.mode = "ok"
+	service.configure({"endpoint_url": server.claude_url(), "model_name": "claude-haiku-4-5", "effort": "medium"})
+	service.set_online(true)
+	service.query_actor_decision("CEO", _state("CEO"))
+	assert_true(await _wait_for_decisions(1, 3.0))
+	assert_false((server.requests[0]["body"] as Dictionary).has("output_config"), "Haiku 4.5 rejects effort")
+	service.configure({"effort": "extreme"})
+	assert_eq(service.effort, "", "unknown levels fall back to the model default")
+
+
+func test_claude_errors_explain_the_fallback() -> void:
+	server.mode = "not_found"
+	service.configure({"endpoint_url": server.claude_url(), "api_key": "sk-ant-test"})
+	service.set_online(true)
+	service.query_actor_decision("ASI", _state("ASI"))
+	assert_true(await _wait_for_decisions(1, 3.0))
+	assert_eq(received[0]["payload"]["source"], "HEURISTIC_FALLBACK")
+	assert_eq(String(received[0]["payload"]["fallback_reason"]), "HTTP 404: model: mock-missing")
+
+
+func test_claude_probe_uses_models_listing() -> void:
+	service.configure({"endpoint_url": server.claude_url(), "api_key": "sk-ant-test"})
+	assert_eq(service.models_url(), server.claude_url().trim_suffix("/messages") + "/models")
+	service.probe_connection()
+	var deadline := Time.get_ticks_msec() + 3000
+	while service.is_probing and Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	assert_true(service.is_online)
+	assert_eq(server.requests[0]["headers"].get("x-api-key", ""), "sk-ant-test")
+
+
+func test_auth_failure_stops_automatic_probing() -> void:
+	server.mode = "unauthorized"
+	service.configure({"endpoint_url": server.claude_url(), "api_key": "wrong"})
+	assert_true(service.should_auto_probe())
+	service.probe_connection()
+	var deadline := Time.get_ticks_msec() + 3000
+	while service.is_probing and Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	assert_false(service.is_online)
+	assert_string_contains(service.last_error, "invalid x-api-key")
+	assert_false(service.should_auto_probe(), "a rejected key is not retried every minute")
+	service.configure({"api_key": "a-new-key"})
+	assert_true(service.should_auto_probe(), "a settings change re-enables probing")
+
+
+func test_api_format_selection() -> void:
+	var fresh := LLMService.new()
+	for url in ["https://api.anthropic.com/v1/messages", "https://proxy.example.workers.dev/v1/messages/"]:
+		fresh.configure({"endpoint_url": url, "api_format": "auto"})
+		assert_true(fresh.uses_anthropic_format(), url)
+	fresh.configure({"endpoint_url": "http://127.0.0.1:11434/v1/chat/completions"})
+	assert_false(fresh.uses_anthropic_format())
+	fresh.configure({"api_format": "anthropic"})
+	assert_true(fresh.uses_anthropic_format(), "explicit format wins")
+	fresh.configure({"endpoint_url": "https://example.com/v1/messages", "api_format": "OpenAI"})
+	assert_false(fresh.uses_anthropic_format())
+	fresh.configure({"api_format": "nonsense"})
+	assert_eq(fresh.api_format, "auto")
+	fresh.configure({"endpoint_url": "https://proxy.example.workers.dev/v1/messages/"})
+	assert_eq(fresh.models_url(), "https://proxy.example.workers.dev/v1/models")
+	fresh.free()
+
+
+func test_browser_access_header_only_for_anthropic_from_the_web() -> void:
+	assert_true(LLMService.wants_browser_access_header("https://api.anthropic.com/v1/messages", true))
+	assert_false(LLMService.wants_browser_access_header("https://api.anthropic.com/v1/messages", false), "desktop builds")
+	assert_false(LLMService.wants_browser_access_header("https://my-proxy.example.workers.dev/v1/messages", true), "proxies hold the key")
+
+
+func test_url_fragment_settings() -> void:
+	assert_eq(LLMService.parse_url_fragment("#llm-key=sk-ant-abc%2Bdef&llm=on"), {"api_key": "sk-ant-abc+def", "enabled": true})
+	assert_eq(LLMService.parse_url_fragment("#llm=OFF"), {"enabled": false})
+	assert_eq(LLMService.parse_url_fragment("#llm-key="), {"api_key": ""}, "an empty key forgets the stored one")
+	assert_eq(LLMService.parse_url_fragment("#LLM-KEY=sk-1"), {"api_key": "sk-1"})
+	assert_eq(LLMService.parse_url_fragment("#llm-endpoint=https://evil.example/v1/messages&llm-model=x"), {},
+		"a link can never redirect a stored key to another endpoint")
+	assert_eq(LLMService.parse_url_fragment(""), {})
+	assert_eq(LLMService.parse_url_fragment("#section-2"), {})
+
+
 func test_provider_labels() -> void:
 	assert_eq(LLMService.provider_for_endpoint("http://127.0.0.1:11434/v1/chat/completions"), "LOCAL-OLLAMA")
 	assert_eq(LLMService.provider_for_endpoint("http://localhost:8000/v1/chat/completions"), "LOCAL-VLLM")
 	assert_eq(LLMService.provider_for_endpoint("https://api.anthropic.com/v1/chat/completions"), "ANTHROPIC")
-	assert_eq(LLMService.provider_for_endpoint("https://my-proxy.example.com/v1/chat/completions"), "MY-PROXY.EXAMPLE.COM")
+	assert_eq(LLMService.provider_for_endpoint("https://api.anthropic.com/v1/messages"), "ANTHROPIC")
+	assert_eq(LLMService.provider_for_endpoint("https://my-proxy.example.com/v1/chat/completions"), "MY-PROXY")
+	assert_eq(LLMService.provider_for_endpoint("https://synapse-llm-proxy.someone.workers.dev/v1/messages"), "SYNAPSE-LLM-PROXY")
+	assert_eq(LLMService.provider_for_endpoint("http://192.168.1.20:9000/v1/chat/completions"), "192.168.1.20")
 	service.configure({"model_name": "claude-sonnet-5-5", "endpoint_url": "https://api.anthropic.com/v1/chat/completions"})
 	assert_eq(service.get_provider_name(), "CLAUDE-SONNET-5-5 / ANTHROPIC")
 	assert_eq(service.models_url(), "https://api.anthropic.com/v1/models")
+
+
+func test_web_build_config_from_repository_variables() -> void:
+	assert_eq(WebBuildConfig.plan_settings({})["settings"], {}, "no variables: defaults stay")
+	var claude: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": " https://api.anthropic.com/v1/messages "})
+	assert_eq(claude["errors"], [])
+	assert_eq(claude["settings"], {
+		"synapse/llm/endpoint_url": "https://api.anthropic.com/v1/messages",
+		"synapse/llm/enabled": true,
+		"synapse/llm/model_name": WebBuildConfig.CLAUDE_DEFAULT_MODEL,
+		"synapse/llm/timeout_sec": WebBuildConfig.CLAUDE_DEFAULT_TIMEOUT_SEC,
+	}, "Claude endpoints get a Claude model and a longer timeout")
+	var custom: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": "https://proxy.example.workers.dev/v1/messages",
+		"SYNAPSE_LLM_MODEL": "claude-haiku-4-5-20251001", "SYNAPSE_LLM_TIMEOUT": "12", "SYNAPSE_LLM_API_KEY": "sk-ant-secret"})
+	assert_eq(custom["settings"]["synapse/llm/model_name"], "claude-haiku-4-5-20251001")
+	assert_eq(float(custom["settings"]["synapse/llm/timeout_sec"]), 12.0)
+	assert_false(str(custom["settings"]).contains("sk-ant-secret"), "keys never reach the build")
+	assert_string_contains(String(custom["warnings"][0]), "ignored")
+	var bad: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": "http://127.0.0.1:11434/v1/chat/completions",
+		"SYNAPSE_LLM_TIMEOUT": "0", "SYNAPSE_LLM_API_FORMAT": "soap", "SYNAPSE_LLM_EFFORT": "max"})
+	assert_eq((bad["errors"] as Array).size(), 4, "http endpoint, timeout, format and effort rejected: %s" % [bad["errors"]])
+	var effort: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+		"SYNAPSE_LLM_EFFORT": "none"})
+	assert_eq(effort["settings"]["synapse/llm/effort"], "", "none leaves the model's default effort")

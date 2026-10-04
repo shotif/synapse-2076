@@ -16,7 +16,10 @@ const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MESSAGES = 8;
 const MAX_PROMPT_CHARS = 48_000;
 const MAX_JSON_DEPTH = 32;
-const DEFAULT_MAX_TOKENS_CAP = 1024;
+// The game asks for 2048: Claude's adaptive thinking counts toward max_tokens.
+const DEFAULT_MAX_TOKENS_CAP = 2048;
+// output_config may only carry a thinking effort, and not the expensive levels.
+const ALLOWED_EFFORTS = new Set(["low", "medium", "high"]);
 
 // Top-level Messages API fields that reach Anthropic. Everything else (tools,
 // stream, thinking, mcp_servers, container, ...) is dropped.
@@ -30,6 +33,7 @@ const FORWARDED_FIELDS = [
   "top_k",
   "stop_sequences",
   "metadata",
+  "output_config",
 ];
 
 const CORS_ALLOW_METHODS = "GET, POST, OPTIONS";
@@ -255,6 +259,14 @@ async function createMessage(request, config, corsOrigin) {
     return errorResponse(
       400,
       `messages.${nonText}.content: only text is allowed through this proxy (a string or text blocks).`,
+      corsOrigin,
+    );
+  }
+
+  if (body.output_config !== undefined && !isEffortOnly(body.output_config)) {
+    return errorResponse(
+      400,
+      'output_config: only {"effort": "low" | "medium" | "high"} is allowed through this proxy.',
       corsOrigin,
     );
   }
@@ -485,6 +497,11 @@ function parseMaxTokensCap(value) {
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// {"effort": "low" | "medium" | "high"} and nothing else.
+function isEffortOnly(value) {
+  return isPlainObject(value) && Object.keys(value).length === 1 && ALLOWED_EFFORTS.has(value.effort);
 }
 
 // A string, or an array of {"type": "text", "text": "..."} blocks.

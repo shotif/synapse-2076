@@ -123,3 +123,33 @@ func test_parse_completion_variants() -> void:
 	assert_false(PromptTemplates.parse_completion(JSON.stringify({"error": {"message": "rate limited"}}))["ok"])
 	assert_false(PromptTemplates.parse_completion(JSON.stringify({"choices": []}))["ok"])
 	assert_false(PromptTemplates.parse_completion(JSON.stringify({"choices": [{"message": {"content": ""}}]}))["ok"])
+
+
+func test_claude_messages_body_and_response() -> void:
+	var observation := {"turn": 3, "year": 2027.5, "available_actions": ["CONSERVE_RESOURCES"]}
+	var body := PromptTemplates.build_anthropic_body("claude-test", "ASI", observation, 256, "low")
+	assert_eq(body["model"], "claude-test")
+	assert_eq(int(body["max_tokens"]), 256)
+	assert_eq(body["output_config"], {"effort": "low"})
+	assert_false(body.has("temperature"), "current Claude models reject non-default sampling parameters")
+	assert_false(PromptTemplates.build_anthropic_body("claude-haiku-4-5", "ASI", observation).has("output_config"),
+		"no effort requested means no output_config")
+	assert_eq(body["system"], PromptTemplates.build_system_prompt("ASI"))
+	assert_eq(body["messages"], [{"role": "user", "content": PromptTemplates.build_user_prompt("ASI", observation)}])
+	var reply := {"type": "message", "role": "assistant", "stop_reason": "end_turn", "content": [
+		{"type": "thinking", "thinking": "{\"selected_action\": \"IGNORED\"}"},
+		{"type": "text", "text": "Decision:\n```json\n{\"selected_action\": \"CONSERVE_RESOURCES\"}\n```"},
+	]}
+	var parsed := PromptTemplates.parse_completion(JSON.stringify(reply))
+	assert_true(parsed["ok"], String(parsed["error"]))
+	assert_eq(parsed["payload"]["selected_action"], "CONSERVE_RESOURCES", "only text blocks count")
+
+
+func test_claude_error_shape_is_reported() -> void:
+	var error := {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded [retry]"}}
+	var parsed := PromptTemplates.parse_completion(JSON.stringify(error))
+	assert_false(parsed["ok"])
+	assert_eq(parsed["error"], "provider error: Overloaded [retry]")
+	assert_eq(LLMService.describe_http_error(529, JSON.stringify(error)), "HTTP 529: Overloaded [retry]")
+	assert_eq(LLMService.describe_http_error(502, "<html>bad gateway</html>"), "HTTP 502")
+	assert_false(PromptTemplates.parse_completion(JSON.stringify({"type": "message", "content": []}))["ok"], "empty content")

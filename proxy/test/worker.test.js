@@ -15,7 +15,7 @@ function makeEnv(overrides = {}) {
     ACCESS_CODE: "",
     ALLOWED_ORIGINS: ORIGIN,
     ALLOWED_MODELS: `${MODEL},test-model-b`,
-    MAX_TOKENS_CAP: "1024",
+    MAX_TOKENS_CAP: "2048",
     ...overrides,
   };
 }
@@ -204,6 +204,7 @@ describe("POST /v1/messages", () => {
           top_p: 0.9,
           stop_sequences: ["END"],
           metadata: { user_id: "player-1" },
+          output_config: { effort: "low" },
         }),
         {
           headers: {
@@ -238,13 +239,14 @@ describe("POST /v1/messages", () => {
     const forwarded = JSON.parse(init.body);
     assert.deepEqual(forwarded, {
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: "You are the Governance Council.",
       messages: [{ role: "user", content: "Pick a directive." }],
       temperature: 0.7,
       top_p: 0.9,
       stop_sequences: ["END"],
       metadata: { user_id: "player-1" },
+      output_config: { effort: "low" },
     });
 
     const secrets = [UPSTREAM_KEY, "player-typed-something", "also-from-the-player", "Pick a directive."];
@@ -275,14 +277,28 @@ describe("POST /v1/messages", () => {
     }
   });
 
-  test("MAX_TOKENS_CAP falls back to 1024 when unset or invalid", async () => {
+  test("MAX_TOKENS_CAP falls back to 2048 when unset or invalid", async () => {
     for (const cap of [undefined, "", "lots", "-1", "0"]) {
       upstreamCalls = [];
       const response = await postMessage(messageBody({ max_tokens: 100_000 }), {
         env: makeEnv({ MAX_TOKENS_CAP: cap }),
       });
       assert.equal(response.status, 200);
-      assert.equal(JSON.parse(upstreamCalls[0].init.body).max_tokens, 1024, `cap ${cap}`);
+      assert.equal(JSON.parse(upstreamCalls[0].init.body).max_tokens, 2048, `cap ${cap}`);
+    }
+  });
+
+  test("forwards a thinking effort of low, medium or high and nothing else in output_config", async () => {
+    for (const effort of ["low", "medium", "high"]) {
+      upstreamCalls = [];
+      const response = await postMessage(messageBody({ output_config: { effort } }));
+      assert.equal(response.status, 200);
+      assert.deepEqual(JSON.parse(upstreamCalls[0].init.body).output_config, { effort });
+    }
+    for (const output_config of [{ effort: "max" }, { effort: "xhigh" }, { effort: "low", format: { type: "json_schema" } }, {}, "low", null]) {
+      upstreamCalls = [];
+      await assertError(await postMessage(messageBody({ output_config })), 400, "invalid_request_error");
+      assert.equal(upstreamCalls.length, 0, JSON.stringify(output_config));
     }
   });
 

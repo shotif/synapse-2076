@@ -1,14 +1,16 @@
 extends Node
-## Minimal HTTP/1.1 server that impersonates an OpenAI-compatible endpoint for
-## LLMService tests. Runs inside the SceneTree (polls in _process).
+## Minimal HTTP/1.1 server that impersonates an OpenAI-compatible endpoint
+## (POST /v1/chat/completions) and Claude's Messages API (POST /v1/messages)
+## for LLMService tests. Runs inside the SceneTree (polls in _process).
 ##
-## Modes for POST /v1/chat/completions:
+## Modes for both POST endpoints:
 ##   "ok"             200 with `decision` serialized as the message content
 ##   "fenced"         200 with the decision wrapped in prose and ```json fences
 ##   "garbage"        200 with non-JSON prose
 ##   "invalid_action" 200 with an action that is not in the catalog
 ##   "http_500"       500 Internal Server Error
 ##   "unauthorized"   401 Unauthorized (also applies to GET /v1/models)
+##   "not_found"      404 with a provider error message (unknown model)
 ##   "hang"           accepts the connection and never answers (timeout path)
 ## GET /v1/models answers 200 unless the mode is "unauthorized" or "hang".
 
@@ -38,6 +40,10 @@ func start() -> int:
 
 func url() -> String:
 	return "http://127.0.0.1:%d/v1/chat/completions" % port
+
+
+func claude_url() -> String:
+	return "http://127.0.0.1:%d/v1/messages" % port
 
 
 func _exit_tree() -> void:
@@ -115,17 +121,35 @@ func _handle(client: Dictionary) -> void:
 	if mode == "hang":
 		return
 	var path := String(requests[-1]["path"])
+	var claude := path.ends_with("/messages")
 	if mode == "unauthorized":
-		_respond(client, 401, {"error": {"message": "invalid api key"}})
+		_respond(client, 401, _error_body(claude, "authentication_error", "invalid x-api-key"))
 	elif path.ends_with("/models"):
 		_respond(client, 200, {"object": "list", "data": [{"id": "mock-model", "object": "model"}]})
 	elif mode == "http_500":
-		_respond(client, 500, {"error": {"message": "upstream exploded"}})
+		_respond(client, 500, _error_body(claude, "api_error", "upstream exploded"))
+	elif mode == "not_found":
+		_respond(client, 404, _error_body(claude, "not_found_error", "model: mock-missing"))
+	elif claude:
+		_respond(client, 200, {"id": "msg_mock", "type": "message", "role": "assistant", "model": "mock-model",
+			"content": [{"type": "text", "text": _content_for_mode()}], "stop_reason": "end_turn"})
 	else:
-		_respond(client, 200, _completion_for_mode())
+		_respond(client, 200, {
+			"id": "chatcmpl-mock",
+			"object": "chat.completion",
+			"model": "mock-model",
+			"choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": _content_for_mode()}}],
+		})
 
 
-func _completion_for_mode() -> Dictionary:
+## Claude wraps errors as {"type": "error", "error": {...}}; OpenAI-style
+## servers as {"error": {...}}.
+func _error_body(claude: bool, error_type: String, message: String) -> Dictionary:
+	var error := {"type": error_type, "message": message}
+	return {"type": "error", "error": error} if claude else {"error": error}
+
+
+func _content_for_mode() -> String:
 	var content := JSON.stringify(decision)
 	match mode:
 		"fenced":
@@ -136,16 +160,11 @@ func _completion_for_mode() -> Dictionary:
 			var bad := decision.duplicate(true)
 			bad["selected_action"] = "LAUNCH_ORBITAL_STRIKE"
 			content = JSON.stringify(bad)
-	return {
-		"id": "chatcmpl-mock",
-		"object": "chat.completion",
-		"model": "mock-model",
-		"choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": content}}],
-	}
+	return content
 
 
 func _respond(client: Dictionary, status: int, payload: Dictionary) -> void:
-	var reason: String = {200: "OK", 401: "Unauthorized", 500: "Internal Server Error"}.get(status, "OK")
+	var reason: String = {200: "OK", 401: "Unauthorized", 404: "Not Found", 500: "Internal Server Error"}.get(status, "OK")
 	var body := JSON.stringify(payload).to_utf8_buffer()
 	var head := "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % [status, reason, body.size()]
 	var peer: StreamPeerTCP = client["peer"]
