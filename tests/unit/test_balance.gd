@@ -66,3 +66,17 @@ func test_trajectories_stay_gradual_early() -> void:
 		var early: Dictionary = engine.world.history[mini(20, engine.world.history.size() - 1)]
 		assert_lt(float(early["labor_displacement"]), 70.0, "labor displacement by 2036")
 		assert_lt(float(early["algorithmic_autonomy"]), 75.0, "autonomy by 2036")
+
+
+func test_every_role_can_win_and_fall_short() -> void:
+	# Victory should be earned: no role wins every autoplay campaign, and every
+	# role wins some (the heuristic is a competent, not perfect, player).
+	var by_role := {}
+	for entry in _results:
+		var counts: Dictionary = by_role.get(entry["role"], {"VICTORY": 0, "OTHER": 0})
+		var verdict := String(entry["result"]["verdict"]["verdict"])
+		counts["VICTORY" if verdict == "VICTORY" else "OTHER"] += 1
+		by_role[entry["role"]] = counts
+	for role in by_role:
+		assert_gte(float(by_role[role]["VICTORY"]), 1.0, "%s wins some campaigns: %s" % [role, by_role[role]])
+		assert_gte(float(by_role[role]["OTHER"]), 1.0, "%s does not win them all: %s" % [role, by_role[role]])

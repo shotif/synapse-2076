@@ -226,22 +226,23 @@ If no signature is fully met, the world settles into the **nearest attractor**: 
 
 ## Balance snapshot
 
-From `tools/monte_carlo.gd --runs=60`: 240 autoplay campaigns, 60 per role, every faction run by the heuristic.
+From `tools/monte_carlo.gd --runs=60`: 240 autoplay campaigns on Standard, 60 per role, every faction run by the heuristic.
 
 | End-state | Share |
 |---|---|
-| Algorithmic Feudalism | 34.6% |
-| Co-Evolutionary Symbiosis | 16.7% |
-| Balkanized Cyber-Anarchy | 14.6% |
-| Instrumental Convergence | 12.9% |
-| Post-Biological Diaspora | 11.2% |
-| Neo-Luddite Decoupling | 7.9% |
-| Rogue ASI Containment | 2.1% |
-| Synthetic Eden | 0.0% |
+| Algorithmic Feudalism | 44.6% |
+| Co-Evolutionary Symbiosis | 17.1% |
+| Post-Biological Diaspora | 12.9% |
+| Neo-Luddite Decoupling | 10.4% |
+| Balkanized Cyber-Anarchy | 10.0% |
+| Synthetic Eden | 3.3% |
+| Rogue ASI Containment | 1.7% |
+| Instrumental Convergence | 0.0% |
 
-- 37% of campaigns strictly match a signature; the rest resolve to the nearest attractor.
-- 84% of campaigns reach 2076. 5.4% end in autonomous world war, 10.4% in uncontained convergence and 0.4% (one ASI campaign) in an air-gap purge.
-- Every role wins some autoplay campaigns: CEO 10, Governance 23, ASI 11 and Citizens 36 victories out of 60 each.
-- Per-role counts swing by several wins between seed sets at this sample size. Over 250 other seeds (`--role=CEO --runs=250 --seed-offset=5000`) the CEO wins 27%.
-- The player's crisis choices steer the world heavily. On identical seeds, Governance and Citizen players reach Symbiosis, Diaspora and Neo-Luddite endings, while an autopiloted CEO races into Instrumental Convergence far more often.
-- `tests/unit/test_balance.gd` holds loose guardrails on these properties.
+- 22% of campaigns strictly match a signature; the rest resolve to the nearest attractor.
+- 98% of campaigns reach 2076. 0.4% end in autonomous world war and 1.2% in an air-gap purge. Early endings used to be common because a deferred rival crisis could return every other turn for the rest of the campaign; since a crisis put off twice breaks and is gone, the heuristic rarely tips the world over. Players who race, or let crises break, still can.
+- Verdicts (victory / pyrrhic / defeat out of 60): CEO 38 / 22 / 0, Governance 39 / 21 / 0, ASI 37 / 20 / 3, Citizens 40 / 14 / 6. Over another 60 seeds per role (`--seed-offset=5000`) the counts move by up to ten victories (the CEO won 48).
+- Difficulty moves these sharply (30 seeds per role): on Story the heuristic wins 25–30 of 30 in every role; on Hard it wins 0–12 and the Council loses most campaigns.
+- Era goals are met roughly half the time each; the ones a role can reach by playing its own game are set near the heuristic's median.
+- The player's crisis choices steer the world heavily. On identical seeds, Governance and Citizen players reach Symbiosis, Diaspora and Neo-Luddite endings, while an autopiloted CEO or ASI ends in Feudalism most of the time.
+- `tests/unit/test_balance.gd` holds loose guardrails on these properties. `EndingsBook.SHARES` (the rarity of each ending) comes from 800 campaigns: rerun the two commands in its comment after a balance change.
