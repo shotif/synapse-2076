@@ -321,7 +321,8 @@ func set_seat(role: String, seated: bool) -> void:
 
 
 func set_spectate(spectating: bool) -> void:
-	_spectate_check.button_pressed = spectating
+	if _spectate_check != null:
+		_spectate_check.button_pressed = spectating
 
 
 func is_spectating() -> bool:
@@ -335,7 +336,8 @@ func set_llm_status(text: String) -> void:
 
 
 func set_seed(seed_value: int) -> void:
-	_seed_edit.text = str(seed_value)
+	if _seed_edit != null:
+		_seed_edit.text = str(seed_value)
 
 
 ## The Continue card: SaveManager.summary() ({} hides it).
@@ -355,7 +357,7 @@ func set_endings_progress(progress: Vector2i) -> void:
 
 
 ## Uses [param date] ("YYYY-MM-DD") as today for the daily challenge ("" =
-## the real UTC date).
+## the real UTC date). set_today("") also refreshes the card after midnight.
 func set_today(date: String) -> void:
 	today = date
 	_refresh_daily()
@@ -363,7 +365,8 @@ func set_today(date: String) -> void:
 
 ## The configuration Start would emit now.
 func build_config() -> Dictionary:
-	var text := _seed_edit.text.strip_edges()
+	var default_seed := int(ProjectSettings.get_setting("synapse/simulation/default_seed", 2076))
+	var text := _seed_edit.text.strip_edges() if _seed_edit != null else str(default_seed)
 	var seed_value := int(text) if text.is_valid_int() else hash(text)
 	return CampaignModes.build_config(selected_role, seed_value, selected_mode, selected_scenario, selected_difficulty, seats,
 		is_spectating())

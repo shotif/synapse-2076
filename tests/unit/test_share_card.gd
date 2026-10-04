@@ -68,7 +68,14 @@ func test_the_page_carries_the_ending() -> void:
 		assert_not_null(stat, key)
 		assert_eq(stat.text, str(int(round(float(result["final_values"][key])))))
 	assert_string_contains(" ".join(texts), "At the same table: the ", "the other player's verdict")
+	assert_has(texts, "THE WORLD IN THREE NUMBERS", "a quarter century is not the century")
 	page.free()
+	var century := _eden()
+	century["turn"] = SimConstants.TOTAL_TURNS
+	century["reason"] = "TURN_LIMIT"
+	var full := ShareCard.build_page(century)
+	assert_has(_labels(full), "THE CENTURY IN THREE NUMBERS")
+	full.free()
 	var plain := ShareCard.build_page(_eden(), {})
 	var plain_texts := _labels(plain)
 	assert_does_not_have(plain_texts, "2 PLAYERS")

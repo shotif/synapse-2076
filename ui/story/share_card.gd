@@ -181,8 +181,9 @@ static func build_page(result: Dictionary, extra: Dictionary = {}) -> Control:
 	if others != "":
 		column.add_child(_wrapped(others, "Newsreader-MediumItalic.ttf", 24, INK_SOFT, HORIZONTAL_ALIGNMENT_CENTER))
 	column.add_child(_rule(1.0, INK))
-	column.add_child(_wrapped("THE %s IN THREE NUMBERS" % ("CENTURY" if not early else "STORY"), "Newsreader-SemiBold.ttf", 20, INK,
-		HORIZONTAL_ALIGNMENT_CENTER, 3))
+	var whole_century := not early and end_turn >= SimConstants.TOTAL_TURNS
+	column.add_child(_wrapped("THE %s IN THREE NUMBERS" % ("CENTURY" if whole_century else "WORLD"), "Newsreader-SemiBold.ttf", 20,
+		INK, HORIZONTAL_ALIGNMENT_CENTER, 3))
 	column.add_child(_stats(result))
 	column.add_child(_rule(1.0, RULE))
 	column.add_child(_badges(result, extra))
