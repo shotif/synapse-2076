@@ -308,6 +308,7 @@ func test_continue_shows_only_with_a_save() -> void:
 	select.set_continue(saves.summary())
 	saves.delete()
 	DirAccess.remove_absolute(saves.dir)
+	DirAccess.remove_absolute(saves.dir.get_base_dir())
 	assert_true(select.has_continue())
 	assert_eq((select.find_child("ContinueTitle", true, false) as Label).text, "Citizen Coalition · 2036 · Era II")
 	var detail := (select.find_child("ContinueDetail", true, false) as Label).text

@@ -19,9 +19,11 @@ func before_all() -> void:
 func after_all() -> void:
 	var dir := DirAccess.open(share_dir)
 	if dir != null:
+		dir.include_hidden = true
 		for file_name in dir.get_files():
 			dir.remove(file_name)
 		DirAccess.remove_absolute(share_dir)
+	DirAccess.remove_absolute(share_dir.get_base_dir())
 
 
 func _eden(role: String = SimConstants.CEO) -> Dictionary:

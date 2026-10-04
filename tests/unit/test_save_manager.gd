@@ -17,12 +17,14 @@ func before_each() -> void:
 
 func after_all() -> void:
 	_remove_dir(save_dir)
+	DirAccess.remove_absolute(save_dir.get_base_dir())
 
 
 func _remove_dir(path: String) -> void:
 	var dir := DirAccess.open(path)
 	if dir == null:
 		return
+	dir.include_hidden = true
 	for file_name in dir.get_files():
 		dir.remove(file_name)
 	DirAccess.remove_absolute(path)

@@ -253,6 +253,9 @@ func test_rewinds_can_be_turned_off_and_desktop_fits() -> void:
 	assert_not_null(book.find_child("TurningPoints", true, false))
 	assert_null(book.find_child("WhatIf0", true, false), "no rewind buttons")
 	assert_not_null(book.find_child("ShareButton", true, false))
+	book.allow_rewind = true
+	await wait_frames(2)
+	assert_not_null(book.find_child("WhatIf0", true, false), "turned back on while open")
 	_assert_fits(book, 1600.0, "desktop epilogue")
 	var spread: Control = book.find_child("Spread", true, false)
 	assert_almost_eq(spread.size.x, EndgameDebrief.SPREAD_WIDTH, 1.0, "still a two-page spread")

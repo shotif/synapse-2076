@@ -28,6 +28,7 @@ func after_each() -> void:
 
 func after_all() -> void:
 	DirAccess.remove_absolute(path)
+	DirAccess.remove_absolute(path.get_base_dir())
 
 
 func _result(outcome_id: String, verdicts: Dictionary, player_role: String = "") -> Dictionary:

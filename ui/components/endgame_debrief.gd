@@ -50,8 +50,12 @@ const KIND_LABELS := {TurningPoints.CHOICE: "YOUR CHOICE", TurningPoints.FALLOUT
 	TurningPoints.MOMENT: "THE ERA TURNS", TurningPoints.COLLAPSE: "COLLAPSE"}
 
 ## Show the "What if?" buttons (the dashboard turns them off when it cannot
-## rewind, e.g. for a campaign without a record).
-var allow_rewind := true
+## rewind, e.g. for a campaign without a record). Takes effect at once.
+var allow_rewind := true:
+	set(value):
+		allow_rewind = value
+		if not _result.is_empty() and _left_box != null:
+			_show_page(_page_index)
 var _compact := false
 var _result := {}
 var _chapters: Array = []
