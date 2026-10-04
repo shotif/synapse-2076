@@ -196,7 +196,7 @@ func test_phone_layout_fits_and_switches_tabs() -> void:
 	assert_eq(dashboard.screen_mode, UiLayout.MODE_PHONE)
 	assert_almost_eq(screen.x, 412.0, 1.0, "logical width matches the phone's CSS width")
 	assert_true(dashboard.get_node("Margin/Layout/NavBar").visible)
-	assert_eq(dashboard._vitals.size(), 6, "vitals strip shows all six metrics")
+	assert_true(dashboard._vitals_strip.compact, "the phone vitals strip is one compact row")
 	_assert_fits(screen.x, "role select")
 
 	dashboard.start_campaign("CEO", 2076, false)
@@ -226,7 +226,7 @@ func test_phone_layout_fits_and_switches_tabs() -> void:
 	await wait_frames(2)
 	_assert_fits(screen.x, "menu")
 	var engine: SimulationEngine = dashboard.engine
-	assert_almost_eq((dashboard._vitals["epistemic_trust"] as MeterBar).value, engine.world.epistemic_trust, 0.001,
+	assert_almost_eq(dashboard._vitals_strip.get_value("epistemic_trust"), engine.world.epistemic_trust, 0.001,
 		"vitals track the world")
 
 
@@ -337,3 +337,14 @@ func test_lens_fills_the_left_column_and_requests_directives() -> void:
 	dashboard.show_left_view("intel")
 	assert_true(dashboard.get_node("%IntelScroll").visible)
 	assert_false(dashboard.get_node("%LensHost").visible)
+
+
+func test_phone_header_fits_in_every_era_while_spectating() -> void:
+	var screen := await _use_phone_screen()
+	dashboard.start_campaign("GOVERNANCE_COUNCIL", 11, true)
+	await wait_frames(2)
+	for era_number in [1, 2, 3]:
+		dashboard._apply_era(era_number)
+		await wait_frames(2)
+		_assert_fits(screen.x, "era %d spectate header" % era_number)
+		assert_true(dashboard.get_node("%SpectateControls").visible)

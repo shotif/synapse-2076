@@ -58,7 +58,6 @@ var _paused := false
 var _pending_option := ""
 var _deferred_context := {}
 var _meters := {}
-var _vitals := {}
 var _feed_entries: Array[Dictionary] = []
 var _feed_follow := true
 var _lens: LensPanel
@@ -69,7 +68,7 @@ var _next_turn_timer: Timer
 var _backdrop: EraBackdrop
 var _era_upgrade: EraUpgrade
 var _nav: NavBar
-var _vitals_grid: GridContainer
+var _vitals_strip: VitalsStrip
 var _index_bars := {}
 var _index_values := {}
 var _index_names := {}
@@ -205,7 +204,7 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	_feed.clear()
 	_feed_follow = true
 	_headline.text = ""
-	for meter in _meters.values() + _vitals.values():
+	for meter in _meters.values():
 		(meter as MeterBar).history = PackedFloat32Array()
 	engine.start_campaign(role, seed_value, {
 		"autoplay": spectate_mode,
@@ -418,7 +417,6 @@ func set_screen_mode(mode: String, landscape: bool = true) -> void:
 		(panel as Control).size_flags_horizontal = Control.SIZE_EXPAND_FILL if compact else Control.SIZE_FILL
 		(panel as Control).size_flags_stretch_ratio = 1.0
 	_center_panel.size_flags_stretch_ratio = 1.15 if screen_mode == UiLayout.MODE_SPLIT else 1.0
-	_vitals_grid.columns = 6 if landscape else 3
 	# Touch screens scroll the feed by dragging, so text selection gives way.
 	_feed.selection_enabled = not compact
 	for button in [_menu_button, _pause_button, _speed_button]:
@@ -492,23 +490,12 @@ func _build_chrome() -> void:
 	add_child(_backdrop.scanlines)
 	move_child(_backdrop.scanlines, _margin.get_index() + 1)
 
-	_vitals_grid = GridContainer.new()
-	_vitals_grid.name = "VitalsStrip"
-	_vitals_grid.columns = 3
-	_vitals_grid.add_theme_constant_override("h_separation", 4)
-	_vitals_grid.add_theme_constant_override("v_separation", 4)
-	for key in WorldState.METRIC_KEYS:
-		var vital := MeterBar.new()
-		vital.metric_key = key
-		vital.compact = true
-		vital.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		vital.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		vital.gui_input.connect(func(event: InputEvent):
-			if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-				show_tab("intel"))
-		_vitals[key] = vital
-		_vitals_grid.add_child(vital)
-	_compact_vitals.add_child(_vitals_grid)
+	# Phones keep the six vitals above every tab but WORLD; a tap opens Intel.
+	_vitals_strip = VitalsStrip.new()
+	_vitals_strip.name = "VitalsStrip"
+	_vitals_strip.set_compact(true)
+	_vitals_strip.metric_pressed.connect(func(_key: String): show_tab("intel"))
+	_compact_vitals.add_child(_vitals_strip)
 	_build_index_grid()
 
 	_nav = NavBar.new()
@@ -730,7 +717,7 @@ func _present_crisis(context: Dictionary) -> void:
 	_deferred_context = {}
 	if screen_mode != UiLayout.MODE_DESKTOP:
 		show_tab("act")
-	_dilemma.present(context["dilemma"], context["resources"], engine.player_role)
+	_dilemma.present(context["dilemma"], context["resources"], engine.player_role, engine.world.metrics_dict())
 
 
 func _on_telemetry_updated(snapshot: Dictionary) -> void:
@@ -768,7 +755,7 @@ func _on_dilemma_option_chosen(option_id: String) -> void:
 
 func _reopen_crisis() -> void:
 	if engine != null and engine.is_awaiting_player():
-		_dilemma.present(engine.current_dilemma, engine.get_player().resources, engine.player_role)
+		_dilemma.present(engine.current_dilemma, engine.get_player().resources, engine.player_role, engine.world.metrics_dict())
 
 
 func _on_execute_requested(directives: Array) -> void:
@@ -873,8 +860,7 @@ func _refresh_telemetry(snapshot: Dictionary, record: bool) -> void:
 	var metrics: Dictionary = snapshot.get("metrics", {})
 	for key in _meters:
 		(_meters[key] as MeterBar).set_value(float(metrics.get(key, 0.0)), record)
-	for key in _vitals:
-		(_vitals[key] as MeterBar).set_value(float(metrics.get(key, 0.0)), record)
+	_vitals_strip.set_values(metrics)
 	_globe.update_from_snapshot(snapshot)
 	_lattice.update_from_snapshot(snapshot)
 	_update_indices(snapshot)
