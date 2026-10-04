@@ -193,6 +193,12 @@ func test_engine_runs_turns_through_llm_service() -> void:
 	assert_eq(server.requests.size(), 3)
 
 
+func test_auto_probe_respects_enabled_flag() -> void:
+	assert_true(service.should_auto_probe(), "desktop builds probe a configured endpoint")
+	service.configure({"enabled": false})
+	assert_false(service.should_auto_probe(), "disabled service never probes on its own")
+
+
 func test_provider_labels() -> void:
 	assert_eq(LLMService.provider_for_endpoint("http://127.0.0.1:11434/v1/chat/completions"), "LOCAL-OLLAMA")
 	assert_eq(LLMService.provider_for_endpoint("http://localhost:8000/v1/chat/completions"), "LOCAL-VLLM")

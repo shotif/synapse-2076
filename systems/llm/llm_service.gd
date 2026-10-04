@@ -115,6 +115,17 @@ func save_user_configuration(include_api_key: bool = false) -> Error:
 	return config.save(USER_CONFIG_PATH)
 
 
+## Whether to contact the endpoint without an explicit user action (startup
+## probe, periodic re-probe). Web builds never auto-probe the default localhost
+## endpoint: a public page reaching into the visitor's local network triggers
+## browser permission prompts and CORS failures. Configuring an endpoint in the
+## settings dialog opts in.
+func should_auto_probe() -> bool:
+	if not enabled:
+		return false
+	return not (OS.has_feature("web") and endpoint_url == DEFAULT_ENDPOINT)
+
+
 ## Human-readable "MODEL / PROVIDER" label, e.g. "LLAMA3:8B / LOCAL-OLLAMA".
 func get_provider_name() -> String:
 	return "%s / %s" % [model_name.to_upper(), provider_for_endpoint(endpoint_url)]
@@ -337,7 +348,7 @@ func _on_reprobe_timer() -> void:
 func _update_reprobe_timer() -> void:
 	if _reprobe_timer == null:
 		return
-	if enabled and not is_online and reprobe_interval_sec > 0.0:
+	if should_auto_probe() and not is_online and reprobe_interval_sec > 0.0:
 		if _reprobe_timer.is_stopped():
 			_reprobe_timer.start(reprobe_interval_sec)
 	else:

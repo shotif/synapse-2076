@@ -87,7 +87,7 @@ func _ready() -> void:
 	if _should_autorun_headless():
 		_run_headless_autoplay.call_deferred()
 		return
-	if bool(ProjectSettings.get_setting("synapse/llm/probe_on_start", true)) and llm.enabled:
+	if bool(ProjectSettings.get_setting("synapse/llm/probe_on_start", true)) and llm.should_auto_probe():
 		llm.probe_connection()
 	_show_role_select()
 
