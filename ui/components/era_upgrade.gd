@@ -244,7 +244,7 @@ func _fill_script(year: int) -> void:
 	_title.text = String(script["title"])
 	_title.add_theme_font_override("font", s.font_display)
 	_title.add_theme_color_override("font_color", s.text_bright)
-	_sub.text = "Hardware Era %s · %s" % [EraStyle.ROMAN[target_era], str(year) if year > 0 else String(EraStyle.SPANS[target_era])]
+	_sub.text = tr("Hardware Era %s · %s") % [EraStyle.ROMAN[target_era], str(year) if year > 0 else String(EraStyle.SPANS[target_era])]
 	_sub.add_theme_color_override("font_color", Color(s.text, 0.75))
 	_bar_fill.color = s.accent
 	for row in _log_rows:

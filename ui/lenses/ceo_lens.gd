@@ -92,7 +92,7 @@ func _init() -> void:
 
 
 func lens_title() -> String:
-	return "Markets"
+	return I18n.mark("Markets")
 
 
 func lens_background() -> Color:
@@ -130,7 +130,7 @@ func _build_top_bar() -> void:
 	_logo = _canvas(_draw_logo, Vector2(14, 14))
 	_logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_logo)
-	var title := _clip_label("FRONTIER LAB", _caps, 13, BRIGHT)
+	var title := _clip_label(tr("FRONTIER LAB"), _caps, 13, BRIGHT)
 	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(title)
 	_turn_label = _label("", _mono, 11, DIM)
@@ -140,7 +140,7 @@ func _build_top_bar() -> void:
 	_live_dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_live_dot.fps = 20.0
 	row.add_child(_live_dot)
-	_live_label = _label("LIVE", _mono, 11, UP)
+	_live_label = _label(tr("LIVE"), _mono, 11, UP)
 	_live_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_live_label)
 	_header.add_child(bar)
@@ -156,7 +156,7 @@ func _build_ticker() -> void:
 
 func _build_capital() -> void:
 	var block := _vbox(2)
-	block.add_child(_label("CAPITAL RUNWAY", _caps, 11, DIM))
+	block.add_child(_label(tr("CAPITAL RUNWAY"), _caps, 11, DIM))
 	var row := _hbox(10)
 	_capital_label = _label("", _mono_bold, 42, BRIGHT)
 	row.add_child(_capital_label)
@@ -188,13 +188,13 @@ func _build_capital() -> void:
 func _build_book() -> void:
 	var table := _vbox(0)
 	var head := _panel(_rule_box(Color(0, 0, 0, 0), false, 0.0, 0.0))
-	var head_row := _book_row_layout(_label("BOOK", _caps_small, 10, FAINT), _label("LAST", _caps_small, 10, FAINT),
-		Control.new(), _label("CHG", _caps_small, 10, FAINT))
+	var head_row := _book_row_layout(_label(tr("BOOK"), _caps_small, 10, FAINT), _label(tr("LAST"), _caps_small, 10, FAINT),
+		Control.new(), _label(tr("CHG"), _caps_small, 10, FAINT))
 	head.add_child(_margin(head_row, 0, 0, 0, 6))
 	table.add_child(head)
 	for entry in BOOK:
 		var key: String = entry[0]
-		var name_label := _label(String(entry[1]), _mono, 13, DIM)
+		var name_label := _label(tr(String(entry[1])), _mono, 13, DIM)
 		var last := _label("", _mono, 13, BRIGHT)
 		var spark := _canvas(_draw_spark.bind(key), Vector2(64, 18))
 		var change := _label("", _mono, 13, UP)
@@ -229,7 +229,7 @@ func _book_row_layout(name_label: Label, last: Label, spark: Control, change: La
 
 func _build_priced() -> void:
 	var block := _vbox(6)
-	block.add_child(_label("THE WORLD, PRICED", _caps_small, 10, FAINT))
+	block.add_child(_label(tr("THE WORLD, PRICED"), _caps_small, 10, FAINT))
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 4)
@@ -239,7 +239,7 @@ func _build_priced() -> void:
 		tile.custom_minimum_size.y = 50
 		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var stack := _vbox(0)
-		var caption := _clip_label(String(entry["label"]), _mono, 10, SHADE_WATCH[1])
+		var caption := _clip_label(tr(String(entry["label"])), _mono, 10, SHADE_WATCH[1])
 		stack.add_child(caption)
 		var filler := Control.new()
 		filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -265,6 +265,8 @@ func _build_press() -> void:
 	_press_caption = _label("", _caps_small, 10, FAINT, true)
 	stack.add_child(_press_caption)
 	_press_quote = _label("", _quote_font, 15, BRIGHT, true)
+	# Statements are the faction's own words (canned English or an LLM's).
+	_press_quote.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	stack.add_child(_press_quote)
 	card.add_child(stack)
 	_content.add_child(_margin(card, 16, 12, 16, 0))
@@ -275,7 +277,7 @@ func _build_orders() -> void:
 	dock.name = "OrderDock"
 	_order_dock = dock
 	var stack := _vbox(8)
-	stack.add_child(_label("NEXT ORDER", _caps_small, 10, FAINT))
+	stack.add_child(_label(tr("NEXT ORDER"), _caps_small, 10, FAINT))
 	_order_grid = GridContainer.new()
 	_order_grid.columns = 2
 	_order_grid.add_theme_constant_override("h_separation", 6)
@@ -317,8 +319,8 @@ static func _spacer(height: float) -> Control:
 
 func _refresh() -> void:
 	var ended := String(snapshot.get("phase", "")) == "ENDED"
-	_turn_label.text = "T%d · %s" % [current_turn(), half_label()] if not snapshot.is_empty() else "PRE-OPEN"
-	_live_label.text = "CLOSED" if ended else "LIVE"
+	_turn_label.text = tr("T%d · %s") % [current_turn(), half_label()] if not snapshot.is_empty() else tr("PRE-OPEN")
+	_live_label.text = tr("CLOSED") if ended else tr("LIVE")
 	_set_color(_live_label, FAINT if ended else UP)
 	_live_dot.animated = not ended
 	_live_dot.queue_redraw()
@@ -361,7 +363,7 @@ func _refresh_capital() -> void:
 	_capital_change.text = "=" if amount == 0 else "%s $%dB" % ["▲" if change > 0.0 else "▼", amount]
 	_set_color(_capital_change, _change_color(change, 0))
 	var flows := _capital_flow_items()
-	_capital_flows.text = " · ".join(flows) if not flows.is_empty() else "no directive cash flows this turn"
+	_capital_flows.text = " · ".join(flows) if not flows.is_empty() else tr("no directive cash flows this turn")
 	# Axis: first, middle and latest sample years.
 	var marks := [-1, -1, -1]
 	if not history.is_empty():
@@ -393,7 +395,7 @@ func _capital_flow_items() -> Array[String]:
 		else:
 			amount = float(((applied.get("factions", {}) as Dictionary).get(role, {}) as Dictionary).get("capital", 0.0))
 		if absf(amount) >= 0.5:
-			items.append("%s %s$%dB" % [String(outcome.get("action_name", "")).to_lower(), "+" if amount > 0.0 else "−",
+			items.append("%s %s$%dB" % [I18n.lowercase(tr(String(outcome.get("action_name", "")))), "+" if amount > 0.0 else "−",
 				int(roundf(absf(amount)))])
 	return items
 
@@ -449,11 +451,11 @@ func _tile_shade(entry: Dictionary) -> Array:
 func _refresh_press() -> void:
 	var statement := statement_for(role).strip_edges()
 	if statement == "":
-		_press_caption.text = "YOUR PRESS RELEASE"
-		_press_quote.text = "No statement on file."
+		_press_caption.text = tr("YOUR PRESS RELEASE")
+		_press_quote.text = tr("No statement on file.")
 		_set_color(_press_quote, DIM)
 		return
-	_press_caption.text = "YOUR PRESS RELEASE · %s" % ("THIS TURN" if outcome_is_current(role) else "LAST TURN")
+	_press_caption.text = "%s · %s" % [tr("YOUR PRESS RELEASE"), tr("THIS TURN") if outcome_is_current(role) else tr("LAST TURN")]
 	_press_quote.text = "“%s”" % statement
 	_set_color(_press_quote, BRIGHT)
 
@@ -496,7 +498,7 @@ func _order_button(action_id: String, primary: bool) -> Button:
 	var entry := action_entry(action_id)
 	var blocked := String(entry.get("blocked_reason", "")) != ""
 	button.disabled = blocked
-	button.tooltip_text = String(entry.get("name", action_id))
+	button.tooltip_text = tr(String(entry.get("name", action_id)))
 	var fill := _accent if primary and not blocked else Color(0, 0, 0, 0)
 	var boxes := {
 		"normal": _outline(fill, _accent if primary else BUTTON_LINE, 0 if primary else 1),
@@ -507,7 +509,7 @@ func _order_button(action_id: String, primary: bool) -> Button:
 	_style_button(button, boxes, _mono, 12, {})
 	var row := _hbox(6)
 	var ink := ON_ACCENT if primary and not blocked else (FAINT if blocked else TEXT)
-	var name_label := _clip_label(String(ORDER_NAMES.get(action_id, String(entry.get("name", action_id)).to_upper())),
+	var name_label := _clip_label(tr(String(ORDER_NAMES[action_id])) if ORDER_NAMES.has(action_id) else tr(String(entry.get("name", action_id))).to_upper(),
 		_mono_bold if primary else _mono, 12, ink)
 	name_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(name_label)
@@ -530,18 +532,18 @@ func _order_price(action_id: String) -> Array:
 	if gain > 0.0:
 		return ["+$%dB" % int(roundf(gain)), _change_color(1.0, 0)]
 	if cost.is_empty():
-		return ["FREE", TEXT]
+		return [tr("FREE"), TEXT]
 	return ["−" + UiFormat.format_cost(role, cost), TEXT]
 
 
 static func _blocked_short(reason: String) -> String:
 	if reason.begins_with("Cooldown"):
-		return "COOLDOWN %sT" % reason.get_slice(" ", 1)
+		return I18n.t("COOLDOWN %sT") % reason.get_slice(" ", 1)
 	if reason.begins_with("Insufficient"):
-		return "NO FUNDS"
+		return I18n.t("NO FUNDS")
 	if reason.begins_with("Faction dormant"):
-		return "HALTED"
-	return reason.to_upper()
+		return I18n.t("HALTED")
+	return UiFormat.block_reason(reason).to_upper()
 
 
 func _change_color(delta: float, decimals: int) -> Color:
@@ -571,7 +573,7 @@ func _draw_ticker(canvas: Control) -> void:
 	var height := canvas.size.y
 	var baseline := _baseline(_mono, TICKER_SIZE, 0.0, height)
 	if _ticker_items.is_empty() or _ticker_width <= 0.0:
-		canvas.draw_string(_mono, Vector2(14, baseline), "AWAITING MARKET DATA", HORIZONTAL_ALIGNMENT_LEFT, -1, TICKER_SIZE, FAINT)
+		canvas.draw_string(_mono, Vector2(14, baseline), tr("AWAITING MARKET DATA"), HORIZONTAL_ALIGNMENT_LEFT, -1, TICKER_SIZE, FAINT)
 		return
 	var speed := _ticker_width / TICKER_PERIOD
 	var x := 14.0 - fposmod((canvas as LensPanel.Canvas).time * speed, _ticker_width)

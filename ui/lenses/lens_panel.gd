@@ -17,7 +17,9 @@ extends PanelContainer
 ## border) follows the hardware era of the surrounding theme. Its text follows
 ## the player's text size and plain-language setting. Subclasses build their
 ## sections once in _build() and fill them in _refresh(); widgets that show a
-## metric or index call _tap_metric() so a tap emits metric_pressed.
+## metric or index call _tap_metric() so a tap emits metric_pressed. Text is
+## translated as it is built (tr()); the dashboard builds a new lens when the
+## language changes. lens_title() returns an English message id.
 
 ## Asks the dashboard to open ACT with [param action_id] (a directive of this
 ## lens's role) selected.
@@ -91,9 +93,9 @@ static func create(role_id: String) -> LensPanel:
 
 # --- Public API ------------------------------------------------------------------
 
-## Tab label for the dashboard.
+## Tab label for the dashboard (an English message id).
 func lens_title() -> String:
-	return "Lens"
+	return I18n.mark("Lens")
 
 
 ## Glyph name (see Glyphs) for the lens tab.
@@ -211,7 +213,7 @@ func current_year() -> float:
 ## "H1 2056" for the first half of 2056.
 func half_label() -> String:
 	var year := current_year()
-	return "H%d %d" % [2 if year - floorf(year) >= 0.25 else 1, int(floorf(year))]
+	return tr("H%d %d") % [2 if year - floorf(year) >= 0.25 else 1, int(floorf(year))]
 
 
 func metric(key: String) -> float:
@@ -312,7 +314,7 @@ func action_entries() -> Array:
 		var cost: Dictionary = definition.get("cost", {})
 		var intensity := _affordable_intensity(cost)
 		out.append({"id": action_id, "name": String(definition.get("name", action_id)), "cost": cost,
-			"blocked_reason": "" if intensity > 0.0 else "Insufficient resources", "max_intensity": intensity})
+			"blocked_reason": "" if intensity > 0.0 else I18n.mark("Insufficient resources"), "max_intensity": intensity})
 	return out
 
 
@@ -693,13 +695,14 @@ static func _signed(value: float, decimals: int = 1) -> String:
 	return ("+" if value >= 0.0 else "−") + _num(absf(value), decimals)
 
 
-## A short lowercase name for a metric, index or currency key.
+## A short lowercase name for a metric, index or currency key, in the
+## interface language (German keeps its capitals).
 static func _key_word(key: String) -> String:
 	if WorldState.METRIC_KEYS.has(key):
-		return UiFormat.metric_name(key).to_lower()
+		return I18n.lowercase(UiFormat.metric_name(key))
 	if WorldState.INDEX_KEYS.has(key):
-		return UiFormat.metric_short(key).to_lower()
-	return String(KEY_WORDS.get(key, key.replace("_", " ")))
+		return I18n.lowercase(UiFormat.metric_short(key))
+	return I18n.t(String(KEY_WORDS.get(key, key.replace("_", " "))))
 
 
 ## Deterministic 0..1 value for [param text] (stylistic devices only).

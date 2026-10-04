@@ -62,6 +62,8 @@ func _notification(what: int) -> void:
 		(get_child(0) as ColorRect).color = Color(EraTheme.style_of(self).shade, 0.9)
 		if book != null and EraTheme.style_of(self).era != _era:
 			_build.call_deferred()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _panel != null and book != null and visible:
+		_build.call_deferred()
 
 
 static func outcome_glyph(outcome_id: String) -> String:
@@ -174,7 +176,7 @@ func _header(s: EraStyle) -> Control:
 	var count := Label.new()
 	count.name = "Progress"
 	count.theme_type_variation = "ValueLabel"
-	count.text = "%d of %d" % [progress.x, progress.y]
+	count.text = tr("%d of %d") % [progress.x, progress.y]
 	count.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(count)
 	var close_button := Button.new()
@@ -240,7 +242,7 @@ func _outcome_row(outcome: Dictionary, s: EraStyle) -> Control:
 	top.add_theme_constant_override("separation", 8)
 	var number := Label.new()
 	number.theme_type_variation = "Kicker"
-	number.text = s.label("End-state %d" % int(outcome["number"]))
+	number.text = s.label(tr("End-state %d") % int(outcome["number"]))
 	top.add_child(number)
 	top.add_child(_rarity_badge(outcome_id, s))
 	header.add_child(top)
@@ -278,9 +280,9 @@ func _rarity_badge(outcome_id: String, s: EraStyle) -> Control:
 	badge.name = "Rarity"
 	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	badge.add_theme_stylebox_override("panel", EraTheme.box(Color(color, 0.14), Color(color, 0.6), 1, 999, 8, 1, s.corner_detail))
-	badge.tooltip_text = "%.1f%% of autoplay campaigns end here" % EndingsBook.share(outcome_id)
+	badge.tooltip_text = tr("%.1f%% of autoplay campaigns end here") % EndingsBook.share(outcome_id)
 	var label := Label.new()
-	label.text = rarity.to_upper()
+	label.text = tr(rarity).to_upper()
 	label.add_theme_font_override("font", s.font_mono)
 	label.add_theme_font_size_override("font_size", 10)
 	label.add_theme_color_override("font_color", color)
@@ -350,7 +352,7 @@ func _cell(outcome: Dictionary, role: String, s: EraStyle) -> PanelContainer:
 		mystery.add_theme_font_size_override("font_size", 30)
 		mystery.add_theme_color_override("font_color", Color(s.text_dim, 0.45))
 		box.add_child(mystery)
-		card.tooltip_text = "Not yet reached as the %s." % UiFormat.role_name(role)
+		card.tooltip_text = tr("Not yet reached as the %s.") % UiFormat.role_name(role)
 		return card
 	var entry := book.entry(outcome_id, role)
 	var verdict := String(entry.get("best", "DEFEAT"))
@@ -373,7 +375,7 @@ func _cell(outcome: Dictionary, role: String, s: EraStyle) -> PanelContainer:
 	verdict_line.add_child(Glyphs.icon(verdict_seal(verdict), 16, color))
 	var verdict_label := Label.new()
 	verdict_label.name = "Verdict"
-	verdict_label.text = "%s %d" % [verdict.capitalize(), int(round(float(entry.get("best_score", 0.0))))]
+	verdict_label.text = "%s %d" % [UiFormat.verdict_name(verdict), int(round(float(entry.get("best_score", 0.0))))]
 	verdict_label.add_theme_font_override("font", s.font_mono_bold)
 	verdict_label.add_theme_font_size_override("font_size", 12)
 	verdict_label.add_theme_color_override("font_color", color)
@@ -387,7 +389,7 @@ func _cell(outcome: Dictionary, role: String, s: EraStyle) -> PanelContainer:
 	date.theme_type_variation = "Caption"
 	date.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var count := int(entry.get("count", 1))
-	date.text = "First %s%s" % [String(entry.get("first", "")), " · ×%d" % count if count > 1 else ""]
+	date.text = tr("First %s") % String(entry.get("first", "")) + (" · ×%d" % count if count > 1 else "")
 	box.add_child(date)
 	card.tooltip_text = String(outcome["description"])
 	return card

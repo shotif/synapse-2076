@@ -69,14 +69,14 @@ static func options_for(mode: String) -> Dictionary:
 
 static func display_name(mode: String) -> String:
 	if mode == CUSTOM:
-		return "Custom length"
+		return I18n.mark("Custom length")
 	return String(MODES.get(mode, MODES[DEFAULT])["name"])
 
 
 ## One word or two, for chips ("Century", "Era II").
 static func short_name(mode: String) -> String:
 	if mode == CUSTOM:
-		return "Custom"
+		return I18n.mark("Custom")
 	return String(MODES.get(mode, MODES[DEFAULT])["short"])
 
 

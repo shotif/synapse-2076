@@ -41,7 +41,10 @@ const TAP_SLOP := 12.0
 const STICKY_HEIGHT := 62.0
 const SUBTITLE := "A hard-systems simulation of AI, energy, labor and alignment from 2026 to 2076, in half-year turns.\nPick a perspective and a campaign. The other factions act on their own (an LLM when one is online, heuristics otherwise)."
 const SUBTITLE_COMPACT := "AI, energy, labor and alignment, 2026–2076. Pick a perspective and a campaign; the other factions act on their own."
-const OTHERS := ["", "one", "two", "three"]
+## How many factions the machines still play beside the people at the table.
+const OTHERS := ["", "The other one acts on their own.", "The other two act on their own.", "The other three act on their own."]
+## The game's name (never translated).
+const GAME_TITLE := "SYNAPSE-2076"
 
 var selected_role := SimConstants.GOVERNANCE
 var selected_mode := CampaignModes.DEFAULT
@@ -100,6 +103,7 @@ var _press_position := Vector2.INF
 var _marks := {}
 var _names := {}
 var _era := 0
+var _relabel_queued := false
 
 
 func _ready() -> void:
@@ -126,7 +130,7 @@ func _ready() -> void:
 	_title = Label.new()
 	_title.theme_type_variation = "HeaderTitle"
 	_title.add_theme_font_size_override("font_size", 34)
-	_title.text = "SYNAPSE-2076"
+	_title.text = GAME_TITLE
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_row.add_child(_title)
 	_endings_button = Button.new()
@@ -152,7 +156,7 @@ func _ready() -> void:
 	_roles_column = VBoxContainer.new()
 	_roles_column.add_theme_constant_override("separation", 8)
 	_roles_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_roles_column.add_child(_section("Perspective"))
+	_roles_column.add_child(_section(I18n.mark("Perspective")))
 	_grid = GridContainer.new()
 	_grid.columns = 2
 	_grid.add_theme_constant_override("h_separation", 12)
@@ -239,6 +243,27 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _sticky != null and EraTheme.style_of(self).era != _era:
 		_restyle()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _sticky != null and not _relabel_queued:
+		_relabel_queued = true
+		_relabel.call_deferred()
+
+
+## Sets every composed text again in the new language.
+func _relabel() -> void:
+	_relabel_queued = false
+	for role in _cards:
+		_fill_role_texts(role)
+	for mode in _mode_chips:
+		(_mode_chips[mode] as Button).tooltip_text = _mode_tip(mode)
+	for role in _seat_chips:
+		(_seat_chips[role] as Button).text = "+ " + UiFormat.role_name(role)
+		(_seat_chips[role] as Button).tooltip_text = tr("Another person plays the %s on this device") % UiFormat.role_name(role)
+	_restyle()
+	select_mode(selected_mode)
+	_refresh_seats()
+	_refresh_daily()
+	_refresh_endings()
+	_fit_options_row()
 
 
 func _restyle() -> void:
@@ -253,7 +278,7 @@ func _restyle() -> void:
 		(_names[role] as Label).add_theme_font_override("font", s.font_ui_bold)
 		(_names[role] as Label).add_theme_color_override("font_color", s.text_bright)
 	for label in _sections:
-		label.text = s.label(String(label.get_meta("raw", label.text)))
+		label.text = s.label(tr(String(label.get_meta("raw", label.text))))
 	for role in _seat_chips:
 		(_seat_chips[role] as Button).add_theme_color_override("icon_normal_color", s.faction_color(role))
 		(_seat_chips[role] as Button).add_theme_color_override("icon_pressed_color", s.faction_color(role))
@@ -287,8 +312,8 @@ func select_mode(mode: String) -> void:
 	selected_mode = mode
 	_press_only(_mode_chips, mode)
 	if _mode_note != null:
-		_mode_note.text = "%s · %s · %d turns. %s" % [CampaignModes.display_name(mode), CampaignModes.years(mode),
-			CampaignModes.turns_played(mode), CampaignModes.blurb(mode)]
+		_mode_note.text = tr("%s · %s · %d turns. %s") % [tr(CampaignModes.display_name(mode)), CampaignModes.years(mode),
+			CampaignModes.turns_played(mode), tr(CampaignModes.blurb(mode))]
 
 
 func select_scenario(scenario_id: String) -> void:
@@ -452,12 +477,12 @@ func _build_settings() -> VBoxContainer:
 	var column := VBoxContainer.new()
 	column.name = "Settings"
 	column.add_theme_constant_override("separation", 8)
-	column.add_child(_section("Length"))
+	column.add_child(_section(I18n.mark("Length")))
 	var modes := _chip_row("Modes")
 	var mode_group := ButtonGroup.new()
 	for mode in CampaignModes.ORDER:
 		var chip := _chip("Mode_" + mode, CampaignModes.short_name(mode), mode_group)
-		chip.tooltip_text = "%s, %s" % [CampaignModes.display_name(mode), CampaignModes.years(mode)]
+		chip.tooltip_text = _mode_tip(mode)
 		chip.toggled.connect(_on_chip_toggled.bind(select_mode, mode))
 		_mode_chips[mode] = chip
 		modes.add_child(chip)
@@ -465,7 +490,7 @@ func _build_settings() -> VBoxContainer:
 	_mode_note = _note("ModeNote")
 	column.add_child(_mode_note)
 
-	column.add_child(_section("World"))
+	column.add_child(_section(I18n.mark("World")))
 	var scenarios := _chip_row("Scenarios")
 	var scenario_group := ButtonGroup.new()
 	for scenario_id in Scenarios.ORDER:
@@ -478,7 +503,7 @@ func _build_settings() -> VBoxContainer:
 	_scenario_note = _note("ScenarioNote")
 	column.add_child(_scenario_note)
 
-	column.add_child(_section("Difficulty"))
+	column.add_child(_section(I18n.mark("Difficulty")))
 	var presets := _chip_row("Difficulties")
 	var difficulty_group := ButtonGroup.new()
 	for preset_id in Difficulty.ORDER:
@@ -490,11 +515,11 @@ func _build_settings() -> VBoxContainer:
 	_difficulty_note = _note("DifficultyNote")
 	column.add_child(_difficulty_note)
 
-	column.add_child(_section("Players"))
+	column.add_child(_section(I18n.mark("Players")))
 	var seat_row := _chip_row("Seats")
 	for role in SimConstants.FACTION_ORDER:
 		var chip := _chip("Seat_" + role, "+ " + UiFormat.role_name(role), null, Glyphs.for_faction(role))
-		chip.tooltip_text = "Another person plays the %s on this device" % UiFormat.role_name(role)
+		chip.tooltip_text = tr("Another person plays the %s on this device") % UiFormat.role_name(role)
 		chip.toggled.connect(_on_seat_toggled.bind(role))
 		_seat_chips[role] = chip
 		seat_row.add_child(chip)
@@ -502,6 +527,11 @@ func _build_settings() -> VBoxContainer:
 	_seat_note = _note("SeatNote")
 	column.add_child(_seat_note)
 	return column
+
+
+## "Full century, 2026–2076" for a length chip.
+func _mode_tip(mode: String) -> String:
+	return "%s, %s" % [tr(CampaignModes.display_name(mode)), CampaignModes.years(mode)]
 
 
 func _section(text: String) -> Label:
@@ -567,13 +597,13 @@ func _refresh_seats() -> void:
 		chip.disabled = spectating
 		chip.set_pressed_no_signal(seats.has(role))
 	if spectating:
-		_seat_note.text = "Spectating: the AI plays every side."
+		_seat_note.text = tr("Spectating: the AI plays every side.")
 	elif seats.is_empty():
-		_seat_note.text = "Just you. The other three factions act on their own."
+		_seat_note.text = tr("Just you. The other three factions act on their own.")
 	else:
 		var others := SimConstants.FACTION_ORDER.size() - 1 - seats.size()
-		_seat_note.text = "%d players take turns on this device.%s" % [seats.size() + 1,
-			(" The other %s %s on their own." % [OTHERS[others], "acts" if others == 1 else "act"]) if others > 0 else ""]
+		_seat_note.text = tr("%d players take turns on this device.") % (seats.size() + 1) \
+			+ (" " + tr(String(OTHERS[others])) if others > 0 else "")
 
 
 func _on_spectate_toggled(spectating: bool) -> void:
@@ -642,21 +672,21 @@ func _refresh_continue() -> void:
 	var s := EraTheme.style_of(self)
 	_continue_mark.texture = _role_mark(s, role, 44)
 	var saved := String(summary.get("saved_at_text", ""))
-	_continue_kicker.text = s.label("Continue") + (" · saved %s" % saved if saved != "" else "")
+	_continue_kicker.text = s.label(tr("Continue")) + ((" · " + tr("saved %s") % saved) if saved != "" else "")
 	var era := int(summary.get("era", 1))
-	_continue_title.text = "%s · %d · Era %s" % [UiFormat.role_name(role), int(summary.get("year", 2026)),
+	_continue_title.text = tr("%s · %d · Era %s") % [UiFormat.role_name(role), int(summary.get("year", 2026)),
 		EraStyle.ROMAN.get(clampi(era, 1, 3), "I")]
 	var parts: Array[String] = []
 	for key in ["mode_name", "scenario_name", "difficulty_name"]:
 		if String(summary.get(key, "")) != "":
-			parts.append(String(summary[key]))
+			parts.append(tr(String(summary[key])))
 	var players := int(summary.get("players", (summary.get("humans", []) as Array).size()))
 	if players > 1:
-		parts.append("%d players" % players)
+		parts.append(tr("%d players") % players)
 	if String(summary.get("daily", "")) != "":
-		parts.append("Daily %s" % summary["daily"])
+		parts.append(tr("Daily %s") % summary["daily"])
 	if bool(summary.get("spectate", false)):
-		parts.append("Spectating")
+		parts.append(tr("Spectating"))
 	_continue_detail.text = " · ".join(parts)
 	UiLayout.pass_touch_through(_continue_card)
 
@@ -701,15 +731,16 @@ func _refresh_daily() -> void:
 	var config := daily_config()
 	var mode := String(config["mode"])
 	_daily_date.text = String(config["daily"])
-	_daily_lineup.text = "%s · %s · %s, %s. The same world for everyone today, on Standard." % [
-		UiFormat.role_name(String(config["role"])), Scenarios.display_name(String(config["options"]["scenario"])),
-		CampaignModes.display_name(mode), CampaignModes.years(mode)]
+	_daily_lineup.text = tr("%s · %s · %s, %s. The same world for everyone today, on Standard.") % [
+		UiFormat.role_name(String(config["role"])), tr(Scenarios.display_name(String(config["options"]["scenario"]))),
+		tr(CampaignModes.display_name(mode)), CampaignModes.years(mode)]
 
 
 func _refresh_endings() -> void:
 	if _endings_button == null:
 		return
-	_endings_button.text = "Endings" if _endings_progress.y <= 0 else "Endings · %d of %d" % [_endings_progress.x, _endings_progress.y]
+	_endings_button.text = tr("Endings") if _endings_progress.y <= 0 \
+		else tr("Endings · %d of %d") % [_endings_progress.x, _endings_progress.y]
 
 
 # --- Roles ----------------------------------------------------------------------------
@@ -746,7 +777,6 @@ func _role_card(role: String) -> PanelContainer:
 	head.add_child(mark)
 	_marks[role] = mark
 	var name_label := Label.new()
-	name_label.text = UiFormat.role_title(role)
 	name_label.add_theme_font_size_override("font_size", 17)
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -759,22 +789,33 @@ func _role_card(role: String) -> PanelContainer:
 	tagline.add_theme_font_size_override("font_size", 13)
 	box.add_child(tagline)
 	_taglines.append(tagline)
-	var currencies: Array[String] = []
-	for key in FactionRegistry.resource_info_for(role):
-		currencies.append(UiFormat.resource_label(role, key))
 	var details: Array = []
-	for line in ["Currencies · " + ", ".join(currencies), "Objective · " + String(info["objective"]), "Loss · " + String(info["loss"])]:
+	for _line in 3:
 		var label := Label.new()
-		label.text = line
 		label.theme_type_variation = "DimLabel"
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.add_theme_font_size_override("font_size", 11)
 		box.add_child(label)
 		details.append(label)
 	_details[role] = details
+	_fill_role_texts(role)
 	for child in box.find_children("*", "Control", true, false):
 		(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return card
+
+
+## A role card's title, currencies, objective and loss conditions.
+func _fill_role_texts(role: String) -> void:
+	var info: Dictionary = SimConstants.ROLE_INFO[role]
+	(_names[role] as Label).text = UiFormat.role_title(role)
+	var currencies: Array[String] = []
+	for key in FactionRegistry.resource_info_for(role):
+		currencies.append(UiFormat.resource_label(role, key))
+	var lines := [tr("Currencies · %s") % ", ".join(currencies), tr("Objective · %s") % tr(String(info["objective"])),
+		tr("Loss · %s") % tr(String(info["loss"]))]
+	var labels: Array = _details.get(role, [])
+	for i in mini(labels.size(), lines.size()):
+		(labels[i] as Label).text = String(lines[i])
 
 
 ## The faction's glyph on a tile in its color.

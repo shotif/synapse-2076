@@ -184,6 +184,9 @@ var _noting := true
 const CHANGE_LOG_TURNS := 8
 ## Label for changes nobody claimed.
 const CAUSE_OTHER := "Other effects"
+## The coupled update where its named pressures do not account for it, and the noise.
+const CAUSE_WORLD := "World dynamics"
+const CAUSE_NOISE := "Unpredictable events"
 
 
 func _init() -> void:
@@ -423,34 +426,36 @@ func resolve_coupling(drivers: Dictionary, rng: RandomNumberGenerator = null) ->
 	deltas[DISCOVERY_INDEX] = -DISCOVERY_DECAY * discovery_index + 0.02 * e + discovery_pressure
 
 	# Named pressures behind each metric's change (they sum to its delta before
-	# noise; clamping scales them together). Shown when a player asks why.
+	# noise; clamping scales them together). Shown when a player asks why
+	# (WhyPopup translates the marked names; the ledger keeps them in English).
 	var parts := {
-		COMPUTE_ENERGY_SAT: {"Grid and compute growth": deltas[COMPUTE_ENERGY_SAT]},
-		LABOR_DISPLACEMENT: {("Automation pressure" if deltas[LABOR_DISPLACEMENT] > 0.0 else "Labor market recovery"): deltas[LABOR_DISPLACEMENT]},
+		COMPUTE_ENERGY_SAT: {I18n.mark("Grid and compute growth"): deltas[COMPUTE_ENERGY_SAT]},
+		LABOR_DISPLACEMENT: {(I18n.mark("Automation pressure") if deltas[LABOR_DISPLACEMENT] > 0.0 else I18n.mark("Labor market recovery")):
+			deltas[LABOR_DISPLACEMENT]},
 		ALGORITHMIC_AUTONOMY: _autonomy_parts(k, a, e, t, l, opt_out),
 		ALIGNMENT_DRIFT: {
-			"Capability jumps": 0.9 * dk * tax,
-			"Unsupervised autonomy": (0.010 * a + 0.012 * maxf(0.0, a - 50.0)) * tax,
-			"Enforcement oversight": -oversight,
+			I18n.mark("Capability jumps"): 0.9 * dk * tax,
+			I18n.mark("Unsupervised autonomy"): (0.010 * a + 0.012 * maxf(0.0, a - 50.0)) * tax,
+			I18n.mark("Enforcement oversight"): -oversight,
 		},
 		GEOPOLITICAL_TENSION: {
-			"Autonomous weapons race": K_GEO_RELAX * 0.25 * a,
-			"Fear of misaligned AI": K_GEO_RELAX * 0.2 * d,
-			"Public distrust": K_GEO_RELAX * 0.15 * (60.0 - t),
-			"Capability sprint": K_GEO_RELAX * 6.0 * minf(dk, 3.0),
-			"Escalation spiral": K_GEO_RELAX * TENSION_REINFORCEMENT * (g - 50.0),
-			"Diplomacy cools things": K_GEO_RELAX * (25.0 - g),
+			I18n.mark("Autonomous weapons race"): K_GEO_RELAX * 0.25 * a,
+			I18n.mark("Fear of misaligned AI"): K_GEO_RELAX * 0.2 * d,
+			I18n.mark("Public distrust"): K_GEO_RELAX * 0.15 * (60.0 - t),
+			I18n.mark("Capability sprint"): K_GEO_RELAX * 6.0 * minf(dk, 3.0),
+			I18n.mark("Escalation spiral"): K_GEO_RELAX * TENSION_REINFORCEMENT * (g - 50.0),
+			I18n.mark("Diplomacy cools things"): K_GEO_RELAX * (25.0 - g),
 		},
 		EPISTEMIC_TRUST: {
-			"Provenance protocols": K_TRUST_RELAX * 0.3 * p,
-			"Job losses": -K_TRUST_RELAX * displacement_pain,
-			"Geopolitical tension": -K_TRUST_RELAX * 0.25 * maxf(0.0, g - 40.0),
-			"Alignment worries": -K_TRUST_RELAX * 0.2 * maxf(0.0, d - 35.0),
-			"Opaque automation": -K_TRUST_RELAX * 0.12 * maxf(0.0, a - 45.0),
-			"Surveillance": -K_TRUST_RELAX * 0.12 * maxf(0.0, s - 45.0),
-			"Synthetic media": -K_TRUST_RELAX * synthetic_media,
-			"Social cohesion spiral": K_TRUST_RELAX * TRUST_REINFORCEMENT * (t - 50.0),
-			"Everyday recovery": K_TRUST_RELAX * (62.0 - t),
+			I18n.mark("Provenance protocols"): K_TRUST_RELAX * 0.3 * p,
+			I18n.mark("Job losses"): -K_TRUST_RELAX * displacement_pain,
+			I18n.mark("Geopolitical tension"): -K_TRUST_RELAX * 0.25 * maxf(0.0, g - 40.0),
+			I18n.mark("Alignment worries"): -K_TRUST_RELAX * 0.2 * maxf(0.0, d - 35.0),
+			I18n.mark("Opaque automation"): -K_TRUST_RELAX * 0.12 * maxf(0.0, a - 45.0),
+			I18n.mark("Surveillance"): -K_TRUST_RELAX * 0.12 * maxf(0.0, s - 45.0),
+			I18n.mark("Synthetic media"): -K_TRUST_RELAX * synthetic_media,
+			I18n.mark("Social cohesion spiral"): K_TRUST_RELAX * TRUST_REINFORCEMENT * (t - 50.0),
+			I18n.mark("Everyday recovery"): K_TRUST_RELAX * (62.0 - t),
 		},
 	}
 	# Where the raw target was clamped, the parts no longer sum to the delta.
@@ -481,10 +486,10 @@ func _autonomy_parts(k: float, a: float, e: float, t: float, l: float, opt_out: 
 	var restrained := 10.0 + 80.0 * sigmoid((k - 45.0) / 14.0) * (1.0 - 0.45 * e / 100.0) \
 		* (0.8 + 0.2 * t / 100.0) * (1.0 - 0.3 * opt_out)
 	var raw := {
-		"AI capability invites delegation": K_AUTONOMY_RELAX * (delegation - a),
-		"Oversight and opt-outs restrain it": K_AUTONOMY_RELAX * (restrained - delegation),
-		"Displaced workers hand tasks to agents": K_AUTONOMY_RELAX * 0.08 * maxf(0.0, l - 30.0),
-		"Lock-in: autonomy feeds itself": K_AUTONOMY_RELAX * AUTONOMY_REINFORCEMENT * (a - 50.0),
+		I18n.mark("AI capability invites delegation"): K_AUTONOMY_RELAX * (delegation - a),
+		I18n.mark("Oversight and opt-outs restrain it"): K_AUTONOMY_RELAX * (restrained - delegation),
+		I18n.mark("Displaced workers hand tasks to agents"): K_AUTONOMY_RELAX * 0.08 * maxf(0.0, l - 30.0),
+		I18n.mark("Lock-in: autonomy feeds itself"): K_AUTONOMY_RELAX * AUTONOMY_REINFORCEMENT * (a - 50.0),
 	}
 	var target := restrained + 0.08 * maxf(0.0, l - 30.0) + AUTONOMY_REINFORCEMENT * (a - 50.0)
 	return _rescaled(raw, K_AUTONOMY_RELAX * (clampf(target, 0.0, 100.0) - a))
@@ -500,7 +505,7 @@ static func _rescaled(parts: Dictionary, total: float) -> Dictionary:
 		return parts
 	# Opposing parts can sum to almost nothing; attribute the residual instead.
 	var out := parts.duplicate()
-	out["World dynamics"] = total - sum
+	out[CAUSE_WORLD] = total - sum
 	return out
 
 
@@ -508,16 +513,16 @@ static func _rescaled(parts: Dictionary, total: float) -> Dictionary:
 ## the delta survived clamping, plus the random shock.
 func _note_parts(key: String, parts: Dictionary, noise: float, intended: float, applied: float) -> void:
 	if not is_metric(key):
-		note_change(key, "World dynamics", applied)
+		note_change(key, CAUSE_WORLD, applied)
 		return
 	var factor := 1.0 if absf(intended) < 0.0001 else applied / intended
 	if absf(intended) < 0.0001:
-		note_change(key, "World dynamics", applied)
+		note_change(key, CAUSE_WORLD, applied)
 		return
 	for cause in parts:
 		note_change(key, String(cause), float(parts[cause]) * factor)
 	if absf(noise) > 0.0:
-		note_change(key, "Unpredictable events", noise * factor)
+		note_change(key, CAUSE_NOISE, noise * factor)
 
 
 func metrics_dict() -> Dictionary:

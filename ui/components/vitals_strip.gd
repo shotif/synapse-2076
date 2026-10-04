@@ -72,7 +72,7 @@ func _get_minimum_size() -> Vector2:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED or what == NOTIFICATION_THEME_CHANGED:
+	if what == NOTIFICATION_RESIZED or what == NOTIFICATION_THEME_CHANGED or what == NOTIFICATION_TRANSLATION_CHANGED:
 		_shapes_dirty = true
 		queue_redraw()
 

@@ -133,6 +133,13 @@ func _notification(what: int) -> void:
 		NOTIFICATION_THEME_CHANGED:
 			if is_node_ready():
 				_restyle()
+		NOTIFICATION_TRANSLATION_CHANGED:
+			# The chips' tips, the layer caption and the ticker's seal (its
+			# headline is the English news).
+			if is_node_ready():
+				_render_chips.call_deferred()
+				_render_caption.call_deferred()
+				_render_ticker.call_deferred()
 
 
 func _process(delta: float) -> void:
@@ -285,9 +292,12 @@ static func seal_for_trust(trust: float) -> String:
 	return SEAL_CONFLICTING
 
 
-## The ticker's meta line: "PARADIGM · VERIFIED · 3 SOURCES".
-static func seal_meta(kicker: String, seal: String) -> String:
+## The ticker's meta line: "PARADIGM · VERIFIED · 3 SOURCES". [param localized]
+## puts the seal in the interface language (the kicker is the news desk's).
+static func seal_meta(kicker: String, seal: String, localized: bool = false) -> String:
 	var text := String(SEAL_TEXT.get(seal, SEAL_TEXT[SEAL_CONFLICTING]))
+	if localized:
+		text = I18n.t(text)
 	return text if kicker == "" else "%s · %s" % [kicker.to_upper(), text]
 
 
@@ -423,12 +433,15 @@ func _build() -> void:
 	row.add_child(text)
 	_meta = Label.new()
 	_meta.name = "Meta"
+	# The wire is the news, written in English like the newswire.
+	_meta.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	_meta.clip_text = true
 	_meta.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	text.add_child(_meta)
 	_headline = Label.new()
 	_headline.name = "Headline"
+	_headline.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	# No overrun trimming: an autowrapped Label that may trim reports a
 	# minimum height of one pixel and its container squeezes it away.
 	_headline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -622,7 +635,7 @@ func _render_chips() -> void:
 		var color := dim if dimmed else s.metric_color(key)
 		chip.set_pressed_no_signal(focused_layer == key)
 		chip.tooltip_text = "%s %d. %s" % [UiFormat.metric_name(key), int(round(value)),
-			"Show every layer" if focused_layer == key else "Show this layer only"]
+			tr("Show every layer") if focused_layer == key else tr("Show this layer only")]
 		(parts["glyph"] as TextureRect).self_modulate = color
 		var number: Label = parts["number"]
 		number.visible = show_numbers
@@ -649,7 +662,7 @@ func _render_ticker() -> void:
 		meta_color = color
 	_seal.texture = Glyphs.texture(SEAL_GLYPHS[seal], 30, 1.4)
 	_seal.self_modulate = color
-	var meta := seal_meta(_kicker, seal)
+	var meta := seal_meta(_kicker, seal, true)
 	_meta.text = meta.to_lower() if s.era == 3 else meta
 	_meta.add_theme_color_override("font_color", meta_color)
 	_render_headline()
@@ -671,7 +684,7 @@ func _render_caption() -> void:
 	var color := _style.metric_color(focused_layer)
 	_caption.add_theme_stylebox_override("panel", _box(Color(_style.overlay, 0.9), color, [0, 12, 4, 18][_style.era], 10.0, 12.0))
 	_caption_text.text = "[b][color=#%s]%s %d.[/color][/b] %s" % [color.to_html(false), UiFormat.metric_name(focused_layer),
-		int(round(float(_metrics[focused_layer]))), CyberPalette.escape_bbcode(String(CAPTIONS[focused_layer]))]
+		int(round(float(_metrics[focused_layer]))), CyberPalette.escape_bbcode(tr(String(CAPTIONS[focused_layer])))]
 	queue_sort()
 
 

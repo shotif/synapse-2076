@@ -22,6 +22,8 @@ func _initialize() -> void:
 	ProjectSettings.set_setting("synapse/storage/endings_path", "user://test_storage/endings.cfg")
 	ProjectSettings.set_setting("synapse/storage/settings_path", "user://test_storage/settings.cfg")
 	ProjectSettings.set_setting("synapse/onboarding/coach", false)
+	# Follow-the-system language means English here, whatever the machine speaks.
+	ProjectSettings.set_setting("synapse/i18n/system_language", "en")
 	var suite_filter := ""
 	var test_filter := ""
 	for arg in OS.get_cmdline_user_args():

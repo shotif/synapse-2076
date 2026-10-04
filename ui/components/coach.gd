@@ -79,7 +79,7 @@ const STEPS := [
 ]
 ## Names for the good and bad colors per era (color-blind: blue and orange).
 const COLOR_WORDS := {1: ["Blue", "orange"], 2: ["Cyan", "amber"], 3: ["Teal", "gold"]}
-const ORDINALS := {1: "First", 2: "Second", 3: "Third"}
+const ORDINALS := {1: "First turn", 2: "Second turn", 3: "Third turn"}
 
 ## Target id -> Control, or a Callable returning one.
 var targets := {}
@@ -166,6 +166,8 @@ func _ready() -> void:
 
 
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_TRANSLATION_CHANGED and _bubble != null and _running and step_index >= 0:
+		_refill_bubble.call_deferred()
 	if what == NOTIFICATION_THEME_CHANGED and _bubble != null and EraTheme.style_of(self) != _style:
 		_apply_style.call_deferred()
 
@@ -383,19 +385,25 @@ func _counter_text(step: Dictionary) -> String:
 		count += 1
 		if i == step_index:
 			position = count
-	return "%s turn · %d of %d" % [String(ORDINALS.get(turn, str(turn))), position, count]
+	return tr("%s · %d of %d") % [tr(String(ORDINALS.get(turn, str(turn)))), position, count]
 
 
 func _fill_bubble(step: Dictionary) -> void:
 	var s := EraTheme.style_of(self)
 	var words: Array = ["Blue", "orange"] if s.colorblind else COLOR_WORDS.get(s.era, ["Blue", "orange"])
 	_counter.text = s.label(_counter_text(step))
-	_title.text = String(step.get("title", ""))
-	_text.text = String(step.get("text", "")).format({"good": words[0], "bad": words[1]})
+	_title.text = tr(String(step.get("title", "")))
+	_text.text = tr(String(step.get("text", ""))).format({"good": tr(String(words[0])), "bad": tr(String(words[1]))})
 	var last := step_index == _last_visible_step()
 	_next_button.visible = not _passthrough
 	_next_button.text = "Done" if last else "Next"
 	_bubble.reset_size()
+
+
+## The language changed while a step was on show.
+func _refill_bubble() -> void:
+	if _running and step_index >= 0 and step_index < STEPS.size():
+		_fill_bubble(STEPS[step_index])
 
 
 func _last_visible_step() -> int:

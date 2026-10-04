@@ -41,6 +41,7 @@ var _compact := false
 var _focus_tween: Tween
 ## The style variant the panel was last styled with (era, colors, text size).
 var _era_style: EraStyle
+var _relabel_queued := false
 
 var _title: Label
 var _resource_box: GridContainer
@@ -116,6 +117,25 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _title != null and EraTheme.style_of(self) != _era_style:
 		_restyle()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _title != null and not _relabel_queued:
+		_relabel_queued = true
+		_relabel.call_deferred()
+
+
+## The language changed: the crisis in its new words, the directives and the
+## status line.
+func _relabel() -> void:
+	_relabel_queued = false
+	if not _crisis_card.is_empty():
+		_crisis_card = DilemmaDeck.localized(_crisis_card)
+	_restyle_crisis()
+	_rebuild_all()
+	if has_crisis_choice():
+		var option := DilemmaDeck.find_option(_crisis_card, _crisis_option_id)
+		if not option.is_empty():
+			set_crisis_choice(option)
+	elif _interactive:
+		_set_pending_status()
 
 
 ## Plain names show at once; colors and text size follow the theme.
@@ -176,7 +196,7 @@ func update_resources(role: String, resources: Dictionary) -> void:
 
 ## Shows [param card] (a crisis-card dictionary) as the inline crisis card.
 func set_crisis_card(card: Dictionary) -> void:
-	_crisis_card = card
+	_crisis_card = DilemmaDeck.localized(card)
 	_restyle_crisis()
 
 
@@ -184,10 +204,10 @@ func set_crisis_choice(option: Dictionary) -> void:
 	_crisis_option_id = String(option.get("id", ""))
 	_crisis_cost = option.get("cost", {})
 	var s := EraTheme.style_of(self)
-	var label := CyberPalette.escape_bbcode(String(option.get("label", "")))
+	var label := CyberPalette.escape_bbcode(DilemmaDeck.local_text(option, "label"))
 	var cost := UiFormat.format_cost(_role, _crisis_cost)
 	set_crisis_status("[color=%s]%s[/color] %s [color=%s]· %s[/color]" % [
-		CyberPalette.hex(s.accent), s.label("Response:"), label, CyberPalette.hex(s.text_dim), cost])
+		CyberPalette.hex(s.accent), s.label(tr("Response:")), label, CyberPalette.hex(s.text_dim), cost])
 	_update_state()
 
 
@@ -335,12 +355,13 @@ func _restyle_crisis() -> void:
 	var has_card := not _crisis_card.is_empty()
 	var color := s.metric_color(String(CATEGORY_METRICS.get(category, "geopolitical_tension")))
 	_crisis_tile.texture = Glyphs.tile(String(CATEGORY_GLYPHS.get(category, "warning")), 22, color, s.bg, 6 if s.era != 3 else 11)
-	var kicker := "Crisis · %s" % category.capitalize() if has_card else "No crisis"
+	var kicker := tr("Crisis · %s") % UiFormat.category_name(category) if has_card else tr("No crisis")
 	_crisis_kicker.text = kicker.to_lower() if s.era == 3 else kicker.to_upper()
 	var escalation := int(_crisis_card.get("escalation", 0))
-	_crisis_meta.text = ("escalated ×%d" % escalation if s.era == 3 else "Escalated ×%d" % escalation) if escalation > 0 else ""
+	var escalated := tr("Escalated ×%d") % escalation
+	_crisis_meta.text = (escalated.to_lower() if s.era == 3 else escalated) if escalation > 0 else ""
 	_crisis_meta.add_theme_color_override("font_color", s.warn)
-	_crisis_title.text = UiFormat.strip_escalation(String(_crisis_card.get("title", "")))
+	_crisis_title.text = UiFormat.strip_escalation(DilemmaDeck.local_text(_crisis_card, "title"))
 	_crisis_title.visible = has_card
 
 
@@ -348,13 +369,13 @@ func _update_title() -> void:
 	if _title == null:
 		return
 	var s := EraTheme.style_of(self)
-	var heading := "Your move"
+	var heading := tr("Your move")
 	if SimConstants.ROLE_INFO.has(_role):
-		heading = "Directives · %s" % UiFormat.role_name(_role)
+		heading = tr("Directives · %s") % UiFormat.role_name(_role)
 	_title.text = s.label(heading)
-	_directives_title.text = s.label("Choose up to %d" % max_directives) + (" · slide to raise intensity" if not _compact else "")
-	_execute_button.text = s.label("Execute directives")
-	_review_button.text = s.label("Change response" if has_crisis_choice() else "Review options")
+	_directives_title.text = s.label(tr("Choose up to %d") % max_directives) + ((" · " + tr("slide to raise intensity")) if not _compact else "")
+	_execute_button.text = s.label(tr("Execute directives"))
+	_review_button.text = s.label(tr("Change response") if has_crisis_choice() else tr("Review options"))
 
 
 func _rebuild_resources() -> void:
@@ -437,7 +458,7 @@ func _directive_card(s: EraStyle, action: Dictionary) -> PanelContainer:
 	var header := HBoxContainer.new()
 	header.add_theme_constant_override("separation", 8)
 	var check := CheckBox.new()
-	check.text = String(action["name"])
+	check.text = tr(String(action["name"]))
 	check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	check.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	check.add_theme_font_override("font", s.font_ui_bold)
@@ -461,7 +482,7 @@ func _directive_card(s: EraStyle, action: Dictionary) -> PanelContainer:
 
 	var description := Label.new()
 	description.theme_type_variation = "DimLabel"
-	description.text = String(action["description"])
+	description.text = tr(String(action["description"]))
 	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	EraTheme.set_scaled_font_size(description, 12)
 	box.add_child(description)
@@ -490,8 +511,8 @@ func _directive_card(s: EraStyle, action: Dictionary) -> PanelContainer:
 	var blocked := String(action.get("blocked_reason", ""))
 	if blocked != "":
 		check.disabled = true
-		check.tooltip_text = blocked
-		cost_label.text = blocked
+		check.tooltip_text = UiFormat.block_reason(blocked)
+		cost_label.text = UiFormat.block_reason(blocked)
 		cost_label.add_theme_color_override("font_color", s.warn)
 	if (action["cost"] as Dictionary).is_empty():
 		slider.editable = false
@@ -554,8 +575,8 @@ func _action_glyph(action: Dictionary) -> String:
 
 func _set_pending_status() -> void:
 	var s := EraTheme.style_of(self)
-	set_crisis_status("[color=%s]%s[/color] Resolve the crisis to unlock your directives." % [
-		CyberPalette.hex(s.warn), s.label("Decision pending.")])
+	set_crisis_status("[color=%s]%s[/color] %s" % [CyberPalette.hex(s.warn), s.label(tr("Decision pending.")),
+		tr("Resolve the crisis to unlock your directives.")])
 
 
 func _projected_cost() -> Dictionary:
@@ -588,9 +609,9 @@ func _update_state() -> void:
 	for key in projected:
 		if float(_resources.get(key, 0.0)) + 0.0001 < float(projected[key]):
 			shortfalls.append(UiFormat.resource_name(key))
-	var summary := "%d of %d selected · spend %s" % [selected, max_directives, UiFormat.format_cost(_role, projected)]
+	var summary := tr("%d of %d selected · spend %s") % [selected, max_directives, UiFormat.format_cost(_role, projected)]
 	if not shortfalls.is_empty():
-		summary += "\nNot enough " + ", ".join(shortfalls)
+		summary += "\n" + tr("Not enough %s") % ", ".join(shortfalls)
 	_summary_label.text = summary
 	_summary_label.add_theme_color_override("font_color", s.critical if not shortfalls.is_empty() else s.text_dim)
 	_execute_button.disabled = not _interactive or not has_crisis_choice() or not shortfalls.is_empty()

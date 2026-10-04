@@ -4,7 +4,8 @@ extends Control
 ##   Display   text size (three "A" buttons: 100%, 115%, 130%), color-blind
 ##             friendly colors, plain language, visual effects
 ##   Sound     effects and music volume, vibration
-##   Language  the interface language (set_languages() lists the choices)
+##   Language  the interface language (set_languages() lists the choices;
+##             a note says the news stays English when another is picked)
 ##   Help      replay the tutorial (tutorial_requested), the glossary
 ##
 ##   settings.tutorial_requested.connect(_replay_tutorial)
@@ -43,6 +44,7 @@ var _music: HSlider
 var _music_value: Label
 var _vibration: CheckBox
 var _language: OptionButton
+var _language_note: Label
 var _tutorial_button: Button
 var _glossary_button: Button
 var _done: Button
@@ -50,6 +52,7 @@ var _glossary: GlossaryDialog
 var _section_titles: Array[Label] = []
 var _section_icons: Array[TextureRect] = []
 var _restyle_queued := false
+var _relabel_queued := false
 
 
 func _ready() -> void:
@@ -111,6 +114,9 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _panel != null and EraTheme.style_of(self) != _style and not _restyle_queued:
 		_restyle_queued = true
 		_restyle.call_deferred()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _panel != null and not _relabel_queued:
+		_relabel_queued = true
+		_relabel.call_deferred()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -164,11 +170,11 @@ func get_glossary() -> GlossaryDialog:
 # --- Building -------------------------------------------------------------------------
 
 func _build_display() -> void:
-	var section := _section("Display", "layers")
+	var section := _section(I18n.mark("Display"), "layers")
 	var size_row := HBoxContainer.new()
 	size_row.name = "TextSize"
 	size_row.add_theme_constant_override("separation", 8)
-	var size_label := _row_label("Text size")
+	var size_label := _row_label(I18n.mark("Text size"))
 	size_row.add_child(size_label)
 	var group := ButtonGroup.new()
 	for i in GameSettings.TEXT_SCALES.size():
@@ -178,7 +184,7 @@ func _build_display() -> void:
 		button.toggle_mode = true
 		button.button_group = group
 		button.theme_type_variation = "ChipButton"
-		button.tooltip_text = "%s (%d%%)" % [TEXT_SIZE_NAMES[i], roundi(float(GameSettings.TEXT_SCALES[i]) * 100.0)]
+		button.tooltip_text = _size_tip(i)
 		button.focus_mode = Control.FOCUS_NONE
 		button.add_theme_font_size_override("font_size", TEXT_SIZE_SAMPLES[i])
 		button.custom_minimum_size = Vector2(48, 44)
@@ -186,39 +192,49 @@ func _build_display() -> void:
 		size_row.add_child(button)
 		_size_buttons.append(button)
 	section.add_child(size_row)
-	_colorblind = _check(section, "Color-blind friendly colors", "Better is blue and worse is orange in every era, with clearer warnings.",
-		"colorblind")
-	_plain = _check(section, "Plain language", "Everyday words instead of the model's jargon (drift becomes “off-script AI”).",
-		"plain_language")
-	_effects = _check(section, "Visual effects", "Glitches, animated backgrounds and the tearing era transition.", "effects")
+	_colorblind = _check(section, I18n.mark("Color-blind friendly colors"),
+		I18n.mark("Better is blue and worse is orange in every era, with clearer warnings."), "colorblind")
+	_plain = _check(section, I18n.mark("Plain language"),
+		I18n.mark("Everyday words instead of the model's jargon (drift becomes “off-script AI”)."), "plain_language")
+	_effects = _check(section, I18n.mark("Visual effects"), I18n.mark("Glitches, animated backgrounds and the tearing era transition."),
+		"effects")
 
 
 func _build_sound() -> void:
-	var section := _section("Sound", "disruption")
-	var sound := _slider(section, "Effects volume", "sound_volume")
+	var section := _section(I18n.mark("Sound"), "disruption")
+	var sound := _slider(section, I18n.mark("Effects volume"), "sound_volume")
 	_sound = sound[0]
 	_sound_value = sound[1]
-	var music := _slider(section, "Music volume", "music_volume")
+	var music := _slider(section, I18n.mark("Music volume"), "music_volume")
 	_music = music[0]
 	_music_value = music[1]
-	_vibration = _check(section, "Vibration", "Short buzzes on swipes and alerts (phones).", "vibration")
+	_vibration = _check(section, I18n.mark("Vibration"), I18n.mark("Short buzzes on swipes and alerts (phones)."), "vibration")
 
 
 func _build_language() -> void:
-	var section := _section("Language", "world")
+	var section := _section(I18n.mark("Language"), "world")
 	_language = OptionButton.new()
 	_language.name = "Language"
+	# Each language keeps its own name in every language.
+	_language.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	_language.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_language.custom_minimum_size = Vector2(0, 42)
 	_language.fit_to_longest_item = false
 	_language.item_selected.connect(func(index: int) -> void:
 		_set_setting(String(_language.get_item_metadata(index)), "language"))
 	section.add_child(_language)
+	_language_note = Label.new()
+	_language_note.name = "LanguageNote"
+	_language_note.text = "News and history pages are written in English."
+	_language_note.theme_type_variation = "Caption"
+	_language_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_language_note.visible = false
+	section.add_child(_language_note)
 	_fill_languages()
 
 
 func _build_help() -> void:
-	var section := _section("Help", "book")
+	var section := _section(I18n.mark("Help"), "book")
 	var row := HFlowContainer.new()
 	row.name = "HelpButtons"
 	row.add_theme_constant_override("h_separation", 8)
@@ -382,6 +398,9 @@ func _sync_language() -> void:
 			if String(_language.get_item_metadata(i)) == system:
 				index = i
 	_language.select(maxi(index, 0) if _language.item_count > 0 else -1)
+	# The generated news and history stay English in every language.
+	if _language_note != null:
+		_language_note.visible = I18n.resolve(current) != I18n.SOURCE
 
 
 # --- Style ----------------------------------------------------------------------------------
@@ -394,7 +413,19 @@ func _restyle() -> void:
 	for icon in _section_icons:
 		icon.self_modulate = s.accent
 	for label in _section_titles:
-		label.text = s.label(String(label.get_meta("title", label.text)))
+		label.text = s.label(tr(String(label.get_meta("title", label.text))))
+
+
+## Text composed from translated parts, set again when the language changes.
+func _relabel() -> void:
+	_relabel_queued = false
+	for i in _size_buttons.size():
+		_size_buttons[i].tooltip_text = _size_tip(i)
+	_restyle()
+
+
+func _size_tip(index: int) -> String:
+	return "%s (%d%%)" % [tr(String(TEXT_SIZE_NAMES[index])), roundi(float(GameSettings.TEXT_SCALES[index]) * 100.0)]
 
 
 func _apply_layout() -> void:

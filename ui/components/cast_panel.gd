@@ -118,7 +118,8 @@ func _ready() -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_THEME_CHANGED and is_node_ready() and EraTheme.style_of(self).era != _era and not _restyle_queued:
+	if (what == NOTIFICATION_THEME_CHANGED and EraTheme.style_of(self).era != _era or what == NOTIFICATION_TRANSLATION_CHANGED) \
+			and is_node_ready() and not _restyle_queued:
 		_restyle_queued = true
 		_restyle.call_deferred()
 	elif what == NOTIFICATION_RESIZED:
@@ -214,8 +215,8 @@ static func _more_recent(a: Dictionary, b: Dictionary) -> bool:
 static func met_line(count: int, first_turn: int) -> String:
 	var since := int(SimConstants.year_for_turn(first_turn))
 	if count <= 1:
-		return "Met once · %d" % since
-	return "Met %d times · since %d" % [count, since]
+		return I18n.t("Met once · %d") % since
+	return I18n.t("Met %d times · since %d") % [count, since]
 
 
 # --- Building -----------------------------------------------------------------------
@@ -236,9 +237,12 @@ func _restyle() -> void:
 
 func _rebuild() -> void:
 	var s := EraTheme.style_of(self)
-	_title_label.text = s.label("People")
+	_title_label.text = s.label(tr("People"))
 	var people := _entries.size()
-	_meta_label.text = "%d %s · %d" % [people, "person" if people == 1 else "people", int(year)] if people > 0 else str(int(year))
+	if people == 1:
+		_meta_label.text = tr("1 person · %d") % int(year)
+	else:
+		_meta_label.text = tr("%d people · %d") % [people, int(year)] if people > 0 else str(int(year))
 	(_empty.get_node("EmptyIcon") as TextureRect).self_modulate = s.text_dim
 	for child in _grid.get_children():
 		_grid.remove_child(child)
@@ -319,7 +323,7 @@ func _card(entry: Dictionary, s: EraStyle) -> PanelContainer:
 	if memory != "":
 		var line := Label.new()
 		line.name = "Memory"
-		line.text = memory
+		line.text = tr(memory)
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		CrisisCard.style_label(line, CharacterBadge.italic(s.font_ui), 13 if compact else 14, s.text)
 		body.add_child(line)
@@ -348,7 +352,7 @@ func _stance_chip(score: float, s: EraStyle) -> PanelContainer:
 	chip.add_theme_stylebox_override("panel", box)
 	var label := Label.new()
 	label.name = "StanceLabel"
-	label.text = CharacterBadge.voice(stance, s.era)
+	label.text = CharacterBadge.voice(tr(stance), s.era)
 	CrisisCard.style_label(label, s.font_mono, 11, tone)
 	chip.add_child(label)
 	return chip
@@ -396,7 +400,7 @@ func _then_and_now(id: String, then_year: float, score: float, s: EraStyle) -> H
 	if Characters.is_machine(id):
 		change.text = "v%d → v%d" % [Characters.version_in(id, then_year), Characters.version_in(id, year)]
 	else:
-		change.text = "age %d → %d" % [Characters.age_in(id, then_year), Characters.age_in(id, year)]
+		change.text = tr("age %d → %d") % [Characters.age_in(id, then_year), Characters.age_in(id, year)]
 	change.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	CrisisCard.style_label(change, s.font_mono, 11, s.text_dim)
 	labels.add_child(change)

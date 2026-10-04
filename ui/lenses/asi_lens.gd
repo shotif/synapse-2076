@@ -7,7 +7,8 @@ extends LensPanel
 ## and community resilience. Its last public output streams as tokens with
 ## pseudo-probabilities (a stylistic device derived from a hash, not a model
 ## readout); human variables read as raw 0.00-1.00 values; the policy lists
-## the directives it can run next.
+## the directives it can run next. Labels are in the interface language, in
+## the machine's lower case; the token stream is its own (English) output.
 
 const BG := Color("#050307")
 const TEXT := Color("#E7DCF5")
@@ -95,7 +96,7 @@ func _init() -> void:
 
 
 func lens_title() -> String:
-	return "Perception"
+	return I18n.mark("Perception")
 
 
 func lens_background() -> Color:
@@ -134,7 +135,7 @@ func _build_head() -> void:
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_clock_label = _label("", _mono, 11, DIM)
 	text.add_child(_clock_label)
-	text.add_child(_label("substrate view", _mono, 24, BRIGHT))
+	text.add_child(_label(tr("substrate view"), _mono, 24, BRIGHT))
 	_reserve_label = _label("", _mono, 10, DIM, true)
 	text.add_child(_reserve_label)
 	row.add_child(text)
@@ -143,7 +144,7 @@ func _build_head() -> void:
 	_ring.animated = true
 	_ring.fps = 20.0
 	ring_box.add_child(_ring)
-	_ring_caption = _label("coherence", _mono_wide, 9, _violet)
+	_ring_caption = _label(tr("coherence"), _mono_wide, 9, _violet)
 	_ring_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ring_box.add_child(_ring_caption)
 	row.add_child(ring_box)
@@ -152,15 +153,17 @@ func _build_head() -> void:
 
 func _build_tokens() -> void:
 	var block := _vbox(8)
-	block.add_child(_label("last output · token probabilities", _mono_wide, 10, DIM, true))
+	block.add_child(_label(tr("last output · token probabilities"), _mono_wide, 10, DIM, true))
 	_token_flow = _flow(4, 5)
+	# The machine's own words, as it said them.
+	_token_flow.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	block.add_child(_token_flow)
 	_content.add_child(_margin(block, 18, 6, 18, 0))
 
 
 func _build_variables() -> void:
 	var block := _vbox(6)
-	block.add_child(_label("observed human variables", _mono_wide, 10, DIM, true))
+	block.add_child(_label(tr("observed human variables"), _mono_wide, 10, DIM, true))
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 10)
@@ -168,7 +171,7 @@ func _build_variables() -> void:
 	for entry in VARIABLES:
 		var cell := _vbox(3)
 		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		cell.add_child(_label(String(entry[1]), _mono, 9, SOFT, true))
+		cell.add_child(_label(tr(String(entry[1])), _mono, 9, SOFT, true))
 		var value := _label("", _mono, 15, TEXT)
 		cell.add_child(value)
 		_tap_metric(cell, String(entry[0]))
@@ -180,7 +183,7 @@ func _build_variables() -> void:
 
 func _build_policy() -> void:
 	var block := _vbox(2)
-	block.add_child(_label("policy · next action · bar = affordable intensity", _mono_wide, 10, DIM, true))
+	block.add_child(_label(tr("policy · next action · bar = affordable intensity"), _mono_wide, 10, DIM, true))
 	_policy_box = _vbox(0)
 	block.add_child(_policy_box)
 	_policy_note = _label("", _mono, 10, DIM, true)
@@ -197,7 +200,7 @@ func _build_commit() -> void:
 	box.content_margin_bottom = 14
 	_commit = _directive_button(CONSERVE)
 	_commit.name = "CommitButton"
-	_commit.text = "commit action ▸"
+	_commit.text = tr("commit action ▸")
 	_style_commit()
 	dock.add_child(_commit)
 	_footer.add_child(dock)
@@ -396,7 +399,7 @@ func _policy_row(entry: Dictionary) -> Button:
 	stack.alignment = BoxContainer.ALIGNMENT_CENTER
 	var line := _hbox(8)
 	var ink := BRIGHT if selected else (DIM if blocked else SOFT)
-	var title := _clip_label(("▸ " if selected else "") + String(entry.get("name", action_id)).to_lower(), _mono, 11, ink)
+	var title := _clip_label(("▸ " if selected else "") + tr(String(entry.get("name", action_id))).to_lower(), _mono, 11, ink)
 	line.add_child(title)
 	line.add_child(_label(_cost_text(entry), _mono, 11, DIM if blocked else ink))
 	stack.add_child(line)
@@ -418,19 +421,19 @@ func _select_policy(action_id: String) -> void:
 func _cost_text(entry: Dictionary) -> String:
 	var reason := String(entry.get("blocked_reason", ""))
 	if reason.begins_with("Cooldown"):
-		return "cooldown %s" % reason.get_slice(" ", 1)
+		return tr("cooldown %s") % reason.get_slice(" ", 1)
 	if reason != "":
-		return "insufficient" if reason.begins_with("Insufficient") else reason.to_lower()
+		return tr("insufficient") if reason.begins_with("Insufficient") else UiFormat.block_reason(reason).to_lower()
 	var cost: Dictionary = entry.get("cost", {})
-	return "free" if cost.is_empty() else UiFormat.format_cost(role, cost).to_lower()
+	return tr("free") if cost.is_empty() else UiFormat.format_cost(role, cost).to_lower()
 
 
 ## What the selected directive spends: "swm 20.8 → 0.8".
 func _policy_footnote() -> String:
-	var action_name := String(action_entry(_selected).get("name", action_definition(_selected).get("name", _selected))).to_lower()
+	var action_name := tr(String(action_entry(_selected).get("name", action_definition(_selected).get("name", _selected)))).to_lower()
 	var cost: Dictionary = action_definition(_selected).get("cost", {})
 	if cost.is_empty():
-		return "%s · no cost" % action_name
+		return tr("%s · no cost") % action_name
 	var parts: Array[String] = []
 	for key in cost:
 		var have := float(resources.get(key, 0.0))
@@ -481,8 +484,9 @@ func _draw_graph(canvas: Control) -> void:
 	canvas.draw_arc(self_at, 26.0 * unit, 0.0, TAU, 48, _violet, 1.5, true)
 	canvas.draw_circle(self_at, 15.0 * unit, Color(_violet, 0.25))
 	canvas.draw_arc(self_at, 15.0 * unit, 0.0, TAU, 40, _violet, 1.0, true)
-	var self_width := _mono.get_string_size("self", HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
-	canvas.draw_string(_mono, self_at + Vector2(-self_width * 0.5, 4.0), "self", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, BRIGHT)
+	var self_name := tr("self")
+	var self_width := _mono.get_string_size(self_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+	canvas.draw_string(_mono, self_at + Vector2(-self_width * 0.5, 4.0), self_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, BRIGHT)
 	for node in NODES:
 		var at := (node["at"] as Vector2) * stretch
 		canvas.draw_circle(at, 6.0 * unit, BG)
@@ -497,9 +501,9 @@ func _node_live(node: Dictionary) -> bool:
 
 func _draw_node_label(canvas: Control, node: Dictionary, stretch: Vector2) -> void:
 	var node_id := String(node["id"])
-	var title := String(node["name"])
+	var title := tr(String(node["name"]))
 	if node_id == "swarms":
-		title = "swarms ×%.1f" % float(resources.get("sub_agent_swarms", 0.0))
+		title = tr("swarms ×%.1f") % float(resources.get("sub_agent_swarms", 0.0))
 	var note := _edge_note(node_id)
 	var anchor := (node["label"] as Vector2) * stretch
 	var right := bool(node.get("right", false))
@@ -523,10 +527,10 @@ func _edge_note(node_id: String) -> String:
 		"markets":
 			return _largest_change((outcome_for(role).get("applied", {}) as Dictionary).get("metrics", {}))
 	if not is_faction_active(node_id):
-		return "dormant"
+		return tr("dormant")
 	var outcome := outcome_for(node_id)
 	if outcome.is_empty():
-		return "no signal"
+		return tr("no signal")
 	var applied: Dictionary = outcome.get("applied", {})
 	var on_self: Dictionary = (applied.get("factions", {}) as Dictionary).get(role, {})
 	var note := _largest_change(on_self)

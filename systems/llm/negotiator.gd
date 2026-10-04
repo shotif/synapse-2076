@@ -19,6 +19,10 @@ extends RefCounted
 ## the leader's voice with an offer built from the faction's interests and what
 ## the player asked for, so a call always works.
 ##
+## The transcript and the model see English; NegotiationDialog shows the
+## scripted lines, quick replies, notes and offers in the interface language
+## (LINES and QUICK_REPLIES are message ids, describe_offer(..., true)).
+##
 ##   var call := Negotiator.new()
 ##   call.start(engine, llm, SimConstants.GOVERNANCE)
 ##   call.send("Lower tension")       # or send_quick("calm")
@@ -30,6 +34,10 @@ signal updated
 signal deal_made(applied: Dictionary)
 
 const MAX_PLAYER_MESSAGES := 6
+## The note that opens the transcript line of an accepted deal.
+const DEAL_STRUCK := "Deal struck."
+## Notes the transcript files with one %s (NegotiationDialog translates them).
+const NOTE_FORMATS := ["No deal: %s", "No deal possible: %s", "The line crackles. %s answers from notes."]
 const MAX_SAY := 400
 const MAX_PLAYER_TEXT := 200
 const MAX_SUMMARY := 160
@@ -58,12 +66,18 @@ const METRIC_WORDS := {
 	"alignment_drift": "alignment drift", "epistemic_trust": "public trust",
 }
 ## Free-text cues for the scripted negotiator, checked in this order.
+## (Each list ends with German, Spanish and French cues for the translated interface.)
 const INTENT_WORDS := [
-	["truce", ["retaliat", "truce", "ceasefire", "cease-fire", "back off", "stand down", "leave us alone", "stop attack", "hostil"]],
-	["calm", ["tension", "calm", "de-escalat", "deescalat", "cool", "war", "border", "peace", "treaty", "bloc"]],
-	["fund", ["fund", "money", "capital", "pay", "budget", "invest", "support", "resources", "scrip", "flops", "back us", "back me"]],
+	["truce", ["retaliat", "truce", "ceasefire", "cease-fire", "back off", "stand down", "leave us alone", "stop attack", "hostil",
+		"waffenstillstand", "feuerpause", "vergeltung", "tregua", "represalia", "alto el fuego", "trêve", "représaille",
+		"cessez-le-feu"]],
+	["calm", ["tension", "calm", "de-escalat", "deescalat", "cool", "war", "border", "peace", "treaty", "bloc",
+		"spannung", "entspann", "deeskal", "frieden", "tensión", "paz", "apais", "paix", "détente"]],
+	["fund", ["fund", "money", "capital", "pay", "budget", "invest", "support", "resources", "scrip", "flops", "back us", "back me",
+		"geld", "finanz", "unterstütz", "dinero", "fondos", "apoyo", "argent", "soutien", "financement"]],
 	["ask", ["want", "need", "price", "offer", "deal", "terms", "what do you", "what would it take", "what will it take", "how much",
-		"cost", "proposal", "bargain"]],
+		"cost", "proposal", "bargain", "was willst", "was wollen", "angebot", "preis", "qué quier", "oferta", "precio", "trato",
+		"que voulez", "que veux", "offre", "prix"]],
 ]
 ## Grievance above which a leader will not fund the caller.
 const REFUSE_FUNDING_GRIEVANCE := 40.0
@@ -269,25 +283,25 @@ func grievance() -> float:
 
 static func grievance_word(value: float) -> String:
 	if value >= 50.0:
-		return "hostile"
+		return I18n.mark("hostile")
 	if value >= 20.0:
-		return "resentful"
+		return I18n.mark("resentful")
 	if value >= 5.0:
-		return "wary"
-	return "neutral"
+		return I18n.mark("wary")
+	return I18n.mark("neutral")
 
 
 ## {"open": bool, "text": String}: whether a deal can still be struck this
 ## turn, as the engine sees it (one deal per player per turn).
 func deal_state() -> Dictionary:
 	if not deal.is_empty():
-		return {"open": false, "text": "Deal struck this turn."}
+		return {"open": false, "text": I18n.mark("Deal struck this turn.")}
 	if engine == null or partner == "":
 		return {"open": false, "text": ""}
 	var probe := engine.preview_deal({"partner": partner, "pledge_turns": 1})
 	if not probe["ok"]:
 		return {"open": false, "text": String((probe["errors"] as Array)[0])}
-	return {"open": true, "text": "One deal per turn."}
+	return {"open": true, "text": I18n.mark("One deal per turn.")}
 
 
 ## Says [param text] to the partner. Returns false when the call cannot take
@@ -331,12 +345,12 @@ func accept() -> Dictionary:
 	offer = {}
 	preview = {}
 	if not applied["ok"]:
-		transcript.append({"who": "note", "text": "No deal: %s" % " ".join(applied["errors"]), "source": "ENGINE"})
+		transcript.append({"who": "note", "text": I18n.mark("No deal: %s") % " ".join(applied["errors"]), "source": "ENGINE"})
 		updated.emit()
 		return applied
 	deal = applied
 	var summary := String(applied.get("summary", ""))
-	transcript.append({"who": "note", "text": "Deal struck." + ((" " + summary) if summary != "" else ""), "source": "ENGINE"})
+	transcript.append({"who": "note", "text": DEAL_STRUCK + ((" " + summary) if summary != "" else ""), "source": "ENGINE"})
 	_say(_line("accepted"), "SCRIPTED")
 	_pending_note = "The caller accepted your offer and the deal is done. No more deals this turn."
 	deal_made.emit(applied)
@@ -350,7 +364,7 @@ func decline() -> void:
 		return
 	offer = {}
 	preview = {}
-	transcript.append({"who": "note", "text": "You turn the offer down.", "source": "PLAYER"})
+	transcript.append({"who": "note", "text": I18n.mark("You turn the offer down."), "source": "PLAYER"})
 	_say(_line("declined"), "SCRIPTED")
 	_pending_note = "The caller turned down your last offer."
 	updated.emit()
@@ -510,7 +524,7 @@ func _on_reply(_request: int, ok: bool, text: String, error: String) -> void:
 	var reply: Dictionary = parse_reply(text, player_role) if ok else {"ok": false}
 	if not bool(reply["ok"]):
 		last_error = error if not ok else "unreadable reply"
-		transcript.append({"who": "note", "text": "The line crackles. %s answers from notes." % Characters.get_character(character).get("short", "They"),
+		transcript.append({"who": "note", "text": I18n.mark("The line crackles. %s answers from notes.") % Characters.get_character(character).get("short", "They"),
 			"source": "SCRIPTED"})
 		_scripted_reply(_pending_intent)
 		updated.emit()
@@ -577,25 +591,31 @@ static func scripted_offer(sim: SimulationEngine, partner_faction: String, calle
 
 
 ## One plain line for an offer: "Nadia holds fire for 3 turns; you put up 12 political capital."
-static func describe_offer(made: Dictionary, caller_role: String, partner_faction: String) -> String:
+## In English (the log, the model) unless [param localized].
+static func describe_offer(made: Dictionary, caller_role: String, partner_faction: String, localized: bool = false) -> String:
 	var who := String(Characters.get_character(String(LEADERS.get(partner_faction, ""))).get("short", "They"))
 	var parts: Array[String] = []
 	var pledge := int(made.get("pledge_turns", 0))
 	if pledge > 0:
-		parts.append("%s holds fire for %d turns" % [who, pledge])
+		parts.append(_words(I18n.mark("%s holds fire for %d turns"), localized) % [who, pledge])
 	var moves: Dictionary = made.get("metrics", {})
 	if not moves.is_empty():
-		parts.append(_moves_text(moves))
+		parts.append(_moves_text(moves, localized))
 	var backing: Dictionary = made.get("get", {})
 	if not backing.is_empty():
-		parts.append("%s backs you with %s" % [who, _amounts_text(backing, caller_role)])
+		parts.append(_words(I18n.mark("%s backs you with %s"), localized) % [who, _amounts_text(backing, caller_role, localized)])
 	var paid: Dictionary = made.get("give", {})
 	if not paid.is_empty():
-		parts.append("you put up %s" % _amounts_text(paid, caller_role))
+		parts.append(_words(I18n.mark("you put up %s"), localized) % _amounts_text(paid, caller_role, localized))
 	if parts.is_empty():
 		return ""
 	var line := "; ".join(parts) + "."
 	return line.left(1).to_upper() + line.substr(1)
+
+
+## [param text] in the interface language when [param localized].
+static func _words(text: String, localized: bool) -> String:
+	return I18n.t(text) if localized else text
 
 
 func _scripted_reply(intent: String) -> void:
@@ -628,7 +648,7 @@ func _table(made: Dictionary) -> void:
 	if not priced["ok"]:
 		offer = {}
 		preview = {}
-		transcript.append({"who": "note", "text": "No deal possible: %s" % " ".join(priced["errors"]), "source": "ENGINE"})
+		transcript.append({"who": "note", "text": I18n.mark("No deal possible: %s") % " ".join(priced["errors"]), "source": "ENGINE"})
 		return
 	offer = made.duplicate(true)
 	preview = priced
@@ -652,16 +672,17 @@ func _set_service(service: Object) -> void:
 		llm.connect("completion_received", _on_completion_received)
 
 
-static func _moves_text(moves: Dictionary) -> String:
+static func _moves_text(moves: Dictionary, localized: bool = false) -> String:
 	var parts: Array[String] = []
 	for key in WorldState.METRIC_KEYS:
 		if moves.has(key):
 			var delta := float(moves[key])
-			parts.append("%s %s%s" % [String(METRIC_WORDS.get(key, key)), "+" if delta > 0.0 else "-", _num(absf(delta))])
+			parts.append("%s %s%s" % [_words(String(METRIC_WORDS.get(key, key)), localized), "+" if delta > 0.0 else "-",
+				_num(absf(delta))])
 	return ", ".join(parts)
 
 
-static func _amounts_text(amounts: Dictionary, role: String) -> String:
+static func _amounts_text(amounts: Dictionary, role: String, localized: bool = false) -> String:
 	var info := FactionRegistry.resource_info_for(role)
 	var parts: Array[String] = []
 	for key in amounts:
@@ -670,8 +691,12 @@ static func _amounts_text(amounts: Dictionary, role: String) -> String:
 		if String(meta.get("unit", "")) == "$B":
 			parts.append("$%sB" % _num(amount))
 		else:
-			parts.append("%s %s" % [_num(amount), String(meta.get("label", key)).to_lower()])
-	return " and ".join(parts)
+			var label := String(meta.get("label", key))
+			parts.append("%s %s" % [_num(amount), I18n.lowercase(I18n.t(label)) if localized else label.to_lower()])
+	var joined := parts[0] if not parts.is_empty() else ""
+	for i in range(1, parts.size()):
+		joined = _words(I18n.mark("%s and %s"), localized) % [joined, parts[i]]
+	return joined
 
 
 static func _num(value: float) -> String:

@@ -18,6 +18,9 @@ extends Control
 ##
 ## Built on UiLayout.build_overlay(): centered on desktop, full width and
 ## scrolling on phones (set_compact). Tap outside, Close or Esc to dismiss.
+##
+## Causes are filed in English; [method cause_text] puts each one in the
+## interface language for the screen (grouping reads the English).
 
 signal closed
 
@@ -28,6 +31,22 @@ const GROUPS := ["yours", "rivals", "world"]
 const GROUP_TITLES := {"yours": "Your moves", "rivals": "Rivals", "world": "The world"}
 ## Causes that are always the player's own doing.
 const YOUR_PREFIXES := ["Crisis:", "Crisis deferred:", "Crisis broke:", "Deal with", "Era goal:"]
+## How the engine words composed causes, most specific first: [format, what
+## each %s is]. "title" is a crisis title, "label" a response, "name" a name
+## the interface translates (a faction, directive, goal, shift or scenario).
+const CAUSE_FORMATS := [
+	["Crisis deferred: %s", ["title"]],
+	["Crisis broke: %s", ["title"]],
+	["Crisis: %s (%s)", ["title", "label"]],
+	["Deal with %s", ["name"]],
+	["Era goal: %s", ["name"]],
+	["Paradigm shift: %s", ["name"]],
+	["Emergent capability: %s", ["name"]],
+	["Scenario: %s", ["name"]],
+	["Collapse: %s", ["name"]],
+	["%s (standing influence)", ["name"]],
+	["%s: %s", ["name", "name"]],
+]
 const BAR_HEIGHT := 4.0
 const TAP_SLOP := 12.0
 
@@ -46,7 +65,10 @@ var _shade: ColorRect
 var _panel: PanelContainer
 var _content: VBoxContainer
 var _restyle_queued := false
+var _relabel_queued := false
 var _outside_press := Vector2.INF
+## CAUSE_FORMATS as patterns (built once).
+static var _cause_patterns: Array = []
 
 
 func _ready() -> void:
@@ -72,6 +94,15 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _panel != null and EraTheme.style_of(self) != _style and not _restyle_queued:
 		_restyle_queued = true
 		_restyle.call_deferred()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _panel != null and not _relabel_queued:
+		_relabel_queued = true
+		_relabel.call_deferred()
+
+
+func _relabel() -> void:
+	_relabel_queued = false
+	if visible:
+		_rebuild()
 
 
 func _restyle() -> void:
@@ -211,6 +242,50 @@ static func _filed_under(cause: String, faction_name: String) -> bool:
 	return cause.begins_with(faction_name + ":") or cause.begins_with(faction_name + " (")
 
 
+## [param cause] (as the engine filed it, in English) in the interface
+## language: a known cause by name, a composed one by its CAUSE_FORMATS
+## pattern with its parts translated (crisis titles through
+## DilemmaDeck.localize_title), and a pass-and-play " — Faction" suffix kept.
+## Unknown causes come back as they are.
+static func cause_text(cause: String) -> String:
+	if I18n.current() == I18n.SOURCE:
+		return cause
+	var suffix := ""
+	var split := cause.rfind(" — ")
+	if split > 0:
+		suffix = " — " + I18n.t(cause.substr(split + 3))
+		cause = cause.substr(0, split)
+	var direct := I18n.t(cause)
+	if direct != cause:
+		return direct + suffix
+	if _cause_patterns.is_empty():
+		for entry in CAUSE_FORMATS:
+			_cause_patterns.append([RegEx.create_from_string(_format_regex(String(entry[0]))), entry[0], entry[1]])
+	for pattern in _cause_patterns:
+		var found := (pattern[0] as RegEx).search(cause)
+		if found == null:
+			continue
+		var kinds: Array = pattern[2]
+		var parts := []
+		for i in kinds.size():
+			var part := found.get_string(i + 1)
+			parts.append(DilemmaDeck.localize_title(part) if String(kinds[i]) == "title" else I18n.t(part))
+		return I18n.t(String(pattern[1])) % parts + suffix
+	return cause + suffix
+
+
+## A regex for a "%s" format: each %s matches any text.
+static func _format_regex(format: String) -> String:
+	var out := "^"
+	var pieces := format.split("%s")
+	for i in pieces.size():
+		if i > 0:
+			out += "(.+)"
+		for character in pieces[i]:
+			out += ("\\" + character) if "\\^$.|?*+()[]{}".contains(character) else character
+	return out + "$"
+
+
 # --- Values ------------------------------------------------------------------------------
 
 ## The value at the end of [param turn] (now, for the current turn).
@@ -261,7 +336,7 @@ func _rebuild() -> void:
 	var valid := engine != null and engine.world != null and WorldState.is_tracked_key(metric_key)
 	_content.add_child(_header(s))
 	if not valid:
-		_content.add_child(_text(s, "Nothing to explain yet.", 13, s.text_dim, true))
+		_content.add_child(_text(s, tr("Nothing to explain yet."), 13, s.text_dim, true))
 		return
 	var changes := engine.get_changes(metric_key, shown_turn)
 	_groups = group_changes(changes, engine.player_role, _display_names())
@@ -285,7 +360,7 @@ func _rebuild() -> void:
 		any = true
 		_content.add_child(_group_block(s, group, causes, float(_groups[group]["total"]), largest))
 	if not any:
-		var quiet := "Nothing moved it this turn." if shown_turn == engine.turn else "Nothing moved it that turn."
+		var quiet := tr("Nothing moved it this turn.") if shown_turn == engine.turn else tr("Nothing moved it that turn.")
 		_content.add_child(_text(s, quiet, 13, s.text_dim, true))
 	var close_button := Button.new()
 	close_button.name = "CloseButton"
@@ -318,7 +393,7 @@ func _header(s: EraStyle) -> Control:
 	var title_label := _text(s, title, 20, s.text_bright, true, s.font_display)
 	title_label.name = "Title"
 	names.add_child(title_label)
-	var subtitle_label := _text(s, s.label("Why it changed") + " · " + subtitle, 12, s.text_dim, true)
+	var subtitle_label := _text(s, s.label(tr("Why it changed")) + " · " + subtitle, 12, s.text_dim, true)
 	subtitle_label.name = "Subtitle"
 	names.add_child(subtitle_label)
 	row.add_child(names)
@@ -350,7 +425,7 @@ func _value_row(s: EraStyle) -> Control:
 	if changed:
 		tone = s.good if improves(metric_key, _net) else s.bad
 	var arrow := ("▲ " if _net > 0.0 else "▼ ") if changed else ""
-	var delta := _text(s, arrow + (UiFormat.signed(snappedf(_net, 0.1)) if changed else "no change"), 16, tone, false, s.font_mono_bold)
+	var delta := _text(s, arrow + (UiFormat.signed(snappedf(_net, 0.1)) if changed else tr("no change")), 16, tone, false, s.font_mono_bold)
 	delta.name = "Change"
 	delta.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(delta)
@@ -367,7 +442,7 @@ func _stepper(s: EraStyle) -> Control:
 	row.add_theme_constant_override("separation", 6)
 	var turns := available_turns()
 	var index := turns.find(shown_turn)
-	var older := _step_button("chevron_left", "Earlier turn", index > 0)
+	var older := _step_button("chevron_left", tr("Earlier turn"), index > 0)
 	older.name = "Older"
 	older.pressed.connect(step_turn.bind(-1))
 	row.add_child(older)
@@ -379,7 +454,7 @@ func _stepper(s: EraStyle) -> Control:
 	label.clip_text = true
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(label)
-	var newer := _step_button("chevron_right", "Later turn", index >= 0 and index < turns.size() - 1)
+	var newer := _step_button("chevron_right", tr("Later turn"), index >= 0 and index < turns.size() - 1)
 	newer.name = "Newer"
 	newer.pressed.connect(step_turn.bind(1))
 	row.add_child(newer)
@@ -400,15 +475,15 @@ func _step_button(glyph: String, tip: String, enabled: bool) -> Button:
 ## "This turn so far · H1 2027", "Last turn · H2 2026" or "Turn 9 · H2 2030".
 func _turn_text() -> String:
 	var year := SimConstants.year_for_turn(shown_turn)
-	var date := "H%d %d" % [1 if year - floorf(year) < 0.25 else 2, int(floorf(year))]
+	var date := tr("H%d %d") % [1 if year - floorf(year) < 0.25 else 2, int(floorf(year))]
 	if shown_turn == 0:
-		return "Campaign start · %s" % date
+		return tr("Campaign start · %s") % date
 	if shown_turn == engine.turn:
 		var unfinished := not engine.is_ended() and engine.phase != SimulationEngine.Phase.IDLE
-		return "%s · %s" % ["This turn so far" if unfinished else "This turn", date]
+		return "%s · %s" % [tr("This turn so far") if unfinished else tr("This turn"), date]
 	if shown_turn == engine.turn - 1:
-		return "Last turn · %s" % date
-	return "Turn %d · %s" % [shown_turn, date]
+		return tr("Last turn · %s") % date
+	return tr("Turn %d · %s") % [shown_turn, date]
 
 
 func _group_block(s: EraStyle, group: String, causes: Array, total: float, largest: float) -> Control:
@@ -417,7 +492,7 @@ func _group_block(s: EraStyle, group: String, causes: Array, total: float, large
 	block.add_theme_constant_override("separation", 6)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
-	var title := _text(s, s.label(String(GROUP_TITLES[group])), 12, s.accent if s.era != 1 else s.text_bright, false, s.font_ui_bold)
+	var title := _text(s, s.label(tr(String(GROUP_TITLES[group]))), 12, s.accent if s.era != 1 else s.text_bright, false, s.font_ui_bold)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
 	var sum := _text(s, UiFormat.signed(snappedf(total, 0.1)), 12, _tone(s, total), false, s.font_mono_bold)
@@ -439,7 +514,7 @@ func _cause_row(s: EraStyle, cause: String, delta: float, largest: float) -> Con
 	row.add_theme_constant_override("separation", 3)
 	var line := HBoxContainer.new()
 	line.add_theme_constant_override("separation", 10)
-	var label := _text(s, cause, 13, s.text, true)
+	var label := _text(s, cause_text(cause), 13, s.text, true)
 	label.name = "CauseText"
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	line.add_child(label)

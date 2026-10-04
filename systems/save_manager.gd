@@ -232,15 +232,15 @@ static func relative_time(saved_at: int, now: int) -> String:
 	if saved_at <= 0:
 		return ""
 	if seconds < 60:
-		return "just now"
+		return I18n.t("just now")
 	if seconds < 3600:
-		return "%d min ago" % floori(seconds / 60.0)
+		return I18n.t("%d min ago") % floori(seconds / 60.0)
 	if seconds < 86400:
-		return "%d h ago" % floori(seconds / 3600.0)
+		return I18n.t("%d h ago") % floori(seconds / 3600.0)
 	if seconds < 2 * 86400:
-		return "yesterday"
+		return I18n.t("yesterday")
 	if seconds < 7 * 86400:
-		return "%d days ago" % floori(seconds / 86400.0)
+		return I18n.t("%d days ago") % floori(seconds / 86400.0)
 	return Time.get_date_string_from_unix_time(saved_at)
 
 

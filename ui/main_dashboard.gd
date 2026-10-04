@@ -13,6 +13,10 @@ extends Control
 ## phone (one panel at a time behind WORLD / ACT / LENS / NEWS tabs, with
 ## the vitals strip on top).
 ##
+## The interface language (GameSettings "language", see I18n) is applied
+## before any panel is built and again whenever the setting changes; every
+## panel then sets its composed text anew.
+##
 ## When launched headless as the main scene (`godot --headless --path .`), it
 ## plays one autoplay campaign, prints the result and quits; pass
 ## `-- --role=CEO --seed=42` to choose the perspective.
@@ -34,6 +38,8 @@ const TAB_ALIASES := {"intel": "lens", "log": "news"}
 const DESKTOP_LEFT_WIDTH := 372.0
 const DESKTOP_RIGHT_WIDTH := 404.0
 const DESKTOP_FOOTER_HEIGHT := 176.0
+## The header's title before a campaign starts (a name: never translated).
+const GAME_TITLE := "SYNAPSE-2076"
 
 var engine: SimulationEngine
 var llm: LLMService
@@ -109,6 +115,8 @@ var _cast: CastPanel
 var _desk_role := ""
 var _seen := {}
 var _handoff_context := {}
+## The English text of the phase label (set again in a new language).
+var _phase_text := "Standby"
 
 @onready var _margin: MarginContainer = $Margin
 @onready var _layout: VBoxContainer = $Margin/Layout
@@ -154,6 +162,11 @@ var _handoff_context := {}
 @onready var _debrief: EndgameDebrief = %EndgameDebrief
 @onready var _settings: LLMSettingsDialog = %LLMSettingsDialog
 @onready var _role_select: RoleSelect = %RoleSelect
+
+
+func _enter_tree() -> void:
+	# The language comes first, so every panel is built in it.
+	I18n.apply(String(GameSettings.value("language")))
 
 
 func _ready() -> void:
@@ -432,8 +445,8 @@ func show_view(view: String) -> void:
 	_globe_button.button_pressed = globe
 	_lattice_button.button_pressed = not globe
 	var s := EraStyle.for_era(era)
-	_viewport_caption.text = "[color=%s]%s[/color]  Depth = frontier capability · color and jitter = alignment drift · amber = emergent capabilities · drag to orbit" % [
-		CyberPalette.hex(s.accent), s.label("Neural lattice")]
+	_viewport_caption.text = "[color=%s]%s[/color]  %s" % [CyberPalette.hex(s.accent), s.label(tr("Neural lattice")),
+		tr("Depth = frontier capability · color and jitter = alignment drift · amber = emergent capabilities · drag to orbit")]
 
 
 ## Switches the left column (the LENS tab) between the faction lens and the
@@ -509,9 +522,9 @@ func _restyle_chrome() -> void:
 	_globe_button.icon = Glyphs.texture("world", 16)
 	_lattice_button.icon = Glyphs.texture("lattice", 16)
 	_label_lens_switch()
-	_intel_button.text = s.label("Intel")
-	_globe_button.text = s.label("Globe")
-	_lattice_button.text = s.label("Lattice")
+	_intel_button.text = s.label(tr("Intel"))
+	_globe_button.text = s.label(tr("Globe"))
+	_lattice_button.text = s.label(tr("Lattice"))
 	_update_spectate_buttons()
 	_restyle_header_type(s)
 	EraTheme.set_scaled_font_size(_viewport_caption, 11, &"normal_font_size")
@@ -800,6 +813,7 @@ func _build_feature_layers() -> void:
 	_settings_dialog.name = "SettingsDialog"
 	_settings_dialog.tutorial_requested.connect(_replay_tutorial)
 	add_child(_settings_dialog)
+	_settings_dialog.set_languages(I18n.LANGUAGES)
 	_endings_gallery = EndingsGallery.new()
 	_endings_gallery.name = "EndingsGallery"
 	_endings_gallery.z_index = 2
@@ -839,13 +853,13 @@ func _build_menu() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
 	_menu_panel.add_child(box)
-	box.add_child(_menu_item("New campaign", "home", func(): _show_role_select()))
-	box.add_child(_menu_item("Settings", "settings", func(): _open_settings()))
-	box.add_child(_menu_item("People", "person", func(): _open_people()))
-	box.add_child(_menu_item("Endings", "flag", func(): _open_endings()))
-	box.add_child(_menu_item("AI settings", "spark", func(): _open_llm_settings()))
+	box.add_child(_menu_item(I18n.mark("New campaign"), "home", func(): _show_role_select()))
+	box.add_child(_menu_item(I18n.mark("Settings"), "settings", func(): _open_settings()))
+	box.add_child(_menu_item(I18n.mark("People"), "person", func(): _open_people()))
+	box.add_child(_menu_item(I18n.mark("Endings"), "flag", func(): _open_endings()))
+	box.add_child(_menu_item(I18n.mark("AI settings"), "spark", func(): _open_llm_settings()))
 	if OS.has_feature("web"):
-		box.add_child(_menu_item("Full screen", "layers", func(): _toggle_fullscreen()))
+		box.add_child(_menu_item(I18n.mark("Full screen"), "layers", func(): _toggle_fullscreen()))
 	box.add_child(HSeparator.new())
 	_effects_check = CheckBox.new()
 	_effects_check.text = "Visual effects"
@@ -912,7 +926,8 @@ func _open_settings() -> void:
 	_settings_dialog.open()
 
 
-## Text size, color-blind colors, plain language and effects take hold at once.
+## Text size, color-blind colors, plain language, effects and the language
+## take hold at once.
 func _on_game_setting_changed(key: String, value: Variant) -> void:
 	if key in EraTheme.SETTING_KEYS:
 		EraTheme.invalidate()
@@ -924,6 +939,33 @@ func _on_game_setting_changed(key: String, value: Variant) -> void:
 	elif key == "plain_language" and engine != null:
 		_update_indices(engine.get_snapshot())
 		_goals.refresh(engine)
+	elif key == "language":
+		I18n.apply(String(value))
+		# After the widgets' own relabeling, which they defer the same way.
+		_relabel.call_deferred()
+
+
+## The language changed: every text the dashboard composes, the lens (rebuilt
+## in the new language) and the goals. Widgets relabel themselves on
+## NOTIFICATION_TRANSLATION_CHANGED.
+func _relabel() -> void:
+	_restyle_chrome()
+	_update_header()
+	_set_phase_text(_phase_text)
+	show_view("globe" if _globe_container.visible else "lattice")
+	_update_call_button()
+	_update_llm_hint()
+	if engine == null:
+		return
+	_update_indices(engine.get_snapshot())
+	_goals.refresh(engine)
+	if _lens != null:
+		var lens_context := _lens.context.duplicate()
+		var view := left_view
+		_rebuild_lens()
+		if not lens_context.is_empty():
+			_lens.set_context(lens_context)
+		show_left_view(view)
 
 
 # --- Explanations, goals, the coach and calls ----------------------------------------
@@ -977,7 +1019,7 @@ func _update_call_button() -> void:
 	_call_button.visible = can_call
 	if can_call:
 		var s := EraStyle.for_era(era)
-		_call_button.text = s.label("Call a faction leader")
+		_call_button.text = s.label(tr("Call a faction leader"))
 		_call_button.custom_minimum_size = Vector2(0, 44 if compact else 36)
 
 
@@ -1038,7 +1080,7 @@ func _label_lens_switch() -> void:
 	var s := EraStyle.for_era(era)
 	var title := _lens.lens_title() if _lens != null else "Lens"
 	var glyph := _lens.lens_glyph() if _lens != null else "lens"
-	_lens_button.text = s.label(title)
+	_lens_button.text = s.label(tr(title))
 	_lens_button.icon = Glyphs.texture(glyph, 16)
 	_nav.set_tab("lens", title, glyph)
 
@@ -1075,12 +1117,12 @@ func _on_event_logged(entry: Dictionary) -> void:
 
 func _on_phase_changed(phase: int, _turn: int) -> void:
 	var names := {
-		SimulationEngine.Phase.IDLE: "Standby",
-		SimulationEngine.Phase.WORLD_TICK: "World tick",
-		SimulationEngine.Phase.ACTOR_RESOLUTION: "Factions moving",
-		SimulationEngine.Phase.PLAYER_ACTION: "Your move" if not spectate else "Autoplay move",
-		SimulationEngine.Phase.TELEMETRY: "Reconciling telemetry",
-		SimulationEngine.Phase.ENDED: "Campaign complete",
+		SimulationEngine.Phase.IDLE: I18n.mark("Standby"),
+		SimulationEngine.Phase.WORLD_TICK: I18n.mark("World tick"),
+		SimulationEngine.Phase.ACTOR_RESOLUTION: I18n.mark("Factions moving"),
+		SimulationEngine.Phase.PLAYER_ACTION: I18n.mark("Your move") if not spectate else I18n.mark("Autoplay move"),
+		SimulationEngine.Phase.TELEMETRY: I18n.mark("Reconciling telemetry"),
+		SimulationEngine.Phase.ENDED: I18n.mark("Campaign complete"),
 	}
 	_set_phase_text(String(names.get(phase, "?")))
 	_update_header()
@@ -1091,7 +1133,7 @@ func _on_phase_changed(phase: int, _turn: int) -> void:
 
 func _on_actor_decisions_requested(faction_ids: Array) -> void:
 	if llm.is_online and not faction_ids.is_empty():
-		var waiting := "Waiting on %d factions (LLM)" % faction_ids.size()
+		var waiting := tr("Waiting on %d factions (LLM)") % faction_ids.size()
 		_set_phase_text(waiting)
 		if compact:
 			# Phones hide the phase label; say why the turn is paused where the player looks.
@@ -1223,7 +1265,8 @@ func _on_execute_requested(directives: Array) -> void:
 		return
 	_directive_panel.set_interactive(false)
 	var s := EraStyle.for_era(era)
-	_directive_panel.set_crisis_status("[color=%s]%s[/color] Resolving the turn…" % [CyberPalette.hex(s.accent), s.label("Directives executed.")])
+	_directive_panel.set_crisis_status("[color=%s]%s[/color] %s" % [CyberPalette.hex(s.accent), s.label(tr("Directives executed.")),
+		tr("Resolving the turn…")])
 
 
 func _begin_next_turn() -> void:
@@ -1301,9 +1344,12 @@ func _refresh_telemetry(snapshot: Dictionary, record: bool) -> void:
 	_update_header()
 
 
+## Shows [param text] (English; translated here) in the era's case.
 func _set_phase_text(text: String) -> void:
+	_phase_text = text
 	var s := EraStyle.for_era(era)
-	_phase_label.text = text.to_lower() if s.era == 3 else s.label(text)
+	var shown := tr(text)
+	_phase_label.text = shown.to_lower() if s.era == 3 else s.label(shown)
 
 
 ## The header's lines in the active era's voice.
@@ -1313,27 +1359,29 @@ func _update_header() -> void:
 	var role := engine.player_role if engine != null else ""
 	var year_value := engine.get_year() if engine != null else float(SimConstants.START_YEAR)
 	var year := int(floor(year_value))
-	var half := "H1" if year_value - floor(year_value) < 0.25 else "H2"
+	var half := 1 if year_value - floor(year_value) < 0.25 else 2
 	var turn := engine.turn if engine != null else 0
 	var total := engine.total_turns if engine != null else SimConstants.TOTAL_TURNS
-	var role_name := UiFormat.role_name(role) if role != "" else "SYNAPSE-2076"
-	var turn_line := "%s %d · Turn %d of %d" % [half, year, turn, total]
+	var role_name := UiFormat.role_name(role) if role != "" else GAME_TITLE
+	var turn_line := tr("H%d %d · Turn %d of %d") % [half, year, turn, total]
 	match era:
 		2:
 			_kicker.visible = true
-			_kicker.text = "%s // OPS" % role_name.to_upper()
+			_kicker.text = tr("%s // OPS") % role_name.to_upper()
 			_title_label.text = "%.1f" % year_value
-			_subtitle.text = ("T%d · ERA II" % turn) if compact else ("T%d · ERA II · %s" % [turn, String(EraStyle.NAMES[2]).to_upper()])
-			_year_label.text = "TURN %d / %d" % [turn, total]
+			_subtitle.text = (tr("T%d · ERA II") % turn) if compact \
+				else (tr("T%d · ERA II · %s") % [turn, tr(String(EraStyle.NAMES[2])).to_upper()])
+			_year_label.text = tr("TURN %d / %d") % [turn, total]
 		3:
 			_kicker.visible = false
 			_title_label.text = str(year)
-			_subtitle.text = ("era iii · turn %d" % turn) if compact else ("era iii · %s · turn %d" % [String(EraStyle.NAMES[3]).to_lower(), turn])
-			_year_label.text = "turn %d of %d" % [turn, total]
+			_subtitle.text = (tr("era iii · turn %d") % turn) if compact \
+				else (tr("era iii · %s · turn %d") % [tr(String(EraStyle.NAMES[3])).to_lower(), turn])
+			_year_label.text = tr("turn %d of %d") % [turn, total]
 		_:
 			_kicker.visible = false
 			_title_label.text = role_name
-			_subtitle.text = turn_line if compact else "Era I · %s" % EraStyle.NAMES[1]
+			_subtitle.text = turn_line if compact else tr("Era I · %s") % tr(String(EraStyle.NAMES[1]))
 			_year_label.text = turn_line
 	_role_mark.texture = _role_mark_texture(EraStyle.for_era(era))
 
@@ -1378,7 +1426,7 @@ func _build_index_grid() -> void:
 func _update_indices(snapshot: Dictionary) -> void:
 	var s := EraStyle.for_era(era)
 	var title := _indices_label.get_parent().get_node("IndexTitle") as Label
-	title.text = s.label("Secondary indices")
+	title.text = s.label(tr("Secondary indices"))
 	var indices: Dictionary = snapshot.get("indices", {})
 	for key in _index_bars:
 		var value := float(indices.get(key, 0.0))
@@ -1397,21 +1445,22 @@ func _format_compute(snapshot: Dictionary) -> String:
 	var grid: Dictionary = snapshot.get("compute", {})
 	var era_number := int(snapshot.get("era", era))
 	var lines: Array[String] = []
-	lines.append("[color=%s]%s[/color] [color=%s]· Era %s, %s[/color]" % [bright, s.label("Frontier compute"), dim,
-		EraStyle.ROMAN.get(era_number, "I"), EraStyle.NAMES.get(era_number, "")])
-	lines.append("[color=%s]Training FLOPs[/color] [code]10^%.2f[/code]   [color=%s]Capability[/color] [code]%.0f[/code]" % [
-		dim, float(tech.get("log_flops", 26.0)), dim, float(tech.get("capability_index", 0.0))])
-	lines.append("[color=%s]Grid load[/color] [code]%.0f/%.0f GW[/code]   [color=%s]Throttle[/color] [code]%.2f[/code]" % [
-		dim, float(grid.get("power_demand_gw", 0.0)), float(grid.get("grid_capacity_gw", 0.0)), dim, float(grid.get("throttle", 1.0))])
+	lines.append("[color=%s]%s[/color] [color=%s]· %s[/color]" % [bright, s.label(tr("Frontier compute")), dim,
+		tr("Era %s, %s") % [EraStyle.ROMAN.get(era_number, "I"), tr(String(EraStyle.NAMES.get(era_number, "")))]])
+	lines.append("[color=%s]%s[/color] [code]10^%.2f[/code]   [color=%s]%s[/color] [code]%.0f[/code]" % [
+		dim, tr("Training FLOPs"), float(tech.get("log_flops", 26.0)), dim, tr("Capability"), float(tech.get("capability_index", 0.0))])
+	lines.append("[color=%s]%s[/color] [code]%.0f/%.0f GW[/code]   [color=%s]%s[/color] [code]%.2f[/code]" % [
+		dim, tr("Grid load"), float(grid.get("power_demand_gw", 0.0)), float(grid.get("grid_capacity_gw", 0.0)), dim, tr("Throttle"),
+		float(grid.get("throttle", 1.0))])
 	var agi_turn := int(tech.get("agi_turn", -1))
-	lines.append("[color=%s]AGI milestone[/color] %s   [color=%s]Alignment tax[/color] [code]×%.2f[/code]" % [
-		dim, ("crossed %d" % int(SimConstants.year_for_turn(agi_turn))) if agi_turn >= 0 else "pending",
-		dim, float(tech.get("alignment_tax_multiplier", 1.0))])
+	lines.append("[color=%s]%s[/color] %s   [color=%s]%s[/color] [code]×%.2f[/code]" % [
+		dim, tr("AGI milestone"), (tr("crossed %d") % int(SimConstants.year_for_turn(agi_turn))) if agi_turn >= 0 else tr("pending"),
+		dim, tr("Alignment tax"), float(tech.get("alignment_tax_multiplier", 1.0))])
 	var shifts: Array = tech.get("unlocked_shifts", [])
 	var shift_tags: Array[String] = []
 	for shift_id in shifts:
-		shift_tags.append(String(TechTreeManager.PARADIGM_SHIFTS[shift_id]["name"]).get_slice(" ", 0))
-	lines.append("[color=%s]Paradigms[/color] %s" % [dim, ", ".join(shift_tags) if not shift_tags.is_empty() else "none yet"])
+		shift_tags.append(tr(String(TechTreeManager.PARADIGM_SHIFTS[shift_id]["name"]).get_slice(" ", 0)))
+	lines.append("[color=%s]%s[/color] %s" % [dim, tr("Paradigms"), ", ".join(shift_tags) if not shift_tags.is_empty() else tr("none yet")])
 	return "\n".join(lines)
 
 

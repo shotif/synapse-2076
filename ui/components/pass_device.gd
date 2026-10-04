@@ -133,6 +133,8 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _column != null and EraTheme.style_of(self).era != _era:
 		_restyle()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _column != null and visible and not role.is_empty():
+		_fill.call_deferred()
 
 
 ## Covers the screen for [param for_role]'s turn. [param at_year] is the
@@ -214,23 +216,23 @@ func _fill() -> void:
 	var s := EraTheme.style_of(self)
 	var color := s.faction_color(role)
 	var title := UiFormat.role_title(role)
-	var half := "H1" if year - floorf(year) < 0.25 else "H2"
-	_kicker.text = _voice(s, "Pass and play · Turn %d · %s %d" % [turn, half, int(floor(year))])
+	var half := 1 if year - floorf(year) < 0.25 else 2
+	_kicker.text = _voice(s, tr("Pass and play · Turn %d · H%d %d") % [turn, half, int(floor(year))])
 	var radius := 18 if s.era == 1 else (6 if s.era == 2 else MARK_SIZE / 2)
 	_mark.texture = Glyphs.tile(Glyphs.for_faction(role), MARK_SIZE, color, s.bg, radius, 0.56)
 	_glow.self_modulate = Color(color, 0.2 if s.era != 1 else 0.14)
-	_lead.text = _voice(s, "Pass the device to the")
+	_lead.text = _voice(s, tr("Pass the device to the"))
 	_title.text = title
 	_title.add_theme_color_override("font_color", color.lerp(s.text_bright, 0.15))
-	_away_title.text = _voice(s, "While you were away")
+	_away_title.text = _voice(s, tr("While you were away"))
 	for child in _away_list.get_children():
 		_away_list.remove_child(child)
 		child.queue_free()
 	for line in headlines:
 		_away_list.add_child(_headline_row(s, line))
 	_away.visible = not headlines.is_empty()
-	_reveal.text = "I'm the %s. Show my desk" % title
-	_hint.text = _voice(s, "Everyone else, look away.")
+	_reveal.text = tr("I'm the %s. Show my desk") % title
+	_hint.text = _voice(s, tr("Everyone else, look away."))
 	_apply_fonts(s)
 	UiLayout.pass_touch_through(_pad)
 
@@ -242,6 +244,8 @@ func _headline_row(s: EraStyle, text: String) -> HBoxContainer:
 	icon.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	row.add_child(icon)
 	var label := _label("Headline", HORIZONTAL_ALIGNMENT_LEFT)
+	# Headlines are the English news.
+	label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	label.text = text
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	CrisisCard.style_label(label, s.font_ui, 13 if _compact else 14, s.text)

@@ -126,7 +126,7 @@ static func stance(score: float) -> String:
 	for entry in STANCES:
 		if score >= float(entry[0]):
 			return String(entry[1])
-	return "Hostile"
+	return I18n.mark("Hostile")
 
 
 ## The most relevant thing [param character_id] remembers about the players,

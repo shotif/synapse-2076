@@ -6,7 +6,8 @@ extends LensPanel
 ## red pencil when autonomy runs high; two items from the latest events keep
 ## the labs' names blacked out; the threat board grades the six metrics
 ## against their thresholds; readiness lists the Council's currencies; and a
-## button signs the next directive.
+## button signs the next directive. The brief's headings are in the interface
+## language; the items' typed bodies quote the English record.
 
 const DESK := Color("#CBBB93")
 const FOLDER := Color("#BCA978")
@@ -109,7 +110,7 @@ func _init() -> void:
 
 
 func lens_title() -> String:
-	return "Briefing"
+	return I18n.mark("Briefing")
 
 
 func lens_background() -> Color:
@@ -160,14 +161,14 @@ func _build_folder_tab() -> void:
 	holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	holder.custom_minimum_size.y = 60
 	var tab := _panel(_tab_box())
-	var tab_label := _label("COUNCIL CHAIR · DAILY BRIEF", _tab_font, 12, FOLDER_INK)
+	var tab_label := _label(tr("COUNCIL CHAIR · DAILY BRIEF"), _tab_font, 12, FOLDER_INK)
 	tab_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	tab_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	tab.add_child(tab_label)
 	holder.add_child(tab)
 	holder.resized.connect(_fit_tab.bind(holder, tab, tab_label))
 	row.add_child(holder)
-	var stamp := _canvas(_draw_stamp.bind(["EYES ONLY"], 15, -6.0, Color(STAMP_RED, 0.9), 2, 0, Color(0, 0, 0, 0)), Vector2(96, 44))
+	var stamp := _canvas(_draw_stamp.bind([tr("EYES ONLY")], 15, -6.0, Color(STAMP_RED, 0.9), 2, 0, Color(0, 0, 0, 0)), Vector2(96, 44))
 	stamp.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(stamp)
 	_header.add_child(_margin(row, 16, 0, 16, 0))
@@ -195,7 +196,7 @@ func _build_heading(page: VBoxContainer) -> void:
 	_era_label = _label("", _type, 11, INK_SOFT)
 	meta.add_child(_era_label)
 	block.add_child(meta)
-	block.add_child(_label("SITUATION", _head_wide, 24, INK))
+	block.add_child(_label(tr("SITUATION"), _head_wide, 24, INK))
 	block.add_child(_canvas(_draw_double_rule, Vector2(0, 4)))
 	page.add_child(block)
 
@@ -245,10 +246,12 @@ func _build_items(page: VBoxContainer) -> void:
 		body.add_theme_color_override("default_color", INK)
 		body.add_theme_constant_override("line_separation", 4)
 		body.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+		# The typed items quote the English record.
+		body.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 		if i == 1:
 			var row := _hbox(4)
 			row.add_child(body)
-			_signed_stamp = _canvas(_draw_stamp.bind(["SIGNED", "CHAIR"], 14, 9.0, Color(STAMP_RED, 0.85), 2, 4, Color(0, 0, 0, 0)),
+			_signed_stamp = _canvas(_draw_stamp.bind([tr("SIGNED"), tr("CHAIR")], 14, 9.0, Color(STAMP_RED, 0.85), 2, 4, Color(0, 0, 0, 0)),
 				Vector2(74, 52))
 			_signed_stamp.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 			row.add_child(_signed_stamp)
@@ -263,7 +266,7 @@ func _build_items(page: VBoxContainer) -> void:
 
 func _build_threat_board(page: VBoxContainer) -> void:
 	var block := _vbox(3)
-	block.add_child(_label("THREAT BOARD", _head, 12, INK))
+	block.add_child(_label(tr("THREAT BOARD"), _head, 12, INK))
 	var grid := GridContainer.new()
 	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 0)
@@ -284,7 +287,7 @@ func _build_threat_board(page: VBoxContainer) -> void:
 
 func _build_readiness(page: VBoxContainer) -> void:
 	var block := _vbox(5)
-	block.add_child(_label("READINESS", _head, 12, INK))
+	block.add_child(_label(tr("READINESS"), _head, 12, INK))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 12)
@@ -295,7 +298,7 @@ func _build_readiness(page: VBoxContainer) -> void:
 		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		cell.add_theme_constant_override("margin_bottom", 3)
 		var row := _hbox(4)
-		row.add_child(_clip_label(String(entry[1]), _type, 12, INK))
+		row.add_child(_clip_label(tr(String(entry[1])), _type, 12, INK))
 		var value := _label("", _type, 12, INK)
 		row.add_child(value)
 		cell.add_child(row)
@@ -327,7 +330,7 @@ func _build_sign_bar() -> void:
 	_style_button(_sign_button, boxes, _head, 15, {})
 	var stack := _vbox(1)
 	stack.alignment = BoxContainer.ALIGNMENT_CENTER
-	var title := _label("SIGN NEXT DIRECTIVE", _head_wide, 15, PAPER)
+	var title := _label(tr("SIGN NEXT DIRECTIVE"), _head_wide, 15, PAPER)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	stack.add_child(title)
 	_sign_caption = _label("", _type, 11, Color(PAPER, 0.8))
@@ -342,8 +345,8 @@ func _build_sign_bar() -> void:
 # --- Refresh -------------------------------------------------------------------------
 
 func _refresh() -> void:
-	_cycle_label.text = "CYCLE %d · %s" % [current_turn(), _year_half()]
-	_era_label.text = "ERA %s" % EraStyle.ROMAN.get(int(snapshot.get("era", 1)), "I")
+	_cycle_label.text = tr("CYCLE %d · %s") % [current_turn(), _year_half()]
+	_era_label.text = tr("ERA %s") % EraStyle.ROMAN.get(int(snapshot.get("era", 1)), "I")
 	_refresh_map()
 	_refresh_items()
 	_refresh_threats()
@@ -367,8 +370,8 @@ func _refresh_map() -> void:
 	_show_swarm = metric(WorldState.ALGORITHMIC_AUTONOMY) >= 75.0 or swarming
 	var own := outcome_for(role)
 	var auditing := outcome_is_current(role) and AUDIT_ACTIONS.has(String(own.get("action", "")))
-	_legend_label.text = "audit teams deployed" if auditing else "datacenter hubs"
-	_figure_label.text = "fig. 1 · cycle %d" % current_turn()
+	_legend_label.text = tr("audit teams deployed") if auditing else tr("datacenter hubs")
+	_figure_label.text = tr("fig. 1 · cycle %d") % current_turn()
 	_map.queue_redraw()
 
 
@@ -380,14 +383,14 @@ func _refresh_items() -> void:
 		if not has_item:
 			continue
 		var item: Dictionary = items[i]
-		_item_titles[i].text = "ITEM %d · %s" % [i + 1, item["title"]]
+		_item_titles[i].text = tr("ITEM %d · %s") % [i + 1, item["title"]]
 		_item_bodies[i].text = item["body"]
 		if i == 1:
 			_signed_stamp.visible = bool(item.get("signed", false))
 	if items.is_empty():
 		_item_boxes[0].visible = true
-		_item_titles[0].text = "ITEM 1 · NOTHING TO REPORT"
-		_item_bodies[0].text = "No incidents logged this cycle."
+		_item_titles[0].text = tr("ITEM %d · %s") % [1, tr("NOTHING TO REPORT")]
+		_item_bodies[0].text = tr("No incidents logged this cycle.")
 
 
 ## Up to two items: the most pressing recent event from outside the Council,
@@ -407,7 +410,8 @@ func _briefing_items() -> Array:
 	var own := outcome_for(role)
 	if not own.is_empty():
 		var statement := String(own.get("public_statement", "")).strip_edges()
-		items.append({"title": String(OWN_TITLES.get(String(own.get("action", "")), String(own.get("action_name", "")).to_upper())),
+		var own_id := String(own.get("action", ""))
+		items.append({"title": tr(String(OWN_TITLES[own_id])) if OWN_TITLES.has(own_id) else tr(String(own.get("action_name", ""))).to_upper(),
 			"body": CyberPalette.escape_bbcode(statement if statement != "" else String(own.get("action_name", ""))), "signed": true})
 	return items
 
@@ -429,19 +433,20 @@ func _event_title(entry: Dictionary) -> String:
 	var category := String(entry.get("category", ""))
 	match category:
 		"ACTION":
-			return String(ACTION_TITLES.get(String(entry.get("action", "")), String(entry.get("action_name", "")).to_upper()))
+			var action_id := String(entry.get("action", ""))
+			return tr(String(ACTION_TITLES[action_id])) if ACTION_TITLES.has(action_id) else tr(String(entry.get("action_name", ""))).to_upper()
 		"EMERGENCE":
-			return "EMERGENT CAPABILITY"
+			return tr("EMERGENT CAPABILITY")
 		"PARADIGM":
-			return "PARADIGM SHIFT"
+			return tr("PARADIGM SHIFT")
 		"THRESHOLD":
-			return "%s THRESHOLD" % UiFormat.metric_name(String(entry.get("metric", ""))).to_upper()
+			return tr("%s THRESHOLD") % UiFormat.metric_name(String(entry.get("metric", ""))).to_upper()
 		"CRISIS":
-			return "AGENDA FORCED"
+			return tr("AGENDA FORCED")
 		"MILESTONE":
-			return "AGI MILESTONE"
+			return tr("AGI MILESTONE")
 		"ERA":
-			return "HARDWARE ERA"
+			return tr("HARDWARE ERA")
 	return category
 
 
@@ -509,7 +514,7 @@ func _refresh_threats() -> void:
 		(cells[1] as Control).set_meta("filled", filled if not snapshot.is_empty() else 0)
 		(cells[1] as Control).queue_redraw()
 		(cells[2] as Label).text = "%d" % int(roundf(value)) if not snapshot.is_empty() else "—"
-		(cells[3] as Label).text = status if not snapshot.is_empty() else ""
+		(cells[3] as Label).text = tr(status) if not snapshot.is_empty() else ""
 		_set_color(cells[3], STAMP_RED if status == "CRITICAL" else INK)
 
 
@@ -529,16 +534,16 @@ static func _danger(key: String, value: float) -> float:
 static func _threat_status(key: String, value: float) -> String:
 	match WorldState.band_for(key, value):
 		2:
-			return "CRITICAL"
+			return I18n.mark("CRITICAL")
 		1:
-			return "WARNING"
+			return I18n.mark("WARNING")
 	var info: Dictionary = WorldState.METRIC_INFO[key]
 	var margin := INF
 	if info["warn_high"] != null:
 		margin = minf(margin, float(info["warn_high"]) - value)
 	if info["warn_low"] != null:
 		margin = minf(margin, value - float(info["warn_low"]))
-	return "STABLE" if margin <= STABLE_MARGIN else "NOMINAL"
+	return I18n.mark("STABLE") if margin <= STABLE_MARGIN else I18n.mark("NOMINAL")
 
 
 func _refresh_readiness() -> void:
@@ -556,7 +561,7 @@ func _refresh_sign() -> void:
 	_sign_button.set_meta("action_id", action_id)
 	_sign_button.disabled = entry.is_empty() or String(entry.get("blocked_reason", "")) != ""
 	var cost: Dictionary = entry.get("cost", {})
-	var title := String(entry.get("name", action_definition(action_id).get("name", action_id)))
+	var title := tr(String(entry.get("name", action_definition(action_id).get("name", action_id))))
 	_sign_caption.text = "%s · %s" % [title, UiFormat.format_cost(role, cost)] if not cost.is_empty() else title
 
 
@@ -616,7 +621,7 @@ func _draw_exhausted(canvas: Control) -> void:
 	# Lifted over the value, as if stamped across the line above.
 	var origin := Vector2(canvas.size.x - 38.0, -6.0)
 	var font := _head_wide
-	var text := "EXHAUSTED"
+	var text := tr("EXHAUSTED")
 	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
 	var rect := Rect2(Vector2(-width * 0.5 - 4.0, -9.0), Vector2(width + 8.0, 17.0))
 	canvas.draw_set_transform(origin, deg_to_rad(-8.0), Vector2.ONE)
@@ -682,7 +687,7 @@ func _draw_swarm_ring(canvas: Control, origin: Vector2, unit: float) -> void:
 		origin + Vector2(200, 142) * unit, origin + Vector2(186, 140) * unit, 12)
 	canvas.draw_polyline(tail, PENCIL, 1.3, true)
 	var font_size := int(clampf(11.0 * unit, 10.0, 14.0))
-	var text := "swarm traffic, no owner"
+	var text := tr("swarm traffic, no owner")
 	var width := _type.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var at := origin + Vector2(184, 146) * unit - Vector2(width, 0)
 	canvas.draw_string(_type, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, PENCIL)

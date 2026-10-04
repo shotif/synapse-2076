@@ -3,7 +3,8 @@ extends PanelContainer
 ## Tab bar of the compact layouts in the active era's idiom: Era I a
 ## translucent bar with icons over labels, Era II an outlined bar with capital
 ## labels and a lit underline, Era III a row of round icon buttons. A dot
-## flags a tab that needs attention (a decision waiting on ACT).
+## flags a tab that needs attention (a decision waiting on ACT). Labels are
+## English message ids, shown in the interface language.
 
 signal tab_selected(tab: String)
 
@@ -67,6 +68,8 @@ func get_button(tab: String) -> Button:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _row != null:
 		_restyle()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _row != null:
+		_restyle.call_deferred()
 
 
 func _rebuild() -> void:
@@ -82,7 +85,7 @@ func _rebuild() -> void:
 		button.focus_mode = Control.FOCUS_NONE
 		button.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		button.tooltip_text = String(tab["label"]).capitalize()
+		button.tooltip_text = _tab_label(tab)
 		button.pressed.connect(func(): tab_selected.emit(tab_id))
 		var dot := Panel.new()
 		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -116,7 +119,8 @@ func _apply_styles() -> void:
 		var on := tab_id == active
 		var glyph := String(tab["glyph"])
 		button.icon = Glyphs.texture(glyph, 22 if round_tabs else 24, 1.8)
-		button.text = "" if round_tabs else s.label(String(tab["label"]).capitalize())
+		button.text = "" if round_tabs else s.label(_tab_label(tab))
+		button.tooltip_text = _tab_label(tab)
 		button.custom_minimum_size = Vector2(ROUND_SIZE, ROUND_SIZE) if round_tabs else Vector2(0, 54 if s.era == 1 else 56)
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER if round_tabs else Control.SIZE_EXPAND_FILL
 		button.add_theme_font_override("font", s.font_ui_bold)
@@ -143,6 +147,11 @@ func _apply_styles() -> void:
 			dot.offset_top = 6
 			dot.offset_bottom = 15
 		dot.visible = bool(_badges.get(tab_id, false)) and not on
+
+
+## A tab's name in the interface language ("Daily Brief" for "Daily brief").
+func _tab_label(tab: Dictionary) -> String:
+	return tr(String(tab["label"]).capitalize())
 
 
 func _tab_color(s: EraStyle, on: bool) -> Color:

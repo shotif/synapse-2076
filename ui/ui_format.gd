@@ -1,6 +1,8 @@
 class_name UiFormat
 extends RefCounted
-## Text formatting shared by dashboard widgets.
+## Text formatting shared by dashboard widgets. Names come out in the
+## interface language (I18n); the news prose asks for English ones
+## (localized = false), since it stays English.
 
 const INDEX_SHORT := {
 	"surveillance_saturation": "Surveillance",
@@ -30,11 +32,11 @@ static func format_resource(role: String, key: String, value: float) -> String:
 
 
 static func resource_label(role: String, key: String) -> String:
-	return String(resource_info(role, key).get("label", key.capitalize()))
+	return I18n.t(String(resource_info(role, key).get("label", key.capitalize())))
 
 
 static func resource_short(role: String, key: String) -> String:
-	return String(resource_info(role, key).get("short", key.left(3).to_upper()))
+	return I18n.t(String(resource_info(role, key).get("short", key.left(3).to_upper())))
 
 
 ## Short names for the four perspectives, and the player's title in each.
@@ -48,12 +50,28 @@ const ROLE_TITLES := {
 }
 
 
-static func role_name(role: String) -> String:
-	return String(ROLE_NAMES.get(role, role.capitalize()))
+static func role_name(role: String, localized: bool = true) -> String:
+	var name := String(ROLE_NAMES.get(role, role.capitalize()))
+	return I18n.t(name) if localized else name
 
 
-static func role_title(role: String) -> String:
-	return String(ROLE_TITLES.get(role, role.capitalize()))
+static func role_title(role: String, localized: bool = true) -> String:
+	var title := String(ROLE_TITLES.get(role, role.capitalize()))
+	return I18n.t(title) if localized else title
+
+
+## Crisis card categories (DilemmaDeck "category") as the interface names them.
+const CATEGORY_NAMES := {
+	"ALIGNMENT": "Alignment", "ECONOMY": "Economy", "ENERGY": "Energy", "EPISTEMIC": "Epistemic",
+	"GEOPOLITICS": "Geopolitics", "LABOR": "Labor", "RACE": "Race", "SECURITY": "Security", "SOCIETY": "Society",
+	"SOVEREIGNTY": "Sovereignty", "UNREST": "Unrest", "BIOSECURITY": "Biosecurity", "ROBOTICS": "Robotics",
+	"CULTURE": "Culture", "PERSONHOOD": "Personhood", "SPACE": "Space", "CRISIS": "Crisis",
+}
+
+
+## "Energy" for "ENERGY", in the interface language.
+static func category_name(category: String) -> String:
+	return I18n.t(String(CATEGORY_NAMES.get(category.strip_edges().to_upper(), category.capitalize())))
 
 
 ## One-word currency names for tiles and chips (resource_name() returns the
@@ -70,13 +88,13 @@ const RESOURCE_NAMES := {
 static func resource_name(key: String) -> String:
 	if PlainLanguage.enabled() and PlainLanguage.CURRENCIES.has(key):
 		return PlainLanguage.short_name(key)
-	return String(RESOURCE_NAMES.get(key, key.capitalize()))
+	return I18n.t(String(RESOURCE_NAMES.get(key, key.capitalize())))
 
 
 ## "$90B + TAL 40", or "FREE" for zero-cost directives.
 static func format_cost(role: String, cost: Dictionary) -> String:
 	if cost.is_empty():
-		return "FREE"
+		return I18n.t("FREE")
 	var parts: Array[String] = []
 	for key in cost:
 		var amount := float(cost[key])
@@ -96,10 +114,12 @@ const METRIC_NAMES := {
 }
 
 
-static func metric_name(key: String) -> String:
+static func metric_name(key: String, localized: bool = true) -> String:
 	if PlainLanguage.enabled() and _has_plain_metric(key):
-		return PlainLanguage.short_name(key)
-	return String(METRIC_NAMES.get(key, metric_short(key)))
+		return PlainLanguage.short_name(key, localized)
+	if METRIC_NAMES.has(key):
+		return I18n.t(String(METRIC_NAMES[key])) if localized else String(METRIC_NAMES[key])
+	return metric_short(key, localized)
 
 
 ## True when [param delta] moves [param key] in the direction that helps the
@@ -139,12 +159,12 @@ static func strip_escalation(title: String) -> String:
 	return title
 
 
-static func metric_short(key: String) -> String:
+static func metric_short(key: String, localized: bool = true) -> String:
 	if PlainLanguage.enabled() and _has_plain_metric(key):
-		return PlainLanguage.short_name(key)
-	if WorldState.METRIC_INFO.has(key):
-		return String(WorldState.METRIC_INFO[key]["short"])
-	return String(INDEX_SHORT.get(key, key.capitalize()))
+		return PlainLanguage.short_name(key, localized)
+	var short := String(WorldState.METRIC_INFO[key]["short"]) if WorldState.METRIC_INFO.has(key) \
+		else String(INDEX_SHORT.get(key, key.capitalize()))
+	return I18n.t(short) if localized else short
 
 
 ## Compact one-line preview of an effects dictionary, e.g.
@@ -165,27 +185,47 @@ static func effects_summary(effects: Dictionary, role: String = "") -> String:
 		parts.append("%s %s%s" % [label, "+" if amount >= 0.0 else "-", _num(absf(amount))])
 	var tech: Dictionary = effects.get("tech", {})
 	if tech.has("growth_mult"):
-		parts.append("compute growth x%.2f (%dt)" % [float(tech["growth_mult"]), int(tech.get("growth_turns", 1))])
+		parts.append(I18n.t("compute growth x%.2f (%dt)") % [float(tech["growth_mult"]), int(tech.get("growth_turns", 1))])
 	if tech.has("alignment_tax"):
-		parts.append("alignment tax %d%%" % int(round(float(tech["alignment_tax"]) * 100.0)))
+		parts.append(I18n.t("alignment tax %d%%") % int(round(float(tech["alignment_tax"]) * 100.0)))
 	if tech.has("capability_investment"):
-		parts.append("capability R&D +%s" % _num(float(tech["capability_investment"])))
+		parts.append(I18n.t("capability R&D +%s") % _num(float(tech["capability_investment"])))
 	if tech.has("safety_investment"):
-		parts.append("safety R&D +%s" % _num(float(tech["safety_investment"])))
+		parts.append(I18n.t("safety R&D +%s") % _num(float(tech["safety_investment"])))
 	var compute: Dictionary = effects.get("compute", {})
 	if compute.has("grid_capacity_gw"):
-		parts.append("grid +%s GW" % _num(float(compute["grid_capacity_gw"])))
+		parts.append(I18n.t("grid +%s GW") % _num(float(compute["grid_capacity_gw"])))
 	if compute.has("grid_damage"):
-		parts.append("grid -%d%%" % int(round(float(compute["grid_damage"]) * 100.0)))
+		parts.append(I18n.t("grid -%d%%") % int(round(float(compute["grid_damage"]) * 100.0)))
 	var targets: Dictionary = effects.get("factions", {})
 	for target_id in targets:
 		for key in targets[target_id]:
 			var amount := float(targets[target_id][key])
-			parts.append("%s %s %s%s" % [SimConstants.role_title(target_id).get_slice(" ", 0), resource_short(target_id, key),
+			parts.append("%s %s %s%s" % [role_name(String(target_id)), resource_short(target_id, key),
 				"+" if amount >= 0.0 else "-", _num(absf(amount))])
 	if parts.is_empty():
-		return "No direct effect"
+		return I18n.t("No direct effect")
 	return " · ".join(parts)
+
+
+## Verdicts (VictoryMatrix.role_verdict) as the interface names them.
+const VERDICT_NAMES := {"VICTORY": "Victory", "PYRRHIC": "Pyrrhic", "DEFEAT": "Defeat"}
+
+
+## "Victory" for "VICTORY", in the interface language.
+static func verdict_name(verdict: String) -> String:
+	return I18n.t(String(VERDICT_NAMES.get(verdict, verdict.capitalize())))
+
+
+## A directive's blocked reason (ActorBase.action_block_reason, English) in
+## the interface language: "Cooldown 2 turn(s)", "Insufficient resources".
+static func block_reason(reason: String) -> String:
+	var cooldown := I18n.t_format(reason, COOLDOWN_REASON)
+	return cooldown if cooldown != "" else I18n.t(reason)
+
+
+## How ActorBase files a directive on cooldown.
+const COOLDOWN_REASON := "Cooldown %d turn(s)"
 
 
 static func year_label(year: float) -> String:

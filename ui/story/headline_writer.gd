@@ -227,10 +227,10 @@ static func _threshold(entry: Dictionary, h: Dictionary) -> void:
 	var value := float(entry.get("value", 0.0))
 	var copy: Dictionary = StoryCopy.THRESHOLDS.get(metric, {})
 	h["metric"] = metric
-	h["kicker"] = "THRESHOLD · " + UiFormat.metric_name(metric).to_upper()
+	h["kicker"] = "THRESHOLD · " + UiFormat.metric_name(metric, false).to_upper()
 	h["glyph"] = Glyphs.for_metric(metric)
 	h["byline"] = "Telemetry"
-	var label := String(WorldState.METRIC_INFO.get(metric, {}).get("label", UiFormat.metric_name(metric)))
+	var label := String(WorldState.METRIC_INFO.get(metric, {}).get("label", UiFormat.metric_name(metric, false)))
 	h["dek"] = "%s at %d: %s." % [label, int(round(value)), WorldState.regime_for(metric, value)]
 	if entry.has("near_miss"):
 		h["title"] = StoryCopy.NEAR_MISS_HEAD
@@ -244,7 +244,7 @@ static func _threshold(entry: Dictionary, h: Dictionary) -> void:
 		return
 	if band <= 0:
 		h["title"] = String(copy.get("calm", "%s returns to normal" % label))
-		h["kicker"] = "ALL CLEAR · " + UiFormat.metric_name(metric).to_upper()
+		h["kicker"] = "ALL CLEAR · " + UiFormat.metric_name(metric, false).to_upper()
 		return
 	var low := metric == WorldState.EPISTEMIC_TRUST or (metric == WorldState.COMPUTE_ENERGY_SAT and value < 50.0)
 	var key := ("crit" if band >= 2 else "warn") + ("_low" if low else "")

@@ -130,6 +130,9 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and is_node_ready() and not _restyle_queued:
 		_restyle_queued = true
 		_restyle.call_deferred()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and is_node_ready():
+		# The masthead follows the language; the stories stay English.
+		_update_meta.call_deferred()
 
 
 # --- Public API ---------------------------------------------------------------------
@@ -355,11 +358,11 @@ func _update_meta() -> void:
 		_meta_label.text = "No stories yet" if _horizontal else ""
 		return
 	var year := int(floor(_newest_year))
-	var half := "first half" if _newest_year - float(year) < 0.25 else "second half"
+	var half := tr("first half") if _newest_year - float(year) < 0.25 else tr("second half")
 	if _horizontal:
-		_meta_label.text = "%d · %s\nTurn %d" % [year, half, _newest_turn]
+		_meta_label.text = tr("%d · %s\nTurn %d") % [year, half, _newest_turn]
 	else:
-		_meta_label.text = "%d · %s · turn %d" % [year, half, _newest_turn]
+		_meta_label.text = tr("%d · %s · turn %d") % [year, half, _newest_turn]
 
 
 ## Folds an "incoming crisis" note into the story that caused it.
@@ -388,6 +391,8 @@ func _card(h: Dictionary, lead: bool) -> PanelContainer:
 	var contested := trust < DISINFORMATION_TRUST and String(h.get("counter", "")) != ""
 	var shown_title := String(h["counter"]) if contested else String(h["title"])
 	var card := PanelContainer.new()
+	# Stories are English prose (HeadlineWriter): never looked up as interface text.
+	card.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	card.set_meta("headline", h)
 	card.set_meta("lead", lead)
 	card.set_meta("shown_title", shown_title)
@@ -511,7 +516,7 @@ func _kicker_row(h: Dictionary, s: EraStyle, contested: bool, trust: float, with
 	row.add_child(kicker)
 	if trust < UNCONFIRMED_TRUST:
 		var seal := Glyphs.icon("seal_broken" if contested else "seal_crack", 14, s.critical if contested else s.warn, 1.5)
-		seal.tooltip_text = "Conflicting reports" if contested else "Unconfirmed: one source"
+		seal.tooltip_text = tr("Conflicting reports") if contested else tr("Unconfirmed: one source")
 		seal.mouse_filter = Control.MOUSE_FILTER_PASS
 		row.add_child(seal)
 	if with_meta:

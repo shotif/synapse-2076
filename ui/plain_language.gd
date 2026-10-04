@@ -16,6 +16,9 @@ extends RefCounted
 ##   PlainLanguage.short_name("alignment_drift")   # "Off-script AI"
 ##   PlainLanguage.explain("alignment_drift")      # one sentence or two
 ##   PlainLanguage.technical_name("alignment_drift")  # "Alignment Drift Index"
+##
+## Every lookup answers in the interface language (I18n); pass localized =
+## false for the English words (the news prose stays English).
 
 ## Glossary sections, in display order.
 const KINDS := ["metric", "index", "currency", "faction", "term", "era", "end_state"]
@@ -171,6 +174,8 @@ const END_STATES := {
 }
 
 static var _glossary: Array = []
+## The language the cached glossary is in.
+static var _glossary_language := ""
 
 
 ## True when GameSettings "plain_language" is on.
@@ -185,7 +190,7 @@ static func has_entry(key: String) -> bool:
 
 
 ## {id, kind, name, short, explain, technical} for [param key], or {}.
-static func entry(key: String) -> Dictionary:
+static func entry(key: String, localized: bool = true) -> Dictionary:
 	var raw := {}
 	var kind := ""
 	if METRICS.has(key):
@@ -211,40 +216,50 @@ static func entry(key: String) -> Dictionary:
 		kind = "era"
 	if raw.is_empty():
 		return {}
-	return {"id": key, "kind": kind, "name": String(raw["name"]), "short": String(raw.get("short", raw["name"])),
-		"explain": String(raw["explain"]), "technical": _technical(key, kind, raw)}
+	var name := String(raw["name"])
+	var short := String(raw.get("short", raw["name"]))
+	var explanation := String(raw["explain"])
+	if localized:
+		name = I18n.t(name)
+		short = I18n.t(short)
+		explanation = I18n.t(explanation)
+	return {"id": key, "kind": kind, "name": name, "short": short, "explain": explanation,
+		"technical": _technical(key, kind, raw, localized)}
 
 
 ## The plain name ("AI going off-script"); [param key] itself when unknown.
-static func plain_name(key: String) -> String:
-	var found := entry(key)
+static func plain_name(key: String, localized: bool = true) -> String:
+	var found := entry(key, localized)
 	return String(found["name"]) if not found.is_empty() else key
 
 
 ## The short plain label for chips and tiles ("Off-script AI").
-static func short_name(key: String) -> String:
-	var found := entry(key)
+static func short_name(key: String, localized: bool = true) -> String:
+	var found := entry(key, localized)
 	return String(found["short"]) if not found.is_empty() else key
 
 
 ## One line on what [param key] means ("" when unknown).
-static func explain(key: String) -> String:
-	return String(entry(key).get("explain", ""))
+static func explain(key: String, localized: bool = true) -> String:
+	return String(entry(key, localized).get("explain", ""))
 
 
 ## The model's own name ("Alignment Drift Index"); [param key] when unknown.
-static func technical_name(key: String) -> String:
-	var found := entry(key)
+static func technical_name(key: String, localized: bool = true) -> String:
+	var found := entry(key, localized)
 	return String(found["technical"]) if not found.is_empty() else key
 
 
 ## The plain name when plain language is on, else the technical name.
-static func display_name(key: String) -> String:
-	return plain_name(key) if enabled() else technical_name(key)
+static func display_name(key: String, localized: bool = true) -> String:
+	return plain_name(key, localized) if enabled() else technical_name(key, localized)
 
 
-## Every entry, grouped by KINDS in display order.
+## Every entry, grouped by KINDS in display order, in the interface language.
 static func glossary() -> Array:
+	if _glossary_language != I18n.current():
+		_glossary = []
+		_glossary_language = I18n.current()
 	if _glossary.is_empty():
 		var keys: Array = []
 		keys.append_array(METRICS.keys())
@@ -280,24 +295,31 @@ static func search(query: String) -> Array:
 	return out
 
 
-static func _technical(key: String, kind: String, raw: Dictionary) -> String:
+static func _technical(key: String, kind: String, raw: Dictionary, localized: bool = true) -> String:
 	match kind:
 		"metric":
-			return String(WorldState.METRIC_INFO[key]["label"])
+			return _words(String(WorldState.METRIC_INFO[key]["label"]), localized)
 		"index":
-			return String(WorldState.INDEX_INFO[key]["label"])
+			return _words(String(WorldState.INDEX_INFO[key]["label"]), localized)
 		"currency":
 			for role in SimConstants.FACTION_ORDER:
 				var info: Dictionary = FactionRegistry.resource_info_for(role)
 				if info.has(key):
-					return String(info[key].get("label", key.capitalize()))
+					return _words(String(info[key].get("label", key.capitalize())), localized)
 			return key.capitalize()
 		"faction":
-			return UiFormat.role_name(key)
+			return UiFormat.role_name(key, localized)
 		"era":
 			var era := int(key.trim_prefix("era_"))
-			return "Era %s · %s (%s)" % [EraStyle.ROMAN[era], EraStyle.NAMES[era], EraStyle.SPANS[era]]
+			return _words(I18n.mark("Era %s · %s (%s)"), localized) % [EraStyle.ROMAN[era], _words(String(EraStyle.NAMES[era]), localized),
+				EraStyle.SPANS[era]]
 		"end_state":
 			var outcome := VictoryMatrix.get_outcome(key)
-			return "%s (%s)" % [outcome.get("name", key), outcome.get("subtitle", "")]
-	return String(raw.get("technical", key))
+			return "%s (%s)" % [_words(String(outcome.get("name", key)), localized),
+				_words(String(outcome.get("subtitle", "")), localized)]
+	return _words(String(raw.get("technical", key)), localized)
+
+
+## [param text] in the interface language, or as written when not [param localized].
+static func _words(text: String, localized: bool) -> String:
+	return I18n.t(text) if localized else text

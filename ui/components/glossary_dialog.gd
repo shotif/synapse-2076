@@ -103,7 +103,8 @@ func _ready() -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_THEME_CHANGED and _panel != null and EraTheme.style_of(self) != _style and not _restyle_queued:
+	if (what == NOTIFICATION_THEME_CHANGED and _panel != null and EraTheme.style_of(self) != _style \
+			or what == NOTIFICATION_TRANSLATION_CHANGED and _panel != null) and not _restyle_queued:
 		_restyle_queued = true
 		_restyle.call_deferred()
 
@@ -193,7 +194,7 @@ func _rebuild_list() -> void:
 		if String(item["kind"]) != kind:
 			kind = String(item["kind"])
 			var section := Label.new()
-			section.text = s.label(String(PlainLanguage.KIND_TITLES.get(kind, kind.capitalize())))
+			section.text = s.label(tr(String(PlainLanguage.KIND_TITLES.get(kind, kind.capitalize()))))
 			section.theme_type_variation = "PanelTitle"
 			_list.add_child(section)
 		_list.add_child(_term(s, item))
@@ -201,10 +202,10 @@ func _rebuild_list() -> void:
 		var none := Label.new()
 		none.theme_type_variation = "DimLabel"
 		none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		none.text = "No term matches “%s”." % _search.text.strip_edges()
+		none.text = tr("No term matches “%s”.") % _search.text.strip_edges()
 		_list.add_child(none)
 	var total := PlainLanguage.glossary().size()
-	_count.text = "%d of %d terms" % [_shown.size(), total] if _shown.size() != total else "%d terms" % total
+	_count.text = tr("%d of %d terms") % [_shown.size(), total] if _shown.size() != total else tr("%d terms") % total
 	UiLayout.pass_touch_through(_list)
 
 

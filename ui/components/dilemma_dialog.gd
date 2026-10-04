@@ -83,6 +83,7 @@ var _badge_box: StyleBoxFlat
 var _badge_text := Color.WHITE
 ## [year, character scores, memories] for the card's character badge.
 var _story_context: Array = []
+var _relabel_queued := false
 
 var _shade: ColorRect
 var _backdrop: Backdrop
@@ -145,6 +146,21 @@ func _notification(what: int) -> void:
 			_build_rows()
 	elif what == NOTIFICATION_VISIBILITY_CHANGED and _column != null and not visible:
 		_reset_motion()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _column != null and not _relabel_queued:
+		_relabel_queued = true
+		_relabel.call_deferred()
+
+
+## The language changed: the card's translated copy, the rows and the help line.
+func _relabel() -> void:
+	_relabel_queued = false
+	_apply_fonts()
+	if current_card.is_empty():
+		return
+	current_card = DilemmaDeck.localized(current_card)
+	if visible:
+		_fill()
+		_build_rows()
 
 
 func set_compact(compact: bool) -> void:
@@ -162,7 +178,8 @@ func set_compact(compact: bool) -> void:
 ## metrics) fills the vitals strip; without it the strip is hidden.
 func present(card: Dictionary, resources: Dictionary, role: String, metrics: Dictionary = {}) -> void:
 	_reset_motion()
-	current_card = card
+	# In the language on screen now (it may have changed since the deal).
+	current_card = DilemmaDeck.localized(card)
 	_resources = resources
 	_role = role
 	_vitals.visible = not metrics.is_empty()
@@ -236,23 +253,24 @@ static func other_effects(effects: Dictionary, role: String) -> Array[String]:
 	var tech: Dictionary = effects.get("tech", {})
 	if tech.has("growth_mult"):
 		var turns := int(tech.get("growth_turns", 1))
-		parts.append("growth ×%s (%d turn%s)" % [str(snappedf(float(tech["growth_mult"]), 0.01)), turns, "" if turns == 1 else "s"])
+		var growth := I18n.t("growth ×%s (%d turn)") if turns == 1 else I18n.t("growth ×%s (%d turns)")
+		parts.append(growth % [str(snappedf(float(tech["growth_mult"]), 0.01)), turns])
 	if tech.has("capability_investment"):
-		parts.append("capability %s" % UiFormat.signed(float(tech["capability_investment"])))
+		parts.append(I18n.t("capability %s") % UiFormat.signed(float(tech["capability_investment"])))
 	if tech.has("safety_investment"):
-		parts.append("safety %s" % UiFormat.signed(float(tech["safety_investment"])))
+		parts.append(I18n.t("safety %s") % UiFormat.signed(float(tech["safety_investment"])))
 	if tech.has("alignment_tax"):
-		parts.append("alignment tax %d%%" % roundi(float(tech["alignment_tax"]) * 100.0))
+		parts.append(I18n.t("alignment tax %d%%") % roundi(float(tech["alignment_tax"]) * 100.0))
 	var compute: Dictionary = effects.get("compute", {})
 	if compute.has("grid_capacity_gw"):
-		parts.append("grid %s GW" % UiFormat.signed(float(compute["grid_capacity_gw"])))
+		parts.append(I18n.t("grid %s GW") % UiFormat.signed(float(compute["grid_capacity_gw"])))
 	if compute.has("grid_damage"):
-		parts.append("grid −%d%%" % roundi(float(compute["grid_damage"]) * 100.0))
+		parts.append(I18n.t("grid −%d%%") % roundi(float(compute["grid_damage"]) * 100.0))
 	var targets: Dictionary = effects.get("factions", {})
 	for target_id in targets:
 		var changes: Dictionary = targets[target_id]
 		for key in changes:
-			parts.append("%s %s" % [String(CrisisCard.FACTION_NAMES.get(target_id, String(target_id))),
+			parts.append("%s %s" % [I18n.t(String(CrisisCard.FACTION_NAMES.get(target_id, String(target_id)))),
 				_resource_change(String(target_id), key, float(changes[key]))])
 	return parts
 
@@ -378,7 +396,7 @@ func _row_texts(option: Dictionary, is_defer: bool, affordable: bool) -> VBoxCon
 	texts.add_theme_constant_override("separation", 2)
 	var label := Label.new()
 	label.name = "Label"
-	label.text = String(option.get("label", "Defer"))
+	label.text = DilemmaDeck.local_text(option, "label") if String(option.get("label", "")) != "" else tr("Defer")
 	if _compact:
 		# Two lines on phones. (An overrun mode would let an autowrapped
 		# Label shrink to 1 px, so long labels are cut after line two.)
@@ -469,13 +487,13 @@ func _fill() -> void:
 func _info_text() -> String:
 	var turn := int(current_card.get("turn", 0))
 	var year := SimConstants.year_for_turn(turn)
-	var role_name := String(CrisisCard.FACTION_NAMES.get(_role, _role.capitalize()))
+	var role_name := tr(String(CrisisCard.FACTION_NAMES.get(_role, _role.capitalize())))
 	match _style.era:
 		2:
-			return "T%d · %.1f · %s" % [turn, year, role_name.to_upper()]
+			return tr("T%d · %.1f · %s") % [turn, year, role_name.to_upper()]
 		3:
-			return "%d · turn %d · %s" % [int(year), turn, role_name.to_lower()]
-	return "H%d %d · Turn %d · %s" % [1 if year - floorf(year) < 0.25 else 2, int(year), turn, role_name]
+			return tr("%d · turn %d · %s") % [int(year), turn, role_name.to_lower()]
+	return tr("H%d %d · Turn %d · %s") % [1 if year - floorf(year) < 0.25 else 2, int(year), turn, role_name]
 
 
 ## The player's holdings of every currency the responses cost.
@@ -503,17 +521,17 @@ func _sub_text(option: Dictionary, is_defer: bool, affordable: bool) -> String:
 	var parts: Array[String] = []
 	var cost: Dictionary = option.get("cost", {})
 	if is_defer:
-		parts.append("Returns in %d turns, escalated" % DilemmaDeck.DEFER_DELAY_TURNS)
+		parts.append(tr("Returns in %d turns, escalated") % DilemmaDeck.DEFER_DELAY_TURNS)
 	elif cost.is_empty():
-		parts.append("Free")
+		parts.append(tr("Free"))
 	elif affordable:
 		parts.append(UiFormat.format_cost(_role, cost))
 	else:
-		parts.append("Needs " + UiFormat.format_cost(_role, cost))
+		parts.append(tr("Needs %s") % UiFormat.format_cost(_role, cost))
 	parts.append_array(other_effects(option.get("effects", {}), _role))
 	var exclusive := _exclusive_to(String(option.get("id", "")))
 	if exclusive != "":
-		parts.append("%s only" % exclusive)
+		parts.append(tr("%s only") % exclusive)
 	return " · ".join(parts)
 
 
@@ -523,18 +541,18 @@ func _exclusive_to(option_id: String) -> String:
 	for option in template.get("options", []):
 		var roles: Array = (option as Dictionary).get("roles", [])
 		if String(option.get("id", "")) == option_id and roles.has(_role):
-			return String(CrisisCard.FACTION_NAMES.get(_role, _role))
+			return tr(String(CrisisCard.FACTION_NAMES.get(_role, _role)))
 	return ""
 
 
 func _row_tooltip(option: Dictionary, affordable: bool) -> String:
-	var lines: Array[String] = [String(option.get("label", ""))]
-	var detail := String(option.get("detail", ""))
+	var lines: Array[String] = [DilemmaDeck.local_text(option, "label")]
+	var detail := DilemmaDeck.local_text(option, "detail")
 	if detail != "":
 		lines.append(detail)
 	lines.append(UiFormat.effects_summary(option.get("effects", {}), _role))
 	if not affordable:
-		lines.append("Not enough resources")
+		lines.append(tr("Not enough resources"))
 	return "\n".join(lines)
 
 
@@ -710,7 +728,7 @@ func _refresh_preview() -> void:
 		index = int(_hover_row.get_meta("index"))
 	_show_preview(index)
 	if _hold_row != null and _hold_shown:
-		_card.show_tag(String(_option_at(index).get("label", "")), 1, 1.0)
+		_card.show_tag(DilemmaDeck.local_text(_option_at(index), "label"), 1, 1.0)
 	elif _drag_pick < 0:
 		_card.hide_tag()
 
@@ -770,7 +788,7 @@ func _set_drag(dx: float) -> void:
 		_drag_pick = pick
 		_refresh_preview()
 	if pick >= 0:
-		var label := String((options[pick] as Dictionary).get("label", ""))
+		var label := DilemmaDeck.local_text(options[pick], "label")
 		_card.show_tag(label, 1 if dx < 0.0 else -1, clampf(absf(dx) / _swipe_threshold(), 0.0, 1.0))
 
 
@@ -930,7 +948,7 @@ func _reject(index: int) -> void:
 	_drag_pick = -1
 	_refresh_preview()
 	var option := _option_at(index)
-	_card.show_tag("Not enough resources · " + UiFormat.format_cost(_role, option.get("cost", {})), 1, 1.0, _style.bad)
+	_card.show_tag(tr("Not enough resources · %s") % UiFormat.format_cost(_role, option.get("cost", {})), 1, 1.0, _style.bad)
 	_kill_tween()
 	_tween = create_tween()
 	_tween.tween_property(_slot, "offset", Vector2.ZERO, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)

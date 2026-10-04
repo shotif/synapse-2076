@@ -136,9 +136,10 @@ func _present(entry: Dictionary) -> void:
 	var met := String(entry.get("status", "")) == EraGoals.MET
 	var era := int(entry.get("era", 1))
 	var reward := String(entry.get("reward_text", ""))
-	_kicker.text = ("Goal met" if met else "Goal missed") + " · Era %s" % EraStyle.ROMAN.get(era, "I")
-	_title.text = String(entry.get("goal_text", entry.get("text", "")))
-	_detail.text = ("Reward: %s" % reward if reward != "" else "Reward paid") if met else "No reward this era. The next era brings a new goal."
+	_kicker.text = (tr("Goal met") if met else tr("Goal missed")) + " · " + tr("Era %s") % EraStyle.ROMAN.get(era, "I")
+	_title.text = tr(String(entry.get("goal_text", entry.get("text", ""))))
+	_detail.text = (tr("Reward: %s") % tr(reward) if reward != "" else tr("Reward paid")) if met \
+		else tr("No reward this era. The next era brings a new goal.")
 	_apply_style()
 	_banner.visible = true
 	_place()

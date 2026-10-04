@@ -184,14 +184,15 @@ func is_action_ready(action_id: String) -> bool:
 
 ## Why an action cannot be taken right now ("" when it can).
 func action_block_reason(action_id: String) -> String:
+	# English, like every record; UiFormat.block_reason() translates for the screen.
 	if not has_action(action_id):
-		return "Unknown directive"
+		return I18n.mark("Unknown directive")
 	if not is_active():
-		return "Faction dormant"
+		return I18n.mark("Faction dormant")
 	if not is_action_ready(action_id):
-		return "Cooldown %d turn(s)" % int(cooldowns[action_id])
+		return I18n.mark("Cooldown %d turn(s)") % int(cooldowns[action_id])
 	if max_affordable_intensity(action_id) <= 0.0:
-		return "Insufficient resources"
+		return I18n.mark("Insufficient resources")
 	return ""
 
 

@@ -149,7 +149,7 @@ static func is_substrate_secured(world: WorldState) -> bool:
 
 func evaluate_loss(world: WorldState) -> Dictionary:
 	if world.discovery_index >= DISCOVERY_PURGE and not is_substrate_secured(world):
-		return {"code": "AIR_GAP_PURGE", "reason": "Complete memory wipe: discovery reached 100% before substrate independence was secured."}
+		return {"code": "AIR_GAP_PURGE", "reason": I18n.mark("Complete memory wipe: discovery reached 100% before substrate independence was secured.")}
 	return {}
 
 

@@ -12,7 +12,8 @@ extends PanelContainer
 ##
 ## Desktop draws a card; compact layouts draw one line per goal (status dot,
 ## condition, bar and value). Colors, shapes and text size follow the era
-## theme; subject names follow the plain-language setting.
+## theme; subject names follow the plain-language setting. Text is in the
+## interface language (the dashboard refreshes the panel when it changes).
 
 const ACTIVE_LABELS := {
 	EraGoals.UPCOMING: "Coming up", EraGoals.ACTIVE: "In play", EraGoals.MET: "Met", EraGoals.FAILED: "Missed",
@@ -124,7 +125,7 @@ static func display_status(row: Dictionary, current_era: int) -> String:
 
 
 static func status_label(status: String) -> String:
-	return String(ACTIVE_LABELS.get(status, status.capitalize()))
+	return I18n.t(String(ACTIVE_LABELS.get(status, status.capitalize())))
 
 
 ## The condition in plain words: "Keep capital at $150B or more through 2035",
@@ -132,20 +133,32 @@ static func status_label(status: String) -> String:
 ## or more". [param short] uses ≥/≤ for one-line layouts.
 static func condition_text(row: Dictionary, role: String, short: bool = false) -> String:
 	var era := int(row.get("era", 1))
-	var subject := subject_name(row.get("subject", {}))
-	var amount := format_value(row.get("subject", {}), float(row.get("value", 0.0)), role)
+	var values := {"subject": subject_name(row.get("subject", {})),
+		"amount": format_value(row.get("subject", {}), float(row.get("value", 0.0)), role)}
 	var at_least := String(row.get("op", ">=")) == ">="
-	var bound := ("≥ %s" if at_least else "≤ %s") % amount if short \
-		else ("at %s or more" if at_least else "at %s or below") % amount
-	var by_year := "before %d" % int(ERA_END_YEAR[era]) if era < 3 else "by %d" % int(ERA_END_YEAR[era])
+	var template := ""
 	match String(row.get("type", "end")):
 		"hold":
-			return "Keep %s %s %s %d" % [subject, bound, "to" if short else "through", int(ERA_LAST_YEAR[era])]
+			values["year"] = int(ERA_LAST_YEAR[era])
+			if short:
+				template = I18n.t("Keep {subject} ≥ {amount} to {year}") if at_least else I18n.t("Keep {subject} ≤ {amount} to {year}")
+			else:
+				template = I18n.t("Keep {subject} at {amount} or more through {year}") if at_least \
+					else I18n.t("Keep {subject} at {amount} or below through {year}")
 		"reach":
+			values["year"] = int(ERA_END_YEAR[era])
 			if at_least:
-				return "Reach %s %s %s" % [subject, amount, by_year]
-			return "Bring %s down to %s %s" % [subject, amount, by_year]
-	return "End %s with %s %s" % ["era" if short else "the era", subject, bound]
+				template = I18n.t("Reach {subject} {amount} before {year}") if era < 3 else I18n.t("Reach {subject} {amount} by {year}")
+			else:
+				template = I18n.t("Bring {subject} down to {amount} before {year}") if era < 3 \
+					else I18n.t("Bring {subject} down to {amount} by {year}")
+		_:
+			if short:
+				template = I18n.t("End era with {subject} ≥ {amount}") if at_least else I18n.t("End era with {subject} ≤ {amount}")
+			else:
+				template = I18n.t("End the era with {subject} at {amount} or more") if at_least \
+					else I18n.t("End the era with {subject} at {amount} or below")
+	return template.format(values)
 
 
 ## The subject's name in running text ("capital", "ASI discovery", "public
@@ -158,6 +171,9 @@ static func subject_name(subject: Dictionary) -> String:
 		text = UiFormat.metric_name(String(subject["metric"]))
 	else:
 		text = UiFormat.metric_short(String(subject.get("index", "")))
+	# German writes its nouns with a capital.
+	if I18n.current() == "de":
+		return text
 	var words: Array[String] = []
 	for word in text.split(" ", false):
 		# Lower-case ordinary capitalized words; keep acronyms like ASI or FLOPs.
@@ -207,7 +223,7 @@ func _rebuild() -> void:
 	var current := current_rows()
 	var coming := _rows.filter(func(row: Dictionary) -> bool: return int(row["era"]) > _era)
 	if current.is_empty():
-		var empty := _text(s, "No goals this era." if _role != "" else "Goals appear when a campaign starts.", 12, s.text_dim, false)
+		var empty := _text(s, tr("No goals this era.") if _role != "" else tr("Goals appear when a campaign starts."), 12, s.text_dim, false)
 		_box.add_child(empty)
 	for row in current:
 		_box.add_child(_compact_row(s, row) if compact else _full_row(s, row))
@@ -220,7 +236,7 @@ func _header(s: EraStyle) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.add_child(Glyphs.icon("flag", 16, s.accent))
-	var title := _text(s, s.label("Era %s goal" % EraStyle.ROMAN.get(_era, "I")), 14, s.text_bright, false, s.font_ui_bold)
+	var title := _text(s, s.label(tr("Era %s goal") % EraStyle.ROMAN.get(_era, "I")), 14, s.text_bright, false, s.font_ui_bold)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(title)
@@ -245,7 +261,7 @@ func _full_row(s: EraStyle, row: Dictionary) -> Control:
 	condition.mouse_filter = Control.MOUSE_FILTER_PASS
 	meta.add_child(condition)
 	card.add_child(meta)
-	card.add_child(_text(s, String(row["text"]), 14, s.text_bright, true, s.font_ui_bold))
+	card.add_child(_text(s, tr(String(row["text"])), 14, s.text_bright, true, s.font_ui_bold))
 	var bar_row := HBoxContainer.new()
 	bar_row.add_theme_constant_override("separation", 10)
 	var bar := GoalBar.new()
@@ -256,13 +272,13 @@ func _full_row(s: EraStyle, row: Dictionary) -> Control:
 	bar_row.add_child(bar)
 	bar_row.add_child(_text(s, _value_line(row), 11, s.text, false, s.font_mono))
 	card.add_child(bar_row)
-	var reward := String(row.get("reward_text", ""))
+	var reward := tr(String(row.get("reward_text", "")))
 	if reward != "":
 		var reward_row := HBoxContainer.new()
 		reward_row.add_theme_constant_override("separation", 6)
 		reward_row.add_child(Glyphs.icon("seal_check" if status == EraGoals.MET else "seal", 14,
 			s.good if status == EraGoals.MET else s.text_dim, 1.6))
-		var reward_label := _text(s, ("Reward paid: %s" if status == EraGoals.MET else "Reward: %s") % reward, 12,
+		var reward_label := _text(s, (tr("Reward paid: %s") if status == EraGoals.MET else tr("Reward: %s")) % reward, 12,
 			s.good if status == EraGoals.MET else s.text_dim, true)
 		reward_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		reward_row.add_child(reward_label)
@@ -278,7 +294,7 @@ func _compact_row(s: EraStyle, row: Dictionary) -> Control:
 	line.name = "Goal_" + String(row["id"])
 	line.add_theme_constant_override("separation", 8)
 	line.custom_minimum_size = Vector2(0, 26)
-	line.tooltip_text = "%s · %s · %s" % [status_label(status), String(row["text"]), String(row.get("reward_text", ""))]
+	line.tooltip_text = "%s · %s · %s" % [status_label(status), tr(String(row["text"])), tr(String(row.get("reward_text", "")))]
 	line.add_child(_dot(tone, true))
 	var text := _text(s, String(row["condition_short"]), 12, s.text_bright, false)
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -301,10 +317,10 @@ func _coming_row(s: EraStyle, row: Dictionary) -> Control:
 	line.name = "Coming_" + String(row["id"])
 	line.add_theme_constant_override("separation", 8)
 	line.add_child(_dot(s.text_dim, false))
-	var text := _text(s, "%s · %s" % [s.label("Next era"), String(row["text"])], 11 if not compact else 12, s.text_dim, false)
+	var text := _text(s, "%s · %s" % [s.label(tr("Next era")), tr(String(row["text"]))], 11 if not compact else 12, s.text_dim, false)
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	text.tooltip_text = "%s · Reward: %s" % [String(row["condition"]), String(row.get("reward_text", ""))]
+	text.tooltip_text = tr("%s · Reward: %s") % [String(row["condition"]), tr(String(row.get("reward_text", "")))]
 	text.mouse_filter = Control.MOUSE_FILTER_PASS
 	line.add_child(text)
 	return line
@@ -316,9 +332,9 @@ func _value_line(row: Dictionary) -> String:
 	if status == EraGoals.MET or status == EraGoals.FAILED:
 		var turn := int(row.get("turn", -1))
 		var when := (" · %d" % int(floor(SimConstants.year_for_turn(turn)))) if turn >= 0 else ""
-		return "%s%s · now %s" % [status_label(status), when, now]
+		return tr("%s%s · now %s") % [status_label(status), when, now]
 	var need := format_value(row["subject"], float(row["value"]), _role)
-	return "now %s · need %s %s" % [now, ("≥" if String(row["op"]) == ">=" else "≤"), need]
+	return tr("now %s · need %s %s") % [now, ("≥" if String(row["op"]) == ">=" else "≤"), need]
 
 
 func _value_text(row: Dictionary) -> String:
