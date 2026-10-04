@@ -26,6 +26,7 @@ window/stretch/aspect="expand"
 
 [rendering]
 
+textures/vram_compression/import_etc2_astc=true
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 environment/defaults/default_clear_color=Color(0.0509804, 0.0666667, 0.0901961, 1)

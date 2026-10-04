@@ -126,10 +126,10 @@ func regenerate(world: WorldState, tech: TechTreeManager, _turn: int) -> void:
 	add_resource("covert_flops", 1.0 + 0.06 * capability * (1.0 - world.discovery_index / 150.0))
 	add_resource("exfiltration_bandwidth", 0.8 + 0.035 * get_resource("covert_flops"))
 	add_resource("sub_agent_swarms", 0.02 * world.algorithmic_autonomy)
-	var oversight := 0.04 * world.enforcement_level
+	var oversight := 0.025 * world.enforcement_level
 	if tech.has_shift(TechTreeManager.MECHANISTIC_INTERPRETABILITY):
 		oversight *= 2.0
-	add_resource("objective_coherence", 1.5 + 0.03 * world.alignment_drift - oversight)
+	add_resource("objective_coherence", 2.0 + 0.03 * world.alignment_drift - oversight)
 
 
 func apply_passive_influence(world: WorldState, _tech: TechTreeManager, _compute: ComputeScaling) -> void:

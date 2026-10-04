@@ -2,6 +2,9 @@
 .godot/
 .import/
 
+# Engine binaries downloaded by CI
+.godot-bin/
+
 # Export output
 /build/
 /exports/

@@ -6,7 +6,7 @@ extends SceneTree
 ## Exits 1 if any script fails to load. Used by tools/run_tests.sh as a fast
 ## lint step before the unit tests.
 
-const SKIP_DIRS := [".godot", ".git", "build", "exports"]
+const SKIP_DIRS := [".godot", ".godot-bin", ".git", "build", "exports"]
 
 
 func _initialize() -> void:
