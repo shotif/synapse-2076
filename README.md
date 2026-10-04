@@ -10,7 +10,14 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
 |---|---|---|
 | ![Crisis card](docs/screenshots/crisis_card.png) | ![Neural lattice](docs/screenshots/dashboard_lattice.png) | ![Debrief](docs/screenshots/endgame_debrief.png) |
 
-**Play it in your browser at https://shotif.github.io/synapse-2076/.** It needs a desktop browser with WebGL 2 and nothing to install. The web build starts with the heuristic engine driving the other factions; see the [web build note](#llm-decision-layer) to connect a model. Every push to `main` redeploys it.
+**Play it in your browser at https://shotif.github.io/synapse-2076/.** It needs a browser with WebGL 2 and nothing to install. Every push to `main` redeploys it.
+
+- **Phones and tablets get their own layout.** A strip of the six metrics stays on top, and one panel at a time sits behind **WORLD / ACT / INTEL / LOG** tabs. Crisis cards and other dialogs fill the screen and scroll by dragging, and the globe pinches to zoom. Large landscape screens keep the desktop layout.
+- **Claude can drive the other factions.** Without it, the web build runs the heuristic engine; see [Claude on the web build](#claude-on-the-web-build) to set it up.
+
+| Phone: crisis card | Phone: ACT tab | Phone: WORLD tab |
+|---|---|---|
+| ![Crisis card on a phone](docs/screenshots/mobile_crisis.png) | ![ACT tab on a phone](docs/screenshots/mobile_act.png) | ![WORLD tab on a phone](docs/screenshots/mobile_world.png) |
 
 ## Quick start
 
@@ -22,8 +29,10 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
    - Resolve or defer the **crisis card**. A deferred card comes back two turns later, escalated.
    - Select up to **two directives**. Each has an intensity slider from 1.0× to 2.0× of its cost; effects scale as intensity^0.8.
    - Press **EXECUTE DIRECTIVES**.
-4. Toggle the 3D view between **GLOBE** and **NEURAL LATTICE**. Drag to orbit, and use the wheel to zoom.
+4. Toggle the 3D view between **GLOBE** and **NEURAL LATTICE**. Drag to orbit, and use the wheel (or a pinch) to zoom.
 5. Click the LLM badge in the header to configure an endpoint.
+
+On a phone the same turn happens on tabs: the crisis card opens first, **ACT** holds the directives and the EXECUTE button, **WORLD** the 3D view, **INTEL** the full meters and indices, and **LOG** the event feed. Tap a metric in the top strip to jump to INTEL. **ACT ●** means a decision is waiting.
 
 To run headless from the command line (the first command builds the `class_name` cache on a fresh clone):
 
@@ -44,7 +53,7 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
 ```
 
 - **`tests/run_tests.gd`** is a zero-dependency runner. Assertion names mirror [GUT](https://github.com/bitwes/Gut) (`assert_eq`, `assert_almost_eq`, `assert_between`, …), so suites port to GUT by changing their `extends` line.
-- **Suites** live in `tests/unit/`. There are 13 of them with 147 tests:
+- **Suites** live in `tests/unit/`. There are 13 of them with 162 tests:
   - world dynamics fuzzing (2,000 extreme ticks with no NaN or overflow)
   - tech tree, compute physics, factions and the PRD loss conditions
   - heuristic decision trees (PRD 7.4 rules)
@@ -53,12 +62,13 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
   - the engine state machine, including async providers and stale or invalid decisions
   - prompt validation
   - the LLM service against a real mock HTTP server (timeouts, HTTP 500, garbage JSON, auth failures)
-  - headless dashboard smoke tests
+  - headless dashboard smoke tests, plus phone layouts that must fit the screen width on every tab and dialog
   - balance guardrails
   - full 100-turn campaigns in automated and scripted-interactive modes
 - **The wrapper fails on script errors.** `tools/run_tests.sh` fails if Godot prints any `SCRIPT ERROR`, because GDScript runtime errors don't change the exit code.
 - **CI** runs the same script on every push against Godot 4.3 (the minimum) and 4.7 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The suite has also been verified locally on 4.4.1 and 4.6.
 - **Pages** runs it again on every push to `main` before exporting and deploying the web build ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
+- **Proxy tests** (`node --test` in `proxy/`) run in CI next to the Godot suite; see [`proxy/README.md`](proxy/README.md).
 
 Other tools:
 
@@ -71,7 +81,7 @@ Other tools:
 
 ## LLM decision layer
 
-The three non-player factions are queried through any **OpenAI-compatible `/chat/completions` endpoint**, such as Ollama, vLLM, LM Studio, OpenRouter, OpenAI, or Anthropic's OpenAI SDK compatibility layer.
+The three non-player factions are queried through **Claude's Messages API** (any endpoint ending in `/v1/messages`: Anthropic directly or a proxy) or any **OpenAI-compatible `/chat/completions` endpoint**, such as Ollama, vLLM, LM Studio, OpenRouter or OpenAI.
 
 **Request and response.** Each faction receives:
 
@@ -97,35 +107,74 @@ It must answer with:
 **Fallback.** One `HeuristicFallback` decision replaces the reply when:
 
 - the service is offline,
-- the request exceeds the timeout (5,000 ms by default),
+- the request exceeds the timeout (5,000 ms by default; 20 s for Claude web builds),
 - the server returns an HTTP error, or
 - the reply fails validation.
 
-**Circuit breaker.** Two consecutive transport failures flip the badge to `▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]`, and the service re-probes every 60 s.
+**Circuit breaker.** Two consecutive transport failures flip the badge to `▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]`, and the service re-probes every 60 s. A rejected key (HTTP 401/403) stops the automatic probes until the endpoint or key changes.
 
 **Determinism.** Decisions that arrive asynchronously are applied in a fixed faction order, so a seed replays identically regardless of latency.
 
 **Configuration.** Each source overrides the ones above it:
 
-1. Project settings `synapse/llm/*`: enabled, endpoint_url, model_name, timeout_sec, json_mode, probe_on_start
+1. Project settings `synapse/llm/*`: enabled, endpoint_url, model_name, timeout_sec, json_mode, api_format, effort, probe_on_start
 2. `user://synapse_llm.cfg`: written by the in-game settings dialog. The API key is only saved if you tick the box.
-3. Environment variables: `SYNAPSE_LLM_ENDPOINT`, `SYNAPSE_LLM_MODEL`, `SYNAPSE_LLM_API_KEY`, `SYNAPSE_LLM_ENABLED`, `SYNAPSE_LLM_TIMEOUT`, `SYNAPSE_LLM_JSON_MODE`
+3. Environment variables: `SYNAPSE_LLM_ENDPOINT`, `SYNAPSE_LLM_MODEL`, `SYNAPSE_LLM_API_KEY`, `SYNAPSE_LLM_ENABLED`, `SYNAPSE_LLM_TIMEOUT`, `SYNAPSE_LLM_JSON_MODE`, `SYNAPSE_LLM_API_FORMAT`, `SYNAPSE_LLM_EFFORT`
+4. Web builds only: `#llm-key=...` or `#llm=on|off` at the end of the page URL (see below).
 
 ```bash
+# Claude (desktop build): the key comes from your environment, never from project files
+SYNAPSE_LLM_ENDPOINT=https://api.anthropic.com/v1/messages SYNAPSE_LLM_MODEL=claude-sonnet-5-5 \
+SYNAPSE_LLM_API_KEY=sk-ant-... SYNAPSE_LLM_TIMEOUT=20 godot --path .
+
 # Local Ollama (the default endpoint)
 ollama pull llama3:8b && ollama serve
 
 # vLLM
 SYNAPSE_LLM_ENDPOINT=http://127.0.0.1:8000/v1/chat/completions SYNAPSE_LLM_MODEL=meta-llama/Llama-3.1-8B-Instruct godot --path .
-
-# Claude through Anthropic's OpenAI-compatible endpoint (or point at your own Claude API proxy)
-SYNAPSE_LLM_ENDPOINT=https://api.anthropic.com/v1/chat/completions SYNAPSE_LLM_MODEL=claude-sonnet-5-5 \
-SYNAPSE_LLM_API_KEY=sk-ant-... SYNAPSE_LLM_JSON_MODE=0 godot --path .
 ```
 
-API keys are sent as `Authorization: Bearer`. If an endpoint rejects `response_format`, set JSON mode off; the prompt still demands JSON-only output and the parser copes with prose.
+**Claude requests** go to `POST /v1/messages` with the key in `x-api-key` and `anthropic-version: 2023-06-01`. They omit `temperature` (current Claude models reject non-default sampling settings) and ask for `output_config: {effort: "low"}`, which keeps Claude's thinking short for a small, latency-bound decision. Models that reject `effort`, such as Haiku 4.5, don't get it. Thinking counts toward `max_tokens`, so Claude requests allow 2,048. The game reads only the reply's text blocks. `SYNAPSE_LLM_API_FORMAT` (`auto`, `anthropic`, `openai`) overrides the detection from the URL.
 
-> **Web build:** the browser build never contacts the default localhost endpoint on its own, because a public page reaching into your machine triggers browser permission prompts. To use a local model, click the LLM badge and press **TEST CONNECTION** or **SAVE & CLOSE**. Your browser may ask you to allow access to local services, and the endpoint must allow the page's origin through CORS, for example `OLLAMA_ORIGINS=https://shotif.github.io ollama serve`. Anything shipped to the client is public, so point a web build at your own proxy rather than embedding a provider key. A key you choose to remember is stored in that browser's site storage.
+**OpenAI-compatible requests** send the key as `Authorization: Bearer`. If an endpoint rejects `response_format`, set JSON mode off; the prompt still demands JSON-only output and the parser copes with prose.
+
+> **Local models from the web build:** the browser build never contacts the default localhost endpoint on its own, because a public page reaching into your machine triggers browser permission prompts. To use one, click the LLM badge and press **TEST CONNECTION** or **SAVE & CLOSE**. Your browser may ask you to allow access to local services, and the endpoint must allow the page's origin through CORS, for example `OLLAMA_ORIGINS=https://shotif.github.io ollama serve`.
+
+### Claude on the web build
+
+GitHub Pages serves a public, static copy of the game. **Never put an API key in a GitHub secret or variable for the Pages build:** anything baked into the build ships to every visitor. The Pages workflow refuses `SYNAPSE_LLM_API_KEY` for that reason. There are two safe setups. Both start with an API key from the [Claude Console](https://platform.claude.com/settings/keys). Create it in a workspace with a monthly spend limit (Console settings, Limits), so a leak or a long session can only cost what you allow.
+
+**Option A: direct (simplest; your own devices).** The browser calls Anthropic directly with a key that lives only on your device.
+
+1. In GitHub, open **Settings → Secrets and variables → Actions → Variables** and add the repository variable `SYNAPSE_LLM_ENDPOINT` = `https://api.anthropic.com/v1/messages`.
+2. Optionally add more variables. Each has a default:
+   - `SYNAPSE_LLM_MODEL` (default `claude-sonnet-5-5`)
+   - `SYNAPSE_LLM_TIMEOUT` in seconds (default `20`)
+   - `SYNAPSE_LLM_EFFORT`: `low` (default), `medium`, `high` or `none`
+3. Redeploy: open **Actions → Deploy to GitHub Pages → Run workflow**, or push to `main`.
+4. On each phone or computer, open the game once with your key after `#llm-key=`:
+   `https://shotif.github.io/synapse-2076/#llm-key=sk-ant-...`
+   The game stores the key in that browser, removes it from the address bar and history, and the badge turns **● LLM ON**. Visitors without a key never contact Anthropic and play against the heuristic engine.
+   - `#llm-key=` (empty) forgets the key on that device.
+   - `#llm=off` switches the LLM off on that device.
+
+   Anyone who can use that browser profile can read the key. Never share the link with the key in it. Revoke the key in the Console if it leaks.
+
+**Option B: proxy (the key never reaches a device; share access with friends).** A small Cloudflare Worker in [`proxy/`](proxy/) holds the key server-side. The game sends it a separate access code instead of the key.
+
+1. Create a free Cloudflare account. Make an API token from the "Edit Cloudflare Workers" template, and note your account ID.
+2. In GitHub, open **Settings → Secrets and variables → Actions → Secrets** and add:
+   - `CLOUDFLARE_API_TOKEN`
+   - `CLOUDFLARE_ACCOUNT_ID`
+   - `ANTHROPIC_API_KEY`
+   - `SYNAPSE_PROXY_ACCESS_CODE`, a long random passphrase. It's optional but strongly recommended: without it, anyone who finds the proxy URL in the public build can spend your credits, within the proxy's model and token caps.
+3. Run **Actions → LLM proxy → Run workflow**. The run's summary shows the Worker URL and the exact endpoint value.
+4. Add the repository variable `SYNAPSE_LLM_ENDPOINT` = `https://<your worker>.workers.dev/v1/messages` (plus the optional variables from Option A), then redeploy Pages.
+5. On each device, open the game once with the access code after `#llm-key=`. Share the code to give someone access; change the secret and rerun the workflow to revoke it.
+
+[`proxy/README.md`](proxy/README.md) covers the proxy's security model, limits and manual deployment.
+
+**What it costs.** Each turn sends three requests, one per non-player faction, of about 900 input tokens each. A full 100-turn campaign is about 300 requests. At list prices that is roughly $1.50 per campaign on Claude Sonnet 5.5, about $0.75 on Haiku 4.5 and about $3 on Opus 5.5 (check current pricing). Larger models also take longer per turn. The game waits for all three factions, falling back to the heuristic after the timeout.
 
 ## Architecture
 
@@ -160,11 +209,14 @@ entities/
 systems/
   compute_scaling.gd       grid capacity, power demand, efficiency, saturation, throttle
   dilemma_deck.gd          22 procedural crisis templates, injection, deferral and escalation, autoplay chooser
-  llm/llm_service.gd       HTTPRequest client, probe, 5 s timeout, circuit breaker, fallback
+  llm/llm_service.gd       HTTPRequest client (Claude Messages API or OpenAI-compatible), probe,
+                           timeout, circuit breaker, fallback, #llm-key= import on the web
   llm/prompt_templates.gd  personas, request bodies, JSON extraction, strict validation
   llm/heuristic_fallback.gd  deterministic decision trees for all four roles
 ui/
-  main_dashboard.tscn/.gd  2D Cyber-Telemetry HUD (#0D1117 / #00E5FF / #FFB300 / #FF1744)
+  main_dashboard.tscn/.gd  2D Cyber-Telemetry HUD (#0D1117 / #00E5FF / #FFB300 / #FF1744),
+                           desktop columns or phone tabs
+  ui_layout.gd             screen-class detection (CSS px), overlay scaffold, touch scrolling
   components/              meter_bar, llm_status_badge, directive_panel, dilemma_dialog,
                            role_select, endgame_debrief, trajectory_chart, llm_settings_dialog
   theme/                   runtime Theme (JetBrains Mono + Inter)
@@ -172,10 +224,11 @@ viewports_3d/
   globe_viewport.tscn      wireframe Earth, Natural Earth land dots, datacenter heat, cables, embargo rings
   neural_lattice.tscn      force-directed layered graph, drift-driven glow and jitter, loss landscape
   shaders/                 wireframe_globe, neural_glow, data_flow, hologram_point, loss_landscape
+proxy/                     optional Cloudflare Worker that holds a Claude API key for the web build
 tests/   tools/   docs/
 ```
 
-The coupled equations, scaling laws, faction economies and endgame logic are specified in **[docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md)**.
+The coupled equations, scaling laws, faction economies and endgame logic are specified in **[docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md)**. Ideas for a more visual, setting-specific design are collected in **[docs/DESIGN_DIRECTIONS.md](docs/DESIGN_DIRECTIONS.md)**.
 
 ## PRD roadmap status
 
@@ -211,7 +264,7 @@ python3 -m http.server 8000 --directory build/web    # browsers won't run it fro
 ```
 
 - **Web.** The preset is single-threaded (`variant/thread_support=false`), so it runs on hosts that can't send cross-origin isolation (COOP/COEP) headers, GitHub Pages included. It needs only the `web_nothreads_*` export templates.
-- **GitHub Pages.** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs the test suite, exports the Web preset with Godot 4.3 and deploys it on every push to `main`. You can also start it from the Actions tab. In a fork, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions** once.
+- **GitHub Pages.** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs the test suite, exports the Web preset with Godot 4.3 and deploys it on every push to `main`. You can also start it from the Actions tab. Before exporting, `tools/configure_web_build.gd` applies the `SYNAPSE_LLM_*` repository variables (see [Claude on the web build](#claude-on-the-web-build)). In a fork, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions** once.
 - **`build/.gdignore`** keeps Godot from importing exported files back into the project, where the next export would pack them.
 
 ## Credits
