@@ -11,8 +11,10 @@ extends VBoxContainer
 ##
 ## Desktop: two or three columns, depending on the width. Compact (phones and
 ## tablets): one column. The cards scroll inside the panel (touch drags reach
-## the ScrollContainer). Cards and type follow the era theme; set_closable()
-## adds a close button for hosts that show the page as an overlay.
+## the ScrollContainer); a host that scrolls itself, such as a
+## UiLayout.build_overlay() frame, calls set_scrolling(false) so the panel
+## grows to fit them. Cards and type follow the era theme; set_closable()
+## adds a close button that emits closed.
 
 signal closed
 
@@ -32,6 +34,7 @@ var year := SimConstants.START_YEAR
 var _entries: Array = []
 var _era := 0
 var _restyle_queued := false
+var _scrolling := true
 var _title_label: Label
 var _meta_label: Label
 var _close_button: Button
@@ -149,6 +152,14 @@ func set_closable(enabled: bool) -> void:
 	_close_button.visible = enabled
 
 
+## Scrolls the cards inside the panel (the default, for a fixed-size host
+## such as a tab) or, when [param enabled] is false, grows to fit them, for a
+## host that scrolls itself (a UiLayout.build_overlay() frame).
+func set_scrolling(enabled: bool) -> void:
+	_scrolling = enabled
+	_apply_mode()
+
+
 func card_count() -> int:
 	return _grid.get_child_count()
 
@@ -211,7 +222,10 @@ static func met_line(count: int, first_turn: int) -> String:
 
 func _apply_mode() -> void:
 	# Phones scroll by dragging; the bar would push full-width cards off screen.
-	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER if compact else ScrollContainer.SCROLL_MODE_AUTO
+	if not _scrolling:
+		_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	else:
+		_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER if compact else ScrollContainer.SCROLL_MODE_AUTO
 
 
 func _restyle() -> void:

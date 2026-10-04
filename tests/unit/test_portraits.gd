@@ -390,6 +390,26 @@ func test_cast_panel_lists_people_and_fits_a_phone() -> void:
 	_assert_fits(panel, PHONE.x, "empty People page")
 
 
+func test_cast_panel_grows_inside_an_overlay() -> void:
+	var overlay := Control.new()
+	holder.add_child(overlay)
+	var frame := UiLayout.build_overlay(overlay, Color(0, 0, 0, 0.8))
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	UiLayout.set_overlay_margin(frame, true)
+	var panel := CastPanel.new()
+	panel.set_scrolling(false)
+	panel.set_compact(true)
+	panel.set_closable(true)
+	panel.custom_minimum_size = Vector2(UiLayout.panel_width(PHONE.x, 900.0, true), 0)
+	frame.add_child(panel)
+	panel.set_cast(CastPanel.entries_from(_met(), {"maya": 3.5}, {"maya": LONG_MEMORY}), 2048.0)
+	await wait_frames(3)
+	var scroll: ScrollContainer = panel.get_node("CastScroll")
+	assert_eq(scroll.vertical_scroll_mode, ScrollContainer.SCROLL_MODE_DISABLED, "the overlay scrolls instead")
+	assert_gt(scroll.size.y, CastPanel.COMPACT_PORTRAIT * 4.0, "every card at full height")
+	_assert_fits(overlay, PHONE.x, "People overlay")
+
+
 func test_cast_panel_uses_columns_on_desktop() -> void:
 	holder.size = Vector2(1600, 900)
 	var panel := CastPanel.new()
