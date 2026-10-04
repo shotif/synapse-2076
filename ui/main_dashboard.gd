@@ -205,7 +205,7 @@ func set_compact(enabled: bool, landscape: bool = false) -> void:
 	_title_label.visible = not enabled
 	_role_label.visible = not enabled
 	_phase_label.visible = not enabled
-	_header_row.add_theme_constant_override("separation", 10 if enabled else 24)
+	_header_row.add_theme_constant_override("separation", 6 if enabled else 24)
 	for side in ["left", "right"]:
 		_margin.add_theme_constant_override("margin_" + side, 6 if enabled else 10)
 	for side in ["top", "bottom"]:

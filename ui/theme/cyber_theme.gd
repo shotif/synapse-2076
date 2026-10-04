@@ -12,10 +12,9 @@ const P := preload("res://ui/theme/cyber_palette.gd")
 static var _cached: Theme
 
 
+## The dashboard's starting theme (Era I). See EraTheme for the per-era themes.
 static func get_theme() -> Theme:
-	if _cached == null:
-		_cached = build()
-	return _cached
+	return EraTheme.get_theme(1)
 
 
 static func build() -> Theme:

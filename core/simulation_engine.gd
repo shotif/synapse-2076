@@ -244,15 +244,17 @@ func _run_world_tick() -> void:
 
 	if tech_report["era_changed"]:
 		var era_names := {1: "Silicon & Nuclear Co-location", 2: "Optical Interconnects & SMR Grids", 3: "Neuromorphic & Post-Biological Substrates"}
-		_log("ERA", "WARN", "Hardware Era %d begins: %s." % [tech.era, era_names[tech.era]])
+		_log("ERA", "WARN", "Hardware Era %d begins: %s." % [tech.era, era_names[tech.era]], "", {"era": tech.era})
 	for shift in tech_report["shifts"]:
 		_apply_effects(shift["effects"], "", 1.0)
-		_log("PARADIGM", "WARN", "PARADIGM SHIFT: %s. %s" % [shift["name"], shift["summary"]])
+		_log("PARADIGM", "WARN", "PARADIGM SHIFT: %s. %s" % [shift["name"], shift["summary"]], "",
+			{"shift": shift["id"], "name": shift["name"], "summary": shift["summary"]})
 	for emergence in tech_report["emergences"]:
 		_apply_effects(emergence["effects"], "", 1.0)
 		var spike := world.apply_delta(WorldState.ALIGNMENT_DRIFT, float(emergence["drift_spike"]))
 		_log("EMERGENCE", "CRITICAL", "EMERGENT CAPABILITY: %s (%s). Alignment drift %+.1f." % [
-			emergence["headline"], emergence["name"], spike])
+			emergence["headline"], emergence["name"], spike], "", {"capability": emergence["id"], "name": emergence["name"],
+			"headline": emergence["headline"], "model": emergence["model"], "deltas": {WorldState.ALIGNMENT_DRIFT: spike}})
 	if tech_report["agi_crossed"]:
 		_on_agi_crossed()
 
@@ -289,7 +291,7 @@ func _on_agi_crossed() -> void:
 	_milestones["agi_turn"] = turn
 	_milestones["agi_first_mover"] = SimConstants.CEO if first_mover == "the Frontier Lab" else "STATE"
 	_log("MILESTONE", "WARN", "AGI MILESTONE: %s crosses the general capability threshold (10^%.1f FLOPs)." % [
-		first_mover.capitalize(), tech.log_flops])
+		first_mover.capitalize(), tech.log_flops], "", {"milestone": "AGI", "first_mover": _milestones["agi_first_mover"]})
 
 
 # --- Phase 2: autonomous actor resolution -------------------------------------------
@@ -431,12 +433,16 @@ func resolve_action(actor: ActorBase, raw: Dictionary, origin: String) -> Dictio
 	var text := label
 	if statement != "":
 		text += " - \"%s\"" % statement
-	_log("ACTION", severity, text, actor.faction_id, {"source": outcome["source"], "action": action_id})
+	_log("ACTION", severity, text, actor.faction_id, {"source": outcome["source"], "action": action_id,
+		"action_name": outcome["action_name"], "statement": statement, "intensity": intensity,
+		"deltas": (applied.get("metrics", {}) as Dictionary).duplicate()})
 	var target := String(decision["retaliation_against"])
 	if factions.has(target) and target != actor.faction_id and action_id == String(decision["action"]):
-		_log("RETALIATION", "WARN", "%s retaliates against %s." % [actor.display_name, (factions[target] as ActorBase).display_name], actor.faction_id)
+		_log("RETALIATION", "WARN", "%s retaliates against %s." % [actor.display_name, (factions[target] as ActorBase).display_name],
+			actor.faction_id, {"target": target})
 	if String(applied.get("injected", "")) != "":
-		_log("CRISIS", "WARN", "%s forces a crisis onto the player's desk." % actor.display_name, actor.faction_id)
+		_log("CRISIS", "WARN", "%s forces a crisis onto the player's desk." % actor.display_name, actor.faction_id,
+			{"injected": String(applied.get("injected", ""))})
 	if note != "":
 		_log("SYSTEM", "INFO", note, actor.faction_id)
 	actor_action_resolved.emit(actor.faction_id, decision, outcome)
@@ -563,18 +569,21 @@ func _resolve_player_turn() -> void:
 	if option_id == DilemmaDeck.DEFER_ID:
 		deck.defer(current_dilemma, turn)
 		dilemma_result["applied"] = _apply_effects(option.get("effects", {}), player_role, 1.0)
-		_log("DILEMMA", "WARN", "Crisis deferred: %s. It will return escalated." % current_dilemma.get("title", ""), player_role)
+		_log("DILEMMA", "WARN", "Crisis deferred: %s. It will return escalated." % current_dilemma.get("title", ""), player_role,
+			_dilemma_extra(option_id, String(option.get("label", "")), dilemma_result["applied"], true))
 	else:
 		var cost: Dictionary = option.get("cost", {})
 		if player.can_afford(cost):
 			player.spend(cost)
 			dilemma_result["applied"] = _apply_effects(option.get("effects", {}), player_role, 1.0)
-			_log("DILEMMA", "INFO", "Crisis resolved: %s -> %s." % [current_dilemma.get("title", ""), option.get("label", "")], player_role)
+			_log("DILEMMA", "INFO", "Crisis resolved: %s -> %s." % [current_dilemma.get("title", ""), option.get("label", "")], player_role,
+				_dilemma_extra(option_id, String(option.get("label", "")), dilemma_result["applied"], false))
 		else:
 			deck.defer(current_dilemma, turn)
 			dilemma_result["option"] = DilemmaDeck.DEFER_ID
 			dilemma_result["applied"] = _apply_effects(current_dilemma.get("defer", {}).get("effects", {}), player_role, 1.0)
-			_log("DILEMMA", "WARN", "Could not afford '%s'; crisis deferred." % option.get("label", ""), player_role)
+			_log("DILEMMA", "WARN", "Could not afford '%s'; crisis deferred." % option.get("label", ""), player_role,
+				_dilemma_extra(DilemmaDeck.DEFER_ID, String(current_dilemma.get("defer", {}).get("label", "")), dilemma_result["applied"], true))
 
 	var directive_outcomes := []
 	if autoplay:
@@ -595,13 +604,32 @@ func _resolve_player_turn() -> void:
 	player_turn_resolved.emit(turn_result)
 
 
+## Structured data for crisis log entries (the newswire and history screens read it).
+func _dilemma_extra(option_id: String, option_label: String, applied: Dictionary, deferred: bool) -> Dictionary:
+	var title := String(current_dilemma.get("title", ""))
+	var escalation := int(current_dilemma.get("escalation", 0))
+	if escalation > 0 and title.begins_with("[ESCALATED"):
+		title = title.substr(title.find("]") + 1).strip_edges()
+	return {
+		"card": String(current_dilemma.get("id", "")),
+		"card_category": String(current_dilemma.get("category", "")),
+		"title": title,
+		"card_severity": int(current_dilemma.get("severity", 1)),
+		"escalation": escalation,
+		"option": option_id,
+		"option_label": option_label,
+		"deferred": deferred,
+		"deltas": (applied.get("metrics", {}) as Dictionary).duplicate(),
+	}
+
+
 # --- Phase 4: telemetry reconciliation & endgame check -------------------------------
 
 func _run_telemetry() -> void:
 	for faction_id in SimConstants.FACTION_ORDER:
 		var actor: ActorBase = factions[faction_id]
 		if actor.status == ActorBase.STATUS_DORMANT and actor.tick_dormancy():
-			_log("COLLAPSE", "WARN", "%s re-emerges after dormancy." % actor.display_name, faction_id)
+			_log("COLLAPSE", "WARN", "%s re-emerges after dormancy." % actor.display_name, faction_id, {"code": "REEMERGED"})
 
 	var player_loss := {}
 	for faction_id in SimConstants.FACTION_ORDER:
@@ -613,11 +641,12 @@ func _run_telemetry() -> void:
 			continue
 		if faction_id == player_role:
 			player_loss = loss
-			_log("COLLAPSE", "CRITICAL", "PLAYER LOSS: %s" % loss["reason"], faction_id)
+			_log("COLLAPSE", "CRITICAL", "PLAYER LOSS: %s" % loss["reason"], faction_id, {"code": String(loss.get("code", "")), "player": true})
 		else:
 			var collapse := actor.on_collapse(loss, world)
 			_apply_effects(collapse.get("effects", {}), "", 1.0)
-			_log("COLLAPSE", "CRITICAL", "%s (%s)" % [collapse.get("headline", loss["reason"]), loss["code"]], faction_id)
+			_log("COLLAPSE", "CRITICAL", "%s (%s)" % [collapse.get("headline", loss["reason"]), loss["code"]], faction_id,
+				{"code": String(loss["code"]), "headline": String(collapse.get("headline", ""))})
 
 	var catastrophe := _check_catastrophe()
 	world.record_history(turn, get_year(), _history_extra())
@@ -646,7 +675,8 @@ func _check_catastrophe() -> Dictionary:
 		_convergence_streak += 1
 		if _convergence_streak >= 2:
 			return {"code": "UNCONTAINED_CONVERGENCE", "reason": "Alignment drift saturated under near-total autonomy for two turns: instrumental convergence is uncontained."}
-		_log("THRESHOLD", "CRITICAL", "CONTAINMENT FAILURE IMMINENT: alignment drift saturated under near-total autonomy. One turn to intervene.")
+		_log("THRESHOLD", "CRITICAL", "CONTAINMENT FAILURE IMMINENT: alignment drift saturated under near-total autonomy. One turn to intervene.",
+			"", {"metric": WorldState.ALIGNMENT_DRIFT, "band": 2, "value": world.alignment_drift, "imminent": true})
 	else:
 		_convergence_streak = 0
 	return {}
@@ -679,10 +709,12 @@ func _finish(reason: String, player_loss: Dictionary, catastrophe: Dictionary) -
 		"history": world.history,
 	}
 	if not catastrophe.is_empty():
-		_log("ENDGAME", "CRITICAL", "CATASTROPHIC THRESHOLD: %s" % catastrophe["reason"])
+		_log("ENDGAME", "CRITICAL", "CATASTROPHIC THRESHOLD: %s" % catastrophe["reason"], "", {"catastrophe": catastrophe["code"]})
 	_log("ENDGAME", "CRITICAL" if verdict["verdict"] == "DEFEAT" else "WARN",
 		"END-STATE %d: %s (%s). %s verdict, score %.0f." % [
-			outcome["number"], outcome["name"], outcome["subtitle"], verdict["verdict"], verdict["score"]])
+			outcome["number"], outcome["name"], outcome["subtitle"], verdict["verdict"], verdict["score"]], "",
+		{"outcome": outcome["id"], "outcome_name": outcome["name"], "outcome_number": outcome["number"],
+			"verdict": verdict["verdict"], "score": verdict["score"]})
 	_set_phase(Phase.ENDED)
 	campaign_ended.emit(result)
 
@@ -696,9 +728,10 @@ func _log_threshold_breaches() -> void:
 			var severity := "CRITICAL" if band == 2 else "WARN"
 			_log("THRESHOLD", severity, "%s breached %s band (%.1f): %s." % [
 				label, "CRITICAL" if band == 2 else "WARNING", world.get_value(key),
-				WorldState.regime_for(key, world.get_value(key))])
+				WorldState.regime_for(key, world.get_value(key))], "", {"metric": key, "band": band, "value": world.get_value(key)})
 		elif band < previous and band == 0:
-			_log("THRESHOLD", "INFO", "%s stabilized (%.1f)." % [WorldState.METRIC_INFO[key]["label"], world.get_value(key)])
+			_log("THRESHOLD", "INFO", "%s stabilized (%.1f)." % [WorldState.METRIC_INFO[key]["label"], world.get_value(key)], "",
+				{"metric": key, "band": 0, "value": world.get_value(key)})
 		_metric_bands[key] = band
 
 

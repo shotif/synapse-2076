@@ -34,8 +34,8 @@ const METRIC_COLORS := {
 
 const MONO_FONT := preload("res://ui/fonts/JetBrainsMono-Regular.ttf")
 const MONO_BOLD := preload("res://ui/fonts/JetBrainsMono-Bold.ttf")
-const SANS_FONT := preload("res://ui/fonts/Inter-Regular.ttf")
-const SANS_BOLD := preload("res://ui/fonts/Inter-SemiBold.ttf")
+const SANS_FONT := preload("res://ui/fonts/Geist-Regular.ttf")
+const SANS_BOLD := preload("res://ui/fonts/Geist-SemiBold.ttf")
 
 
 static func band_color(band: int) -> Color:

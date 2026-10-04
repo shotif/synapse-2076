@@ -51,6 +51,54 @@ static func format_cost(role: String, cost: Dictionary) -> String:
 	return " + ".join(parts)
 
 
+## One-word metric names for glyph labels and chips.
+const METRIC_NAMES := {
+	"compute_energy_sat": "Compute", "labor_displacement": "Labor", "geopolitical_tension": "Tension",
+	"algorithmic_autonomy": "Autonomy", "alignment_drift": "Drift", "epistemic_trust": "Trust",
+}
+
+
+static func metric_name(key: String) -> String:
+	return String(METRIC_NAMES.get(key, metric_short(key)))
+
+
+## True when [param delta] moves [param key] in the direction that helps the
+## world: trust up, every other macro metric down.
+static func is_improvement(key: String, delta: float) -> bool:
+	if key == WorldState.EPISTEMIC_TRUST:
+		return delta > 0.0
+	return delta < 0.0
+
+
+## Magnitude marks for an effect: one for up to 3 points, two up to 6, three beyond.
+static func pip_count(delta: float) -> int:
+	var size := absf(delta)
+	if size <= 3.0:
+		return 1
+	if size <= 6.0:
+		return 2
+	return 3
+
+
+static func pips(delta: float) -> String:
+	if absf(delta) < 0.05:
+		return ""
+	return ("▲" if delta > 0.0 else "▼").repeat(pip_count(delta))
+
+
+## "+3", "−4.5" with a true minus sign.
+static func signed(value: float) -> String:
+	var text := _num(absf(value))
+	return ("+" if value >= 0.0 else "−") + text
+
+
+## Crisis titles carry an "[ESCALATED xN] " prefix after a deferral.
+static func strip_escalation(title: String) -> String:
+	if title.begins_with("[ESCALATED") and title.find("]") > 0:
+		return title.substr(title.find("]") + 1).strip_edges()
+	return title
+
+
 static func metric_short(key: String) -> String:
 	if WorldState.METRIC_INFO.has(key):
 		return String(WorldState.METRIC_INFO[key]["short"])

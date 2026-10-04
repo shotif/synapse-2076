@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://b5rh8bikiodd7"
-path="res://.godot/imported/Inter-SemiBold.ttf-537b1b6c0edd258ed1e0ac6d1f17f4d0.fontdata"
+uid="uid://cjfs6fvddqyf2"
+path="res://.godot/imported/PublicSans-SemiBold.ttf-47c8334ce1a7e185e0f64d3cd943029f.fontdata"
 
 [deps]
 
-source_file="res://ui/fonts/Inter-SemiBold.ttf"
-dest_files=["res://.godot/imported/Inter-SemiBold.ttf-537b1b6c0edd258ed1e0ac6d1f17f4d0.fontdata"]
+source_file="res://ui/fonts/PublicSans-SemiBold.ttf"
+dest_files=["res://.godot/imported/PublicSans-SemiBold.ttf-47c8334ce1a7e185e0f64d3cd943029f.fontdata"]
 
 [params]
 
