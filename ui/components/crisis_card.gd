@@ -10,6 +10,10 @@ extends PanelContainer
 ## Era III. DilemmaDialog sizes, drags and animates the card; show_tag() names
 ## the response a swipe or a hold would choose.
 
+## The player committed the card with a swipe (or the ← / → keys): -1 left,
+## the first response; +1 right, the second. See [method notify_swiped].
+signal swiped(direction: int)
+
 ## Desktop cards keep a portrait shape even with a short brief.
 const DESKTOP_MIN_HEIGHT := 440.0
 const FACTION_NAMES := {
@@ -144,6 +148,13 @@ func show_tag(text: String, side: int, alpha: float, color: Color = Color.WHITE)
 
 func hide_tag() -> void:
 	_art.hide_tag()
+
+
+## Announces a committed swipe toward [param direction] (DilemmaDialog calls
+## it as the card flies off): a short vibration on phones, then [signal swiped].
+func notify_swiped(direction: int) -> void:
+	Haptics.pulse("swipe")
+	swiped.emit(-1 if direction < 0 else 1)
 
 
 ## The first sentence of [param text] (crisis briefs are read at a glance).

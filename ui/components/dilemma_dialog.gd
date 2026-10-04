@@ -15,6 +15,13 @@ extends Control
 ## landscape screens). Everything follows the era theme (EraTheme).
 
 signal option_chosen(option_id: String)
+## The card was swiped (or sent with ← / →) toward a response, as it starts
+## to fly off: -1 left, +1 right (CrisisCard.swiped, passed on).
+## option_chosen follows once the card has left.
+signal swiped(direction: int)
+## A response was tapped, clicked or picked with its key instead of swiped,
+## as the card starts to leave; option_chosen follows.
+signal option_pressed(option_id: String)
 
 const DESKTOP_WIDTH := 980.0
 const DESKTOP_CARD_WIDTH := 420.0
@@ -267,6 +274,7 @@ func _build_card() -> void:
 	_card = CrisisCard.new()
 	_card.mouse_default_cursor_shape = Control.CURSOR_DRAG
 	_card.gui_input.connect(_on_card_input)
+	_card.swiped.connect(swiped.emit)
 	_slot.card = _card
 	_slot.add_child(_card)
 
@@ -759,7 +767,7 @@ func _end_drag() -> void:
 	var index := 0 if dx < 0.0 else 1
 	var options: Array = current_card.get("options", [])
 	if absf(dx) >= _swipe_threshold() and index < options.size():
-		_commit(index)
+		_commit(index, true)
 		return
 	_drag_pick = -1
 	_drag_dx = 0.0
@@ -831,6 +839,7 @@ func _on_row_pressed(row: Button) -> void:
 	if _suppress_click:
 		_suppress_click = false
 		return
+	Haptics.pulse("select")
 	_commit(int(row.get_meta("index")))
 
 
@@ -857,14 +866,16 @@ func _input(event: InputEvent) -> void:
 	if index < 0:
 		return
 	get_viewport().set_input_as_handled()
-	_commit(index)
+	# ← and → send the card sideways like a swipe.
+	_commit(index, key.keycode == KEY_LEFT or key.keycode == KEY_RIGHT)
 
 
 # --- Motion ---------------------------------------------------------------------------------
 
 ## Flies the card off toward the response's side (or drops it for the rest)
 ## and then chooses it; unaffordable responses shake the card back instead.
-func _commit(index: int) -> void:
+## [param swipe]: the player swiped (or pressed ← / →) rather than picked a row.
+func _commit(index: int, swipe: bool = false) -> void:
 	if _leaving or not visible:
 		return
 	var option := _option_at(index)
@@ -879,6 +890,10 @@ func _commit(index: int) -> void:
 	_card.hide_tag()
 	_leaving = true
 	var option_id := String(option.get("id", DilemmaDeck.DEFER_ID))
+	if swipe and index <= 1:
+		_card.notify_swiped(-1 if index == 0 else 1)
+	else:
+		option_pressed.emit(option_id)
 	var target := Vector2(_slot.offset.x, get_viewport_rect().size.y)
 	var tilt := deg_to_rad(4.0)
 	if index <= 1 and index < (current_card.get("options", []) as Array).size():
