@@ -1,8 +1,21 @@
 # Design directions: from dashboard to world
 
-A brainstorm, not a plan. It covers how to run the exploration, then ideas for making SYNAPSE-2076 look and play like its setting rather than like a generic sci-fi control panel. Nothing here is decided.
+This started as a brainstorm: how to run the exploration, then ideas for making SYNAPSE-2076 look and play like its setting rather than like a generic sci-fi control panel. Ideas 1 to 6 were mocked up, approved and then built; the rest are still open.
 
-## What the design does today
+## What shipped
+
+| Idea | Where it lives |
+|---|---|
+| 1. The world is the interface | `viewports_3d/globe_viewport.gd` (one layer per metric, era palettes), `ui/components/world_overlay.gd` (layer chips, captions, a news ticker under a provenance seal, instruments that misreport past drift 55), `ui/effects/drift_glitch.gd` |
+| 2. Fifty years look like fifty years | `ui/theme/era_style.gd` and `era_theme.gd`: Era I a dark native app (the macOS-like option A), Era II holographic glass, Era III a living interface. `ui/components/era_upgrade.gd` plays the system upgrade; meters become cards, rings and cells; `nav_bar.gd`, `era_backdrop.gd` |
+| 3. Each faction sees a different world | `ui/lenses/`: a trading terminal, a daily brief, raw perception and the Commons civic network |
+| 4. Crisis cards you read at a glance | `ui/components/dilemma_dialog.gd`, `crisis_card.gd`, `crisis_art.gd`, `vitals_strip.gd`: swipe, hold or hover to preview, glyphs with pips |
+| 5. One glyph language | `ui/glyphs.gd`, used by every metric, currency, faction and effect |
+| 6. Headlines instead of logs | `ui/story/`: the newswire, *The Ledger* front page at the end of each era, and the history-book debrief |
+
+Every screen works on the desktop (1600x900 canvas), on landscape tablets and phones (the world beside a tabbed panel) and on portrait phones (tabs). The mockups that were approved are the reference for colors, type and wording.
+
+## What the design did before
 
 - **The world is told, not shown.** Energy, labor, power and machine minds reach the player as numbers, prose and a cyan-on-black monospace panel. The globe exists, but you could play without looking at it.
 - **Every role sees the same screen.** A Frontier Lab CEO, a Governance Chair, an emergent superintelligence and a citizens' movement would not experience 2041 through the same dashboard.

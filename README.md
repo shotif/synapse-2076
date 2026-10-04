@@ -2,37 +2,50 @@
 
 **A hard-systems, turn-based simulation of the compounding effects of AI, energy saturation, labor displacement and machine alignment from 2026 to 2076.** Built in Godot 4.3+ (GDScript), headless-first.
 
-![Dashboard with the holographic globe](docs/screenshots/dashboard_globe.png)
+![The dashboard in Era I: the Frontier Lab's markets lens, the globe with its metric layers, the ACT column and the newswire](docs/screenshots/dashboard.png)
 
 You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Governance Chair, Emergent Superintelligence or Post-Work Citizen Coalition. You then play 100 semi-annual turns while the other three factions act on their own. They are driven by an LLM when an OpenAI-compatible endpoint is reachable, and by a deterministic heuristic engine otherwise. Six coupled macro-metrics evolve every turn. The world drifts, tips and settles into one of eight civilizational end-states.
 
-| Crisis card | Neural lattice (alignment drift view) | Endgame debrief |
-|---|---|---|
-| ![Crisis card](docs/screenshots/crisis_card.png) | ![Neural lattice](docs/screenshots/dashboard_lattice.png) | ![Debrief](docs/screenshots/endgame_debrief.png) |
-
 **Play it in your browser at https://shotif.github.io/synapse-2076/.** It needs a browser with WebGL 2 and nothing to install. Every push to `main` redeploys it.
 
-- **Phones and tablets get their own layout.** A strip of the six metrics stays on top, and one panel at a time sits behind **WORLD / ACT / INTEL / LOG** tabs. Crisis cards and other dialogs fill the screen and scroll by dragging, and the globe pinches to zoom. Large landscape screens keep the desktop layout.
-- **Claude can drive the other factions.** Without it, the web build runs the heuristic engine; see [Claude on the web build](#claude-on-the-web-build) to set it up.
+### What it looks like
 
-| Phone: crisis card | Phone: ACT tab | Phone: WORLD tab |
+- **The world is the interface.** The globe draws all six metrics as layers: datacenter heat for compute, city pulses for labor, rising bloc walls for tension, agent swarms on the trade routes for autonomy, a warped grid for drift and cable heartbeats for trust. Tap a chip to see one layer on its own. The news ticker carries a provenance seal that cracks as public trust falls, and past drift 55 the instruments start to misreport and the interface tears.
+- **Fifty years look like fifty years.** Era I (2026–2035) is a dark native app, Era II (2036–2049) holographic glass with ring gauges, Era III (2050–2076) a living interface whose cells grow with their values. Each era closes with a front page of *The Ledger*, then the interface goes through a "system upgrade" into the next era.
+- **Each faction sees a different world.** The left column (the LENS tab on phones) is a trading terminal for the Frontier Lab, a typed daily brief for the Governance Council, raw perception for the ASI and a civic network, the Commons, for the Citizen Coalition. Their buttons open ACT with a directive selected.
+- **Crisis cards you read at a glance.** Swipe a card left or right for its two main responses (or press ← →), tap any response, and hover or hold one to preview its effect on the vitals. Every effect is a glyph with pips.
+- **Headlines instead of logs.** The newswire turns every move into a headline, and the debrief is a history book with a chapter per era.
+
+| Era II · 2036 | Era III · 2050 | The Ledger, end of Era I |
 |---|---|---|
-| ![Crisis card on a phone](docs/screenshots/mobile_crisis.png) | ![ACT tab on a phone](docs/screenshots/mobile_act.png) | ![WORLD tab on a phone](docs/screenshots/mobile_world.png) |
+| ![Era II](docs/screenshots/era2.png) | ![Era III](docs/screenshots/era3.png) | ![Front page](docs/screenshots/front_page.png) |
+
+| Swipe crisis card | System upgrade | History-book debrief |
+|---|---|---|
+| ![Crisis card](docs/screenshots/crisis_card.png) | ![System upgrade](docs/screenshots/era_upgrade.png) | ![Debrief](docs/screenshots/debrief.png) |
+
+**Phones and tablets get their own layouts.** Phones show one panel at a time behind **WORLD / ACT / LENS / NEWS** tabs with the vitals on top; landscape tablets and phones keep the world on the left and a tabbed panel beside it. Crisis cards and other dialogs fill the screen and scroll by dragging, and the globe pinches to zoom. Large landscape screens get the desktop layout. **Claude can drive the other factions**; see [Claude on the web build](#claude-on-the-web-build).
+
+| Phone: crisis card | Phone: ACT | Phone: WORLD | Phone: lens | Phone: NEWS |
+|---|---|---|---|---|
+| ![Crisis card on a phone](docs/screenshots/mobile_crisis_card.png) | ![ACT on a phone](docs/screenshots/mobile_dashboard.png) | ![WORLD on a phone](docs/screenshots/mobile_world.png) | ![Lens on a phone](docs/screenshots/mobile_lens.png) | ![Newswire on a phone](docs/screenshots/mobile_news.png) |
+
+![Tablet in landscape: the world beside the ACT panel](docs/screenshots/tablet_dashboard.png)
 
 ## Quick start
 
 **Requirements:** the [Godot 4.3+](https://godotengine.org/download) standard build (not .NET). The project uses the GL Compatibility renderer, so it runs on modest GPUs and exports to the web.
 
 1. Open `project.godot` in the Godot editor and press **F5**. The main scene is `res://ui/main_dashboard.tscn`.
-2. Pick a perspective and a seed. Tick **SPECTATE** to watch the AI play your role.
+2. Pick a perspective and a seed. Tick **Spectate** to watch the AI play your role.
 3. Each turn:
-   - Resolve or defer the **crisis card**. A deferred card comes back two turns later, escalated.
-   - Select up to **two directives**. Each has an intensity slider from 1.0× to 2.0× of its cost; effects scale as intensity^0.8.
-   - Press **EXECUTE DIRECTIVES**.
-4. Toggle the 3D view between **GLOBE** and **NEURAL LATTICE**. Drag to orbit, and use the wheel (or a pinch) to zoom.
-5. Click the LLM badge in the header to configure an endpoint.
+   - Answer or defer the **crisis card**: swipe it, tap a response, or use ← → C ↓ and 1–4. A deferred card comes back two turns later, escalated.
+   - Select up to **two directives** in the ACT column (or from your lens). Each has an intensity slider from 1.0× to 2.0× of its cost; effects scale as intensity^0.8.
+   - Press **Execute directives**.
+4. Switch the left column between your faction's **lens** and **Intel** (every meter, the secondary indices and the compute picture). Toggle the 3D view between **Globe** and **Lattice**; drag to orbit, and use the wheel (or a pinch) to zoom. Tap a metric chip on the globe to see that layer alone.
+5. The menu (top right) starts a new campaign, opens the AI settings and turns the visual effects (glitches, animated backgrounds, the tearing transition) on or off. The LLM badge also opens the AI settings.
 
-On a phone the same turn happens on tabs: the crisis card opens first, **ACT** holds the directives and the EXECUTE button, **WORLD** the 3D view, **INTEL** the full meters and indices, and **LOG** the event feed. Tap a metric in the top strip to jump to INTEL. **ACT ●** means a decision is waiting.
+On a phone the same turn happens on tabs: the crisis card opens first, **ACT** holds the directives and the Execute button, **WORLD** the globe, the **LENS** tab (named after your lens, such as *Markets*) your faction's view and Intel, and **NEWS** the newswire. Tap a vital in the top strip to jump to Intel. A dot on **ACT** means a decision is waiting.
 
 To run headless from the command line (the first command builds the `class_name` cache on a fresh clone):
 
@@ -53,7 +66,7 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
 ```
 
 - **`tests/run_tests.gd`** is a zero-dependency runner. Assertion names mirror [GUT](https://github.com/bitwes/Gut) (`assert_eq`, `assert_almost_eq`, `assert_between`, …), so suites port to GUT by changing their `extends` line.
-- **Suites** live in `tests/unit/`. There are 13 of them with 162 tests:
+- **Suites** live in `tests/unit/`. There are 17 of them with 240 tests:
   - world dynamics fuzzing (2,000 extreme ticks with no NaN or overflow)
   - tech tree, compute physics, factions and the PRD loss conditions
   - heuristic decision trees (PRD 7.4 rules)
@@ -62,7 +75,8 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
   - the engine state machine, including async providers and stale or invalid decisions
   - prompt validation
   - the LLM service against a real mock HTTP server (timeouts, HTTP 500, garbage JSON, auth failures)
-  - headless dashboard smoke tests, plus phone layouts that must fit the screen width on every tab and dialog
+  - headless dashboard smoke tests, plus phone and tablet layouts that must fit the screen width on every tab, dialog and era
+  - the redesign: era themes and the system upgrade, the globe's metric layers and overlay, the swipe crisis card, the four lenses, headlines, front pages and the history book
   - balance guardrails
   - full 100-turn campaigns in automated and scripted-interactive modes
 - **The wrapper fails on script errors.** `tools/run_tests.sh` fails if Godot prints any `SCRIPT ERROR`, because GDScript runtime errors don't change the exit code.
@@ -76,7 +90,7 @@ Other tools:
 |---|---|
 | `godot --headless --path . --script res://tools/monte_carlo.gd -- --runs=60` | Balance report: end-state distribution, termination reasons, verdicts, per-role outcomes and metric trajectories |
 | `godot --headless --path . --script res://tools/check_scripts.gd` | Compile every `.gd`, `.gdshader` and `.tscn` file |
-| `xvfb-run -a godot --path . --rendering-driver opengl3 --resolution 1600x900 --script res://tools/capture_dashboard.gd -- --out=docs/screenshots` | Drive the real UI through a campaign and save screenshots (works without a GPU through Mesa llvmpipe) |
+| `xvfb-run -a godot --path . --rendering-driver opengl3 --resolution 1600x900 --script res://tools/capture_dashboard.gd -- --out=docs/screenshots` | Drive the real UI through a campaign, all three eras, and save screenshots (works without a GPU through Mesa llvmpipe). Add `--resolution 412x915 ... --prefix=mobile_ --touch` for a phone or `--resolution 1180x820 ... --prefix=tablet_ --touch` for a tablet |
 | `... --script res://tools/capture_scene.gd -- --scene=res://viewports_3d/globe_viewport.tscn --out=/tmp/globe.png` | Render a single scene |
 
 ## LLM decision layer
@@ -214,12 +228,22 @@ systems/
   llm/prompt_templates.gd  personas, request bodies, JSON extraction, strict validation
   llm/heuristic_fallback.gd  deterministic decision trees for all four roles
 ui/
-  main_dashboard.tscn/.gd  2D Cyber-Telemetry HUD (#0D1117 / #00E5FF / #FFB300 / #FF1744),
-                           desktop columns or phone tabs
+  main_dashboard.tscn/.gd  the dashboard: era theme and system upgrade, desktop / split / phone
+                           layouts, header, lens and intel column, world, ACT column, newswire
   ui_layout.gd             screen-class detection (CSS px), overlay scaffold, touch scrolling
-  components/              meter_bar, llm_status_badge, directive_panel, dilemma_dialog,
-                           role_select, endgame_debrief, trajectory_chart, llm_settings_dialog
-  theme/                   runtime Theme (JetBrains Mono + Inter)
+  glyphs.gd                the glyph language: SVG icons for metrics, currencies, factions and UI
+  ui_format.gd             names, costs, signed deltas and effect pips
+  theme/                   EraStyle (palette, fonts, shapes per era) and EraTheme (one Theme per era)
+  components/              world_overlay (chips, captions, sealed ticker), dilemma_dialog + crisis_card
+                           + crisis_art + vitals_strip (swipe cards), directive_panel, meter_bar
+                           (cards, rings, cells), nav_bar, era_upgrade, era_backdrop, role_select,
+                           endgame_debrief (history book), trajectory_chart, llm_status_badge,
+                           llm_settings_dialog
+  lenses/                  CeoLens (markets), GovLens (daily brief), AsiLens (perception),
+                           CitizenLens (the Commons), on a shared LensPanel
+  story/                   HeadlineWriter, Newswire, EraChronicle, FrontPage, StoryCopy, InkChart
+  effects/                 era backdrop, scanlines, era transition and drift glitch shaders
+  fonts/                   Geist, Chakra Petch, Syne, JetBrains Mono, Fragment Mono and the paper faces
 viewports_3d/
   globe_viewport.tscn      night-side Earth with one layer per metric: datacenter heat, city lights,
                            bloc walls and launch arcs, agent swarms, a drift-warped grid, cable pulses
@@ -230,7 +254,7 @@ proxy/                     optional Cloudflare Worker that holds a Claude API ke
 tests/   tools/   docs/
 ```
 
-The coupled equations, scaling laws, faction economies and endgame logic are specified in **[docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md)**. Ideas for a more visual, setting-specific design are collected in **[docs/DESIGN_DIRECTIONS.md](docs/DESIGN_DIRECTIONS.md)**.
+The coupled equations, scaling laws, faction economies and endgame logic are specified in **[docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md)**. The visual design (eras, lenses, the world as interface, crisis cards, glyphs and headlines) and the ideas still open are described in **[docs/DESIGN_DIRECTIONS.md](docs/DESIGN_DIRECTIONS.md)**.
 
 ## PRD roadmap status
 
@@ -272,5 +296,5 @@ python3 -m http.server 8000 --directory build/web    # browsers won't run it fro
 ## Credits
 
 - Code: MIT ([LICENSE](LICENSE)).
-- Fonts: [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) and [Inter](https://github.com/rsms/inter), both under the SIL Open Font License 1.1 (see `ui/fonts/*-OFL.txt`).
+- Fonts, under the SIL Open Font License 1.1 (see `ui/fonts/*-OFL.txt`): [Geist and Geist Mono](https://github.com/vercel/geist-font) (Era I), [Chakra Petch](https://github.com/m4rc1e/Chakra-Petch) (Era II), [Syne](https://gitlab.com/bonjour-monde/fonderie/syne-typeface) and [Fragment Mono](https://github.com/weiweihuanghuang/fragment-mono) (Era III), [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), and for the papers and lenses [Newsreader](https://github.com/productiontype/Newsreader), [EB Garamond](https://github.com/octaviopardo/EBGaramond12), [Cinzel](https://github.com/NDISCOVER/Cinzel-Typeface), [UnifrakturCook](https://unifraktur.sourceforge.net/) and [Public Sans](https://github.com/uswds/public-sans). [Special Elite](https://fonts.google.com/specimen/Special+Elite) is under the Apache License 2.0 (`ui/fonts/SpecialElite-LICENSE.txt`).
 - Land mask: rasterized from [Natural Earth](https://www.naturalearthdata.com/) 1:110m land polygons (public domain).
