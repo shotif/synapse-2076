@@ -12,6 +12,9 @@ extends PanelContainer
 ## and corner brackets in Era II, a dark organic cell with a magenta edge in
 ## Era III. DilemmaDialog sizes, drags and animates the card; show_tag() names
 ## the response a swipe or a hold would choose.
+##
+## The card shows the translated copies DilemmaDeck adds ("title_local", ...)
+## and the swipe hints in the interface language (I18n).
 
 ## The player committed the card with a swipe (or the ← / → keys): -1 left,
 ## the first response; +1 right, the second. See [method notify_swiped].
@@ -123,30 +126,30 @@ func show_card(card: Dictionary) -> void:
 	data = card
 	var severity := clampi(int(card.get("severity", 1)), 1, 3)
 	var escalation := int(card.get("escalation", 0))
-	_category_label.text = _kicker_case(String(card.get("category", "CRISIS")))
+	_category_label.text = _kicker_case(UiFormat.category_name(String(card.get("category", "CRISIS"))))
 	_severity_label.text = "●".repeat(severity) + "○".repeat(3 - severity)
 	_chip.visible = escalation > 0
-	_chip_label.text = _voice("Escalated ×%d" % escalation)
+	_chip_label.text = _voice(tr("Escalated ×%d") % escalation)
 	var source := String(card.get("source", "DECK"))
 	_kicker_row.visible = true
 	if source == "DEFERRED":
-		_kicker_label.text = _voice("Returns after deferral")
+		_kicker_label.text = _voice(tr("Returns after deferral"))
 		_kicker_icon.texture = Glyphs.texture("clock", 14)
 	elif SimConstants.is_valid_faction(source):
-		_kicker_label.text = _voice("Injected by %s" % FACTION_NAMES.get(source, source.capitalize()))
+		_kicker_label.text = _voice(tr("Injected by %s") % tr(String(FACTION_NAMES.get(source, source.capitalize()))))
 		_kicker_icon.texture = Glyphs.texture(Glyphs.for_faction(source), 14)
 	else:
 		_kicker_row.visible = false
-	_title_label.text = UiFormat.strip_escalation(String(card.get("title", "")))
-	var body := String(card.get("body", "")).strip_edges()
+	_title_label.text = UiFormat.strip_escalation(DilemmaDeck.local_text(card, "title"))
+	var body := DilemmaDeck.local_text(card, "body").strip_edges()
 	_body_label.text = first_sentence(body)
 	# Desktop shows the whole brief on hover when the card shows only its
 	# first sentence. Touch screens raise tooltips during a hold, so phones get none.
 	tooltip_text = body if not compact and _body_label.text != body else ""
 	var options: Array = card.get("options", [])
 	var card_id := String(card.get("id", ""))
-	_hint_left.text = "← " + short_label(card_id, 0, String((options[0] as Dictionary).get("label", ""))) if options.size() > 0 else ""
-	_hint_right.text = short_label(card_id, 1, String((options[1] as Dictionary).get("label", ""))) + " →" if options.size() > 1 else ""
+	_hint_left.text = "← " + short_label(card_id, 0, DilemmaDeck.local_text(options[0], "label")) if options.size() > 0 else ""
+	_hint_right.text = short_label(card_id, 1, DilemmaDeck.local_text(options[1], "label")) + " →" if options.size() > 1 else ""
 	_update_art()
 	_update_badge()
 
@@ -194,11 +197,12 @@ static func first_sentence(text: String) -> String:
 	return clean
 
 
-## The swipe hint for response [param index] of a card.
+## The swipe hint for response [param index] of a card, in the interface
+## language; without one, the first words of [param label] (as shown).
 static func short_label(card_id: String, index: int, label: String) -> String:
 	var hints: Array = SWIPE_HINTS.get(card_id, DilemmaDeck.get_template(card_id).get("swipe_hints", []))
 	if index < hints.size():
-		return String(hints[index])
+		return I18n.t(String(hints[index]))
 	var clause := label.get_slice(";", 0).get_slice(",", 0).strip_edges()
 	var out := ""
 	for word in clause.split(" ", false):

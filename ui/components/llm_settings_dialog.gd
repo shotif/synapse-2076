@@ -36,12 +36,12 @@ func _ready() -> void:
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.text = "AI decision layer · Claude or any OpenAI-compatible endpoint"
 	box.add_child(title)
-	_endpoint = _field(box, "Endpoint URL. Claude: https://api.anthropic.com/v1/messages or your proxy's /v1/messages. OpenAI-compatible: .../v1/chat/completions",
+	_endpoint = _field(box, I18n.mark("Endpoint URL. Claude: https://api.anthropic.com/v1/messages or your proxy's /v1/messages. OpenAI-compatible: .../v1/chat/completions"),
 		"https://api.anthropic.com/v1/messages")
-	_model = _field(box, "Model", "claude-sonnet-5-5")
-	_api_key = _field(box, "API key or proxy access code (Claude: x-api-key header, otherwise a Bearer token). Leave empty for local servers.", "")
+	_model = _field(box, I18n.mark("Model"), "claude-sonnet-5-5")
+	_api_key = _field(box, I18n.mark("API key or proxy access code (Claude: x-api-key header, otherwise a Bearer token). Leave empty for local servers."), "")
 	_api_key.secret = true
-	_timeout = _field(box, "Timeout (seconds)", "5.0")
+	_timeout = _field(box, I18n.mark("Timeout (seconds)"), "5.0")
 	_enabled = CheckBox.new()
 	_enabled.text = "Enable LLM-driven factions (heuristic fallback is always available)"
 	box.add_child(_enabled)
@@ -61,6 +61,8 @@ func _ready() -> void:
 		hint.text = "On a phone: open this page with #llm-key=YOUR_KEY after the address once. The key is stored on this device and removed from the address bar."
 		box.add_child(hint)
 	_status = Label.new()
+	# Status lines carry server messages (English).
+	_status.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	_status.theme_type_variation = "DimLabel"
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_status)
@@ -138,8 +140,8 @@ func open(llm_service: LLMService) -> void:
 	_timeout.text = "%.1f" % service.request_timeout_sec
 	_enabled.button_pressed = service.enabled
 	_write_crises.button_pressed = service.write_crises
-	_status.text = "Status: %s%s" % ["ONLINE" if service.is_online else "OFFLINE",
-		"" if service.last_error == "" else " (" + service.last_error + ")"]
+	_status.text = tr("Status: %s") % (tr("ONLINE") if service.is_online else tr("OFFLINE")) \
+		+ ("" if service.last_error == "" else " (" + service.last_error + ")")
 	visible = true
 	_reflow_checks()
 
@@ -157,7 +159,7 @@ func _apply() -> void:
 
 func _on_test_pressed() -> void:
 	_apply()
-	_status.text = "Probing %s ..." % service.models_url()
+	_status.text = tr("Probing %s ...") % service.models_url()
 	service.probe_connection()
 
 
@@ -171,7 +173,7 @@ func _on_save_pressed() -> void:
 
 func _on_probe_finished(online: bool, detail: String) -> void:
 	if visible:
-		_status.text = "Probe result: %s (%s)" % ["ONLINE" if online else "OFFLINE", detail]
+		_status.text = tr("Probe result: %s (%s)") % [tr("ONLINE") if online else tr("OFFLINE"), detail]
 
 
 func _field(parent: Control, caption: String, placeholder: String) -> LineEdit:
@@ -180,6 +182,8 @@ func _field(parent: Control, caption: String, placeholder: String) -> LineEdit:
 	label.theme_type_variation = "DimLabel"
 	parent.add_child(label)
 	var edit := LineEdit.new()
+	# Example values (URLs, model names) are not translated.
+	edit.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	edit.placeholder_text = placeholder
 	parent.add_child(edit)
 	return edit

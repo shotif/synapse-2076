@@ -8,7 +8,8 @@ extends Control
 
 var history: Array = []
 var series_keys: Array = WorldState.METRIC_KEYS
-var title := "Historical trajectory · 2026–2076"
+## An English message id, drawn in the interface language.
+var title := I18n.mark("Historical trajectory · 2026–2076")
 
 const MARGIN_LEFT := 38.0
 const MARGIN_RIGHT := 14.0
@@ -26,7 +27,7 @@ func _ready() -> void:
 
 func _notification(what: int) -> void:
 	match what:
-		NOTIFICATION_THEME_CHANGED:
+		NOTIFICATION_THEME_CHANGED, NOTIFICATION_TRANSLATION_CHANGED:
 			queue_redraw()
 		NOTIFICATION_MOUSE_EXIT:
 			if _hover_index != -1:
@@ -83,7 +84,7 @@ func _draw() -> void:
 	var mono := s.font_mono
 	var plot := _plot_rect()
 	draw_style_box(EraTheme.panel(s, s.bg.lerp(s.surface, 0.6), s.border, s.control_radius + 2, 0.0), Rect2(Vector2.ZERO, size))
-	draw_string(s.font_ui_bold, Vector2(12, 18), s.label(title), HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(12),
+	draw_string(s.font_ui_bold, Vector2(12, 18), s.label(tr(title)), HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(12),
 		s.accent if s.era == 2 else s.text_bright)
 
 	# Legend.
@@ -100,7 +101,7 @@ func _draw() -> void:
 		var x1 := _x_for_turn(plot, float(span.y) + (0.5 if era < 3 else 0.0))
 		if era % 2 == 0:
 			draw_rect(Rect2(x0, plot.position.y, x1 - x0, plot.size.y), Color(s.accent, 0.05))
-		draw_string(mono, Vector2(x0 + 5, plot.end.y - 5), "ERA %s" % EraStyle.ROMAN[era], HORIZONTAL_ALIGNMENT_LEFT, -1,
+		draw_string(mono, Vector2(x0 + 5, plot.end.y - 5), tr("ERA %s") % EraStyle.ROMAN[era], HORIZONTAL_ALIGNMENT_LEFT, -1,
 			s.scaled(9), Color(s.accent, 0.7))
 
 	# Grid.
@@ -117,7 +118,7 @@ func _draw() -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(10), s.text_dim)
 
 	if history.size() < 2:
-		var empty := s.label("No telemetry")
+		var empty := s.label(tr("No telemetry"))
 		draw_string(s.font_ui, plot.get_center() - Vector2(s.font_ui.get_string_size(empty, HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(12)).x * 0.5, 0),
 			empty, HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(12), s.text_dim)
 		return

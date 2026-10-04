@@ -137,7 +137,7 @@ func apply_passive_influence(world: WorldState, _tech: TechTreeManager, _compute
 
 func evaluate_loss(world: WorldState) -> Dictionary:
 	if world.surveillance_saturation >= 100.0 and get_resource("community_resilience") <= 0.0:
-		return {"code": "PACIFICATION", "reason": "Total algorithmic pacification: surveillance saturated while community resilience collapsed."}
+		return {"code": "PACIFICATION", "reason": I18n.mark("Total algorithmic pacification: surveillance saturated while community resilience collapsed.")}
 	return {}
 
 

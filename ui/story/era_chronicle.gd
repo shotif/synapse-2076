@@ -405,7 +405,7 @@ static func _stat_clause(ctx: Dictionary) -> String:
 
 
 static func _movement(key: String, from_value: float, to_value: float) -> String:
-	var name := String(METRIC_PROSE.get(key, UiFormat.metric_name(key).to_lower()))
+	var name := String(METRIC_PROSE.get(key, UiFormat.metric_name(key, false).to_lower()))
 	var a := int(round(from_value))
 	var b := int(round(to_value))
 	var change := to_value - from_value

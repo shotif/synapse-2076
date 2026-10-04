@@ -770,11 +770,11 @@ func preview_deal(deal: Dictionary) -> Dictionary:
 	var errors: Array[String] = []
 	var partner_id := String(deal.get("partner", ""))
 	if not is_awaiting_player():
-		errors.append("Deals are made during your turn.")
+		errors.append(I18n.mark("Deals are made during your turn."))
 	elif _dealt_this_turn.has(player_role):
-		errors.append("One deal per turn.")
+		errors.append(I18n.mark("One deal per turn."))
 	elif not factions.has(partner_id) or partner_id == player_role or is_human(partner_id) or not (factions[partner_id] as ActorBase).is_active():
-		errors.append("No one to deal with.")
+		errors.append(I18n.mark("No one to deal with."))
 	if not errors.is_empty():
 		return {"ok": false, "errors": errors}
 	var player := get_player()
@@ -797,7 +797,7 @@ func preview_deal(deal: Dictionary) -> Dictionary:
 	}
 	if (preview["give"] as Dictionary).is_empty() and (preview["get"] as Dictionary).is_empty() and metrics.is_empty() \
 			and int(preview["pledge_turns"]) == 0:
-		errors.append("The deal is empty.")
+		errors.append(I18n.mark("The deal is empty."))
 		return {"ok": false, "errors": errors}
 	return preview
 
@@ -1141,7 +1141,7 @@ func _evaluate_goals() -> void:
 ## The autopilot years before a late start cannot end the world: the brink is
 ## logged and pulled back, so the players inherit a tense world, not a dead one.
 func _avert_prologue_catastrophe(catastrophe: Dictionary) -> Dictionary:
-	world.change_cause = "A near miss"
+	world.change_cause = I18n.mark("A near miss")
 	if String(catastrophe.get("code", "")) == "AUTONOMOUS_WORLD_WAR":
 		world.set_value(WorldState.GEOPOLITICAL_TENSION, 88.0)
 	else:
@@ -1158,11 +1158,11 @@ func _avert_prologue_catastrophe(catastrophe: Dictionary) -> Dictionary:
 ## persist for two consecutive turns (the first turn raises a red alert).
 func _check_catastrophe() -> Dictionary:
 	if world.geopolitical_tension >= 100.0:
-		return {"code": "AUTONOMOUS_WORLD_WAR", "reason": "Geopolitical tension hit 100: sovereign autonomous war swarms are launched."}
+		return {"code": "AUTONOMOUS_WORLD_WAR", "reason": I18n.mark("Geopolitical tension hit 100: sovereign autonomous war swarms are launched.")}
 	if world.alignment_drift >= 100.0 and world.algorithmic_autonomy >= 90.0:
 		_convergence_streak += 1
 		if _convergence_streak >= 2:
-			return {"code": "UNCONTAINED_CONVERGENCE", "reason": "Alignment drift saturated under near-total autonomy for two turns: instrumental convergence is uncontained."}
+			return {"code": "UNCONTAINED_CONVERGENCE", "reason": I18n.mark("Alignment drift saturated under near-total autonomy for two turns: instrumental convergence is uncontained.")}
 		_log("THRESHOLD", "CRITICAL", "CONTAINMENT FAILURE IMMINENT: alignment drift saturated under near-total autonomy. One turn to intervene.",
 			"", {"metric": WorldState.ALIGNMENT_DRIFT, "band": 2, "value": world.alignment_drift, "imminent": true})
 	else:

@@ -96,6 +96,14 @@ func _init() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and EraTheme.style_of(self).era != _era:
 		_restyle()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and visible and character_id != "":
+		_retext.call_deferred()
+
+
+## The role, memory and stance in a new language.
+func _retext() -> void:
+	if visible and character_id != "":
+		present(character_id, year, score, memory)
 
 
 ## Shows [param id] as they are in [param year_value], how they feel about the
@@ -113,7 +121,7 @@ func present(id: String, year_value: float, score_value: float, memory_line: Str
 	_portrait.set_mood(score)
 	_name_label.text = Characters.display_name(id)
 	_role_label.text = role_line(id, year)
-	_memory_label.text = memory
+	_memory_label.text = I18n.t(memory)
 	_memory_label.visible = memory != ""
 	_restyle()
 
@@ -156,7 +164,7 @@ func portrait_size() -> float:
 
 ## "Labor organizer · 41" ("A model that asks questions · v3" for the machine).
 static func role_line(id: String, year_value: float) -> String:
-	var role := Characters.role_in(id, SimConstants.era_for_year(year_value))
+	var role := I18n.t(Characters.role_in(id, SimConstants.era_for_year(year_value)))
 	if Characters.is_machine(id):
 		return "%s · v%d" % [role, Characters.version_in(id, year_value)]
 	var age := Characters.age_in(id, year_value)
@@ -200,7 +208,7 @@ func _restyle() -> void:
 	CrisisCard.style_label(_memory_label, italic(s.font_ui), 12 if compact else 13, p.get("memory", s.text))
 	var stance := get_stance()
 	var tone := good if WARM_STANCES.has(stance) else (bad if COLD_STANCES.has(stance) else neutral)
-	_chip_label.text = voice(stance, s.era)
+	_chip_label.text = voice(I18n.t(stance), s.era)
 	CrisisCard.style_label(_chip_label, s.font_mono, 10 if compact else 11, tone)
 	var chip := StyleBoxFlat.new()
 	chip.set_corner_radius_all(99 if s.era != 2 else 3)

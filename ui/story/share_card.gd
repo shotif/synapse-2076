@@ -43,6 +43,8 @@ func render(result: Dictionary, extra: Dictionary = {}) -> Image:
 		return Image.new()
 	var viewport := SubViewport.new()
 	viewport.name = "ShareViewport"
+	# The page is The Ledger, printed in English like every front page.
+	viewport.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	viewport.size = SIZE
 	viewport.disable_3d = true
 	viewport.transparent_bg = false
@@ -71,7 +73,7 @@ static func share_text(result: Dictionary, extra: Dictionary = {}) -> String:
 	var daily := String(extra.get("daily", ""))
 	if daily != "":
 		parts.append("Daily %s" % daily)
-	parts.append(UiFormat.role_name(String(result.get("player_role", ""))))
+	parts.append(UiFormat.role_name(String(result.get("player_role", "")), false))
 	parts.append("End-state %d: %s" % [int(outcome.get("number", 0)), String(outcome.get("name", "Unknown"))])
 	parts.append("%s %d" % [String(verdict.get("verdict", "DEFEAT")), int(round(float(verdict.get("score", 0.0))))])
 	return " · ".join(parts) + " — " + SITE
@@ -227,7 +229,7 @@ static func _verdict_band(result: Dictionary, verdict_name: String, verdict: Dic
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	right.add_child(_label("PLAYED AS", "Newsreader-SemiBold.ttf", 18, RED, HORIZONTAL_ALIGNMENT_RIGHT, 3))
-	var who := _wrapped(UiFormat.role_title(role), "Newsreader-SemiBold.ttf", 36, INK, HORIZONTAL_ALIGNMENT_RIGHT)
+	var who := _wrapped(UiFormat.role_title(role, false), "Newsreader-SemiBold.ttf", 36, INK, HORIZONTAL_ALIGNMENT_RIGHT)
 	who.name = "Role"
 	right.add_child(who)
 	var start_turn := int(result.get("start_turn", 1))
@@ -246,7 +248,7 @@ static func _other_players(result: Dictionary) -> String:
 		if String(other) == role or not verdicts.has(other):
 			continue
 		var v: Dictionary = verdicts[other]
-		parts.append("the %s (%s %d)" % [UiFormat.role_name(String(other)), String(v.get("verdict", "DEFEAT")).capitalize(),
+		parts.append("the %s (%s %d)" % [UiFormat.role_name(String(other), false), String(v.get("verdict", "DEFEAT")).capitalize(),
 			int(round(float(v.get("score", 0.0))))])
 	return ("At the same table: " + ", ".join(parts) + ".") if not parts.is_empty() else ""
 

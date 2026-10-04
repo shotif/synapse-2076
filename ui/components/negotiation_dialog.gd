@@ -38,6 +38,8 @@ var _style: EraStyle
 var _restyling := false
 var _refit_pending := false
 var _rendered := 0
+## The offer last on the table (its scripted summary is shown translated).
+var _offer_seen := {}
 var _panel_width := DESKTOP_WIDTH
 
 var _frame: MarginContainer
@@ -105,6 +107,19 @@ func _notification(what: int) -> void:
 	# Only a new era restyles: our own children's overrides re-send this.
 	if what == NOTIFICATION_THEME_CHANGED and _column != null and not _restyling and EraTheme.style_of(self).era != _era:
 		_restyle()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _column != null and visible:
+		_relabel.call_deferred()
+
+
+## The language changed during a call: draw the conversation again.
+func _relabel() -> void:
+	if not visible:
+		return
+	if _picker.visible:
+		_show_picker()
+	elif _call.visible:
+		_clear_bubbles()
+		_refresh()
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -323,7 +338,7 @@ func _show_picker() -> void:
 		child.queue_free()
 	var partners := Negotiator.callable_partners(engine)
 	var open := engine != null and engine.is_awaiting_player()
-	_picker_title.text = _voice("Call a faction leader")
+	_picker_title.text = _voice(tr("Call a faction leader"))
 	if partners.is_empty():
 		_picker_hint.text = "No one picks up: every faction is played by a person."
 	elif not open:
@@ -369,11 +384,11 @@ func _contact_row(entry: Dictionary, enabled: bool) -> Button:
 	texts.add_theme_constant_override("separation", 1)
 	content.add_child(texts)
 	var name_label := _label("Name", true)
-	name_label.text = "Call %s" % String(entry["name"])
+	name_label.text = tr("Call %s") % String(entry["name"])
 	CrisisCard.style_label(name_label, s.font_ui_bold, 15, s.text_bright)
 	texts.add_child(name_label)
 	var role_label := _label("Role", true)
-	role_label.text = _title_line(String(entry["title"]), String(entry["faction_name"]))
+	role_label.text = _title_line(tr(String(entry["title"])), tr(String(entry["faction_name"])))
 	CrisisCard.style_label(role_label, s.font_ui, 12, s.text_dim)
 	texts.add_child(role_label)
 	for node in content.find_children("*", "Control", true, false):
@@ -408,7 +423,7 @@ func _start(partner_faction: String) -> void:
 	var actor: ActorBase = engine.factions[partner_faction]
 	_avatar.texture = _avatar_texture(partner_faction, AVATAR_SIZE)
 	_name_label.text = Characters.display_name(_negotiator.character)
-	_title_label.text = _title_line(Characters.role_in(_negotiator.character, era), actor.display_name)
+	_title_label.text = _title_line(tr(Characters.role_in(_negotiator.character, era)), tr(actor.display_name))
 	_input.text = ""
 	_refresh()
 	if not _compact and is_inside_tree() and is_visible_in_tree():
@@ -433,7 +448,7 @@ func _refresh() -> void:
 		_add_bubble(transcript[_rendered])
 		_rendered += 1
 	var short := _short_name()
-	_typing.text = "%s is typing…" % short
+	_typing.text = tr("%s is typing…") % short
 	_typing.visible = _negotiator.waiting
 	_fill_offer()
 	_status.text = _status_text()
@@ -447,7 +462,7 @@ func _refresh() -> void:
 	elif not _negotiator.in_turn():
 		_input.placeholder_text = "The call is over"
 	else:
-		_input.placeholder_text = "Say something to %s…" % short
+		_input.placeholder_text = tr("Say something to %s…") % short
 	if added:
 		_scroll_to_end()
 	_refit_soon()
@@ -455,7 +470,7 @@ func _refresh() -> void:
 
 func _add_bubble(entry: Dictionary) -> void:
 	var who := String(entry.get("who", "note"))
-	var text := String(entry.get("text", ""))
+	var text := shown_text(entry)
 	var s := _style_now()
 	var row := HBoxContainer.new()
 	row.name = "Message%d" % _rendered
@@ -464,6 +479,7 @@ func _add_bubble(entry: Dictionary) -> void:
 	if who == "note":
 		row.alignment = BoxContainer.ALIGNMENT_CENTER
 		var note := _label("Note", true)
+		note.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 		note.text = text
 		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		CrisisCard.style_label(note, s.font_ui, 12, s.text_dim)
@@ -487,6 +503,8 @@ func _add_bubble(entry: Dictionary) -> void:
 		box.add_child(speaker)
 	var label := Label.new()
 	label.name = "Text"
+	# What the model or the player wrote stays as written.
+	label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	label.text = text
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	CrisisCard.style_label(label, s.font_ui, 13 if _compact else 14, s.on_accent if who == "player" and s.era != 2 else s.text_bright)
@@ -567,22 +585,27 @@ func _fill_offer() -> void:
 	var role := _negotiator.player_role
 	var partner := _negotiator.partner
 	var short := _short_name()
-	_offer_kicker.text = _voice("Offer from %s" % Characters.display_name(_negotiator.character))
+	_offer_kicker.text = _voice(tr("Offer from %s") % Characters.display_name(_negotiator.character))
+	_offer_seen = _negotiator.offer.duplicate(true)
 	var summary := String(preview.get("summary", ""))
-	_offer_summary.text = summary if summary != "" else Negotiator.describe_offer(_negotiator.offer, role, partner)
+	if summary == "" or summary == Negotiator.describe_offer(_negotiator.offer, role, partner):
+		summary = Negotiator.describe_offer(_negotiator.offer, role, partner, true)
+	_offer_summary.text = summary
 	_offer_summary.visible = _offer_summary.text != ""
 	var give: Dictionary = preview.get("give", {})
 	for key in give:
-		_offer_row(Glyphs.for_currency(key), "You give %s" % _amount(role, key, float(give[key])), s.bad)
+		_offer_row(Glyphs.for_currency(key), tr("You give %s") % _amount(role, key, float(give[key])), s.bad)
 	var receive: Dictionary = preview.get("get", {})
 	for key in receive:
-		_offer_row(Glyphs.for_currency(key), "You get %s" % _amount(role, key, float(receive[key])), s.good)
+		_offer_row(Glyphs.for_currency(key), tr("You get %s") % _amount(role, key, float(receive[key])), s.good)
 	var pays: Dictionary = preview.get("partner_pays", {})
 	for key in pays:
-		_offer_row(Glyphs.for_currency(key), "%s pays %s for it" % [short, _amount(partner, key, float(pays[key]))], s.text_dim)
+		_offer_row(Glyphs.for_currency(key), tr("%s pays %s for it") % [short, _amount(partner, key, float(pays[key]))], s.text_dim)
 	var pledge := int(preview.get("pledge_turns", 0))
 	if pledge > 0:
-		_offer_row("support", "%s will not retaliate against you for %d turn%s" % [short, pledge, "" if pledge == 1 else "s"], s.good)
+		var pledge_line := tr("%s will not retaliate against you for %d turn") if pledge == 1 \
+			else tr("%s will not retaliate against you for %d turns")
+		_offer_row("support", pledge_line % [short, pledge], s.good)
 	var moves: Dictionary = preview.get("metrics", {})
 	for key in WorldState.METRIC_KEYS:
 		if moves.has(key):
@@ -609,17 +632,54 @@ func _offer_row(glyph: String, text: String, tone: Color) -> void:
 func _status_text() -> String:
 	var parts: Array[String] = []
 	if not _negotiator.active:
-		parts.append("Call ended")
+		parts.append(tr("Call ended"))
 	elif _negotiator.uses_llm():
-		parts.append("Live line")
+		parts.append(tr("Live line"))
 	else:
-		parts.append("Scripted line (no AI connected)")
-	parts.append("%d of %d messages left" % [_negotiator.messages_left(), Negotiator.MAX_PLAYER_MESSAGES])
-	parts.append("Grievance: %s" % Negotiator.grievance_word(_negotiator.grievance()))
+		parts.append(tr("Scripted line (no AI connected)"))
+	parts.append(tr("%d of %d messages left") % [_negotiator.messages_left(), Negotiator.MAX_PLAYER_MESSAGES])
+	parts.append(tr("Grievance: %s") % tr(Negotiator.grievance_word(_negotiator.grievance())))
 	var state := _negotiator.deal_state()
 	if String(state["text"]) != "":
-		parts.append(String(state["text"]))
+		parts.append(tr(String(state["text"])))
 	return " · ".join(parts)
+
+
+## A transcript line as the screen shows it: scripted lines, quick replies and
+## the call's notes in the interface language; what the model or the player
+## wrote as it is.
+func shown_text(entry: Dictionary) -> String:
+	var text := String(entry.get("text", ""))
+	match String(entry.get("who", "note")):
+		"partner":
+			return tr(text) if String(entry.get("source", "")) == "SCRIPTED" else text
+		"player":
+			for reply in Negotiator.QUICK_REPLIES:
+				if text == String(reply["text"]):
+					return tr(text)
+			return text
+	if text.begins_with(Negotiator.DEAL_STRUCK):
+		var rest := text.substr(Negotiator.DEAL_STRUCK.length()).strip_edges()
+		if rest != "" and not _offer_seen.is_empty() \
+				and rest == Negotiator.describe_offer(_offer_seen, _negotiator.player_role, _negotiator.partner):
+			rest = Negotiator.describe_offer(_offer_seen, _negotiator.player_role, _negotiator.partner, true)
+		return tr(Negotiator.DEAL_STRUCK) + ((" " + rest) if rest != "" else "")
+	for format in Negotiator.NOTE_FORMATS:
+		var head := String(format).get_slice("%s", 0)
+		var tail := String(format).get_slice("%s", 1)
+		if text.length() >= head.length() + tail.length() and text.begins_with(head) and text.ends_with(tail):
+			var middle := text.substr(head.length(), text.length() - head.length() - tail.length())
+			return tr(String(format)) % ". ".join(Array(middle.split(". ")).map(func(part: String) -> String: return _error_text(part)))
+	return tr(text)
+
+
+## An engine error inside a note ("One deal per turn."), translated when known.
+func _error_text(part: String) -> String:
+	var clean := part if part.ends_with(".") else part + "."
+	var shown := tr(clean)
+	if shown == clean:
+		return part
+	return shown if part.ends_with(".") else shown.trim_suffix(".")
 
 
 # --- Input ---------------------------------------------------------------------------

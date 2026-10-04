@@ -46,6 +46,8 @@ func _ready() -> void:
 	_frame = UiLayout.build_overlay(self, Color(0.02, 0.02, 0.03, 0.78))
 	_page = PanelContainer.new()
 	_page.name = "Page"
+	# The Ledger is printed in English (EraChronicle); only its button is interface.
+	_page.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	_page_style = StyleBoxFlat.new()
 	_page_style.bg_color = PAPER
 	_page_style.set_corner_radius_all(2)
@@ -63,6 +65,8 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _page_style != null:
 		_apply_era_glow()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _turn_button != null and is_instance_valid(_turn_button):
+		_turn_button.text = tr("Turn the page ▸")
 
 
 func set_compact(compact: bool) -> void:
@@ -413,7 +417,7 @@ func _footer() -> Control:
 	row.add_child(note)
 	_turn_button = Button.new()
 	_turn_button.name = "TurnPage"
-	_turn_button.text = "Turn the page ▸"
+	_turn_button.text = tr("Turn the page ▸")
 	_turn_button.custom_minimum_size = Vector2(0, 46)
 	_turn_button.focus_mode = Control.FOCUS_NONE
 	_turn_button.add_theme_font_override("font", EraStyle.font("Newsreader-SemiBold.ttf"))

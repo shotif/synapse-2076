@@ -10,7 +10,8 @@ extends LensPanel
 ## default with a dark palette one tap away. No vote tallies, follower or
 ## comment counts: only numbers the simulation produced. Better and worse are
 ## green and amber, or blue and orange with color-blind friendly colors on; a
-## tap on a watched chip explains its change.
+## tap on a watched chip explains its change. The app speaks the interface
+## language; posts quote the English record and the factions' own words.
 
 const LIGHT := {
 	"bg": Color("#F2F3F0"), "surface": Color("#FFFFFF"), "border": Color("#E1E4DF"), "border_strong": Color("#C9CEC8"),
@@ -35,7 +36,14 @@ const DARK_COLORBLIND := {
 	"bad": Color("#FFA54D"), "bad_soft": Color("#36260F"), "bad_ink": Color("#FFB566"),
 }
 
+## Feed tabs (their ids are the English names, shown translated).
 const TABS := ["For you", "Motions", "Events"]
+## How an event post names a log category it has no directive name for.
+const EVENT_KINDS := {
+	"paradigm": "Paradigm", "emergence": "Emergence", "milestone": "Milestone", "threshold": "Threshold",
+	"collapse": "Collapse", "deal": "Deal", "retaliation": "Retaliation", "era": "Era", "crisis": "Crisis",
+	"goal": "Goal", "endgame": "Endgame",
+}
 ## What citizens watch: key and the coalition's name for it.
 const CHIPS := [
 	["labor_displacement", "Jobs automated"], ["epistemic_trust", "Trust"],
@@ -103,7 +111,7 @@ func _init() -> void:
 
 
 func lens_title() -> String:
-	return "Commons"
+	return I18n.mark("Commons")
 
 
 func lens_background() -> Color:
@@ -154,7 +162,7 @@ func _build_app_bar() -> void:
 	var titles := _vbox(1)
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_title = _label("Commons", _bold, 18, LIGHT["text"])
+	_title = _label(tr("Commons"), _bold, 18, LIGHT["text"])
 	titles.add_child(_title)
 	var status := _hbox(6)
 	_status_dot = _canvas(_draw_status_dot, Vector2(7, 7))
@@ -181,7 +189,7 @@ func _build_tabs() -> void:
 	var row := _hbox(0)
 	for tab in TABS:
 		var button := Button.new()
-		button.text = tab
+		button.text = tr(tab)
 		button.focus_mode = Control.FOCUS_NONE
 		button.custom_minimum_size.y = TOUCH
 		button.pressed.connect(show_feed_tab.bind(tab))
@@ -196,7 +204,7 @@ func _build_treasury() -> void:
 	_treasury = PanelContainer.new()
 	var stack := _vbox(10)
 	var head := _hbox(8)
-	_treasury_title = _clip_label("Coalition treasury", _bold, 13, LIGHT["text"])
+	_treasury_title = _clip_label(tr("Coalition treasury"), _bold, 13, LIGHT["text"])
 	head.add_child(_treasury_title)
 	_treasury_turn = _label("", _regular, 12, LIGHT["text2"])
 	head.add_child(_treasury_turn)
@@ -208,7 +216,7 @@ func _build_treasury() -> void:
 		var key: String = entry[0]
 		var cell := _vbox(3)
 		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var caption := _clip_label(String(entry[1]), _regular, 11, LIGHT["text2"])
+		var caption := _clip_label(tr(String(entry[1])), _regular, 11, LIGHT["text2"])
 		cell.add_child(caption)
 		var value := _label("", _bold, 17, LIGHT["text"])
 		cell.add_child(value)
@@ -224,7 +232,7 @@ func _build_treasury() -> void:
 func _build_fab() -> void:
 	_fab = _directive_button(CONSERVE)
 	_fab.name = "ProposeButton"
-	_fab.text = "Propose"
+	_fab.text = tr("Propose")
 	_fab.custom_minimum_size = Vector2(0, 52)
 	# Pinned 16 px from the bottom-right corner; it grows left and up to fit.
 	_fab.anchor_left = 1.0
@@ -259,7 +267,7 @@ func _restyle_chrome() -> void:
 	_set_color(_title, _c("text"))
 	_set_color(_status_label, _c("text2"))
 	_theme_button.icon = _icon(SUN if dark else MOON, 21)
-	_theme_button.tooltip_text = "Light theme" if dark else "Dark theme"
+	_theme_button.tooltip_text = tr("Light theme") if dark else tr("Dark theme")
 	var clear := _box(Color(0, 0, 0, 0), 22)
 	_style_button(_theme_button, {"normal": clear, "hover": _box(_c("chip"), 22), "pressed": _box(_c("border"), 22)}, _semibold, 14,
 		{"icon_normal_color": _c("text"), "icon_hover_color": _c("text"), "icon_pressed_color": _c("text")})
@@ -298,16 +306,16 @@ func _restyle_chrome() -> void:
 
 func _refresh_status() -> void:
 	var resilience := float(resources.get("community_resilience", 0.0))
-	var text := "mesh online"
+	var text := I18n.mark("mesh online")
 	if not is_faction_active(role):
-		text = "mesh offline"
+		text = I18n.mark("mesh offline")
 	elif resources.is_empty():
-		text = "connecting"
+		text = I18n.mark("connecting")
 	elif resilience < 30.0:
-		text = "mesh fragmented"
+		text = I18n.mark("mesh fragmented")
 	elif resilience < 60.0:
-		text = "mesh degraded"
-	_status_label.text = "Citizen Coalition · " + text
+		text = I18n.mark("mesh degraded")
+	_status_label.text = tr("Citizen Coalition") + " · " + tr(text)
 	_status_dot.set_meta("tone", "accent" if text == "mesh online" else ("warn" if text in ["mesh degraded", "connecting"] else "critical"))
 	_status_dot.queue_redraw()
 
@@ -322,7 +330,7 @@ func _refresh_chips() -> void:
 		var chip := _panel(_box(_c("chip"), 15, 11.0, 0.0))
 		chip.custom_minimum_size.y = 30
 		var row := _hbox(6)
-		row.add_child(_centered(_label(String(entry[1]), _regular, 12, _c("text2"))))
+		row.add_child(_centered(_label(tr(String(entry[1])), _regular, 12, _c("text2"))))
 		row.add_child(_centered(_label("%d" % int(roundf(value)) if not snapshot.is_empty() else "—", _bold, 12, _c("text"))))
 		var shown := _arrow(delta)
 		if shown != "=":
@@ -338,7 +346,7 @@ static func _centered(label: Label) -> Label:
 
 
 func _refresh_treasury() -> void:
-	_treasury_turn.text = "Turn %d · %d" % [current_turn(), int(floorf(current_year()))]
+	_treasury_turn.text = tr("Turn %d · %d") % [current_turn(), int(floorf(current_year()))]
 	for entry in TREASURY:
 		var key: String = entry[0]
 		var cell: Dictionary = _treasury_cells[key]
@@ -363,7 +371,7 @@ func _refresh_feed() -> void:
 			for card in world:
 				_feed.add_child(card)
 			if desk == null and world.is_empty():
-				_feed.add_child(_note_card("Nothing on the wire yet."))
+				_feed.add_child(_note_card(tr("Nothing on the wire yet.")))
 		_:
 			_feed.add_child(_official_card())
 			_feed.add_child(_motion_card(_motion_picks(1)[0], 1, true))
@@ -417,13 +425,15 @@ func _official_card() -> PanelContainer:
 	card.name = "OfficialPost"
 	var stack := _vbox(10)
 	var outcome := outcome_for(role)
-	var when := "this turn" if outcome_is_current(role) else "last turn"
-	var subtitle := "Official · %s · %s" % [String(outcome.get("action_name", "")), when] if not outcome.is_empty() else "Official"
-	stack.add_child(_post_head(_canvas(_draw_logo_tile.bind(40.0, 12), Vector2(40, 40)), "Citizen Coalition", subtitle, true))
+	var when := tr("this turn") if outcome_is_current(role) else tr("last turn")
+	var subtitle := tr("Official · %s · %s") % [tr(String(outcome.get("action_name", ""))), when] if not outcome.is_empty() else tr("Official")
+	stack.add_child(_post_head(_canvas(_draw_logo_tile.bind(40.0, 12), Vector2(40, 40)), tr("Citizen Coalition"), subtitle, true))
 	var statement := statement_for(role).strip_edges()
-	var body := _label(statement if statement != "" else "No statement yet this campaign.", _regular, 16,
+	var body := _label(statement if statement != "" else tr("No statement yet this campaign."), _regular, 16,
 		_c("text") if statement != "" else _c("text3"), true)
 	body.name = "Statement"
+	# The coalition's own words (canned English or an LLM's).
+	body.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	body.add_theme_constant_override("line_spacing", 4)
 	stack.add_child(body)
 	var impact := _effect_items(outcome.get("applied", {}))
@@ -441,16 +451,16 @@ func _motion_card(action_id: String, number: int, more_link: bool) -> PanelConta
 	card.name = "Motion%d" % number
 	var stack := _vbox(10)
 	var chapter := String(CHAPTERS[int(_hash01("%s|%d" % [action_id, current_turn()]) * CHAPTERS.size()) % CHAPTERS.size()])
-	stack.add_child(_post_head(_initials_avatar(_initials(chapter), _c("accent_soft"), _c("accent_ink")), "%s chapter" % chapter,
-		"Motion %d-%d · closes at end of turn" % [current_turn(), number]))
-	stack.add_child(_label(String(MOTIONS.get(action_id, String(action_definition(action_id).get("name", action_id)))), _semibold, 16,
+	stack.add_child(_post_head(_initials_avatar(_initials(chapter), _c("accent_soft"), _c("accent_ink")), tr("%s chapter") % chapter,
+		tr("Motion %d-%d · closes at end of turn") % [current_turn(), number]))
+	stack.add_child(_label(tr(String(MOTIONS.get(action_id, String(action_definition(action_id).get("name", action_id))))), _semibold, 16,
 		_c("text"), true))
 	var entry := action_entry(action_id)
 	var blocked := String(entry.get("blocked_reason", ""))
 	var definition := action_definition(action_id)
-	var cost_line := "%s · %s" % [String(definition.get("name", action_id)), _cost_words(definition.get("cost", {}))]
+	var cost_line := "%s · %s" % [tr(String(definition.get("name", action_id))), _cost_words(definition.get("cost", {}))]
 	if blocked != "":
-		cost_line += " · tabled: %s" % blocked.to_lower()
+		cost_line += " · " + tr("tabled: %s") % I18n.lowercase(UiFormat.block_reason(blocked))
 	stack.add_child(_label(cost_line, _regular, 12, _c("text2"), true))
 	var projected := _effect_items(definition.get("effects", {}))
 	if not projected.is_empty():
@@ -460,7 +470,7 @@ func _motion_card(action_id: String, number: int, more_link: bool) -> PanelConta
 		stack.add_child(chips)
 	var actions := _hbox(8)
 	var support := _directive_button(action_id)
-	support.text = "Support"
+	support.text = tr("Support")
 	support.disabled = blocked != ""
 	support.custom_minimum_size = Vector2(0, TOUCH)
 	_style_button(support, {"normal": _box(_c("accent"), 10, 18.0, 0.0), "hover": _box(_c("accent").lightened(0.08), 10, 18.0, 0.0),
@@ -470,7 +480,7 @@ func _motion_card(action_id: String, number: int, more_link: bool) -> PanelConta
 	actions.add_child(support)
 	if more_link:
 		var more := Button.new()
-		more.text = "More motions"
+		more.text = tr("More motions")
 		more.focus_mode = Control.FOCUS_NONE
 		more.custom_minimum_size = Vector2(0, TOUCH)
 		more.pressed.connect(show_feed_tab.bind("Motions"))
@@ -492,18 +502,20 @@ func _verification_card() -> PanelContainer:
 	var card := _card()
 	card.name = "VerificationDesk"
 	var stack := _vbox(10)
-	var topic := String(TOPICS.get(String(entry.get("action", "")), "unattributed report"))
-	stack.add_child(_post_head(_initials_avatar("VD", _c("chip"), _c("text")), "Verification desk",
-		"Fact check · %s · T%d" % [topic, int(entry.get("turn", 0))]))
+	var topic := tr(String(TOPICS.get(String(entry.get("action", "")), I18n.mark("unattributed report"))))
+	stack.add_child(_post_head(_initials_avatar("VD", _c("chip"), _c("text")), tr("Verification desk"),
+		tr("Fact check · %s · T%d") % [topic, int(entry.get("turn", 0))]))
 	var claim := String(entry.get("statement", entry.get("title", entry.get("text", "")))).strip_edges()
 	claim = claim.trim_prefix("[unattributed]").strip_edges()
-	stack.add_child(_label("“%s”" % claim, _regular, 15, _c("text"), true))
+	var quote := _label("“%s”" % claim, _regular, 15, _c("text"), true)
+	quote.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	stack.add_child(quote)
 	var trust := metric(WorldState.EPISTEMIC_TRUST)
-	var verdict := ["accent", "seal_check", "Corroborated: independent monitors confirm it; no one claims it"]
+	var verdict := ["accent", "seal_check", tr("Corroborated: independent monitors confirm it; no one claims it")]
 	if trust < 35.0:
-		verdict = ["critical", "seal_broken", "Cannot be verified: the provenance chain is broken"]
+		verdict = ["critical", "seal_broken", tr("Cannot be verified: the provenance chain is broken")]
 	elif trust < 60.0:
-		verdict = ["warn", "seal_crack", "Unverified: sources conflict and provenance is thin"]
+		verdict = ["warn", "seal_crack", tr("Unverified: sources conflict and provenance is thin")]
 	var pill := _panel(_box(_c(String(verdict[0]) + "_soft"), 8, 10.0, 6.0))
 	var pill_row := _hbox(6)
 	var ink := _c("accent_ink") if verdict[0] == "accent" else _c(String(verdict[0]))
@@ -515,7 +527,7 @@ func _verification_card() -> PanelContainer:
 	pill_row.add_child(verdict_label)
 	pill.add_child(pill_row)
 	stack.add_child(pill)
-	stack.add_child(_label("Public trust %d · provenance coverage %d" % [int(roundf(trust)),
+	stack.add_child(_label(tr("Public trust %d · provenance coverage %d") % [int(roundf(trust)),
 		int(roundf(index_value(WorldState.PROVENANCE_COVERAGE)))], _regular, 12, _c("text3"), true))
 	card.add_child(stack)
 	return card
@@ -551,11 +563,11 @@ func _event_card(entry: Dictionary) -> PanelContainer:
 	var faction := String(entry.get("faction", ""))
 	# Citizens cannot see who runs the ASI's moves: they arrive unattributed.
 	var hidden := faction == SimConstants.ASI
-	var author := String(faction_data(faction).get("display_name", "")) if faction != "" else "World desk"
+	var author := tr(String(faction_data(faction).get("display_name", ""))) if faction != "" else tr("World desk")
 	if hidden:
-		author = "Unattributed source"
+		author = tr("Unattributed source")
 	elif author == "":
-		author = SimConstants.role_title(faction).capitalize()
+		author = UiFormat.role_name(faction)
 	var avatar := _panel(_box(_c("chip"), 12))
 	avatar.custom_minimum_size = Vector2(40, 40)
 	var glyph_name := "warning" if hidden else (Glyphs.for_faction(faction) if faction != "" else "world")
@@ -564,12 +576,16 @@ func _event_card(entry: Dictionary) -> PanelContainer:
 	glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	avatar.add_child(glyph)
 	var category := String(entry.get("category", "")).to_lower()
-	var headline := String(entry.get("action_name", "")) if category == "action" else category.capitalize()
+	var headline := tr(String(entry.get("action_name", ""))) if category == "action" \
+		else tr(String(EVENT_KINDS.get(category, category.capitalize())))
 	if hidden:
-		headline = "Unverified report"
+		headline = tr("Unverified report")
 	stack.add_child(_post_head(avatar, author, "%s · T%d" % [headline, int(entry.get("turn", 0))]))
 	var text := String(entry.get("statement", "")) if category == "action" else String(entry.get("headline", entry.get("text", "")))
-	stack.add_child(_label(text.trim_prefix("[unattributed]").strip_edges(), _regular, 14, _c("text"), true))
+	var post := _label(text.trim_prefix("[unattributed]").strip_edges(), _regular, 14, _c("text"), true)
+	# Posts quote the English record.
+	post.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	stack.add_child(post)
 	card.add_child(stack)
 	return card
 
@@ -691,14 +707,14 @@ static func _glyph_for(key: String, delta: float, section: String) -> String:
 
 static func _effect_name(key: String, section: String) -> String:
 	if key == WorldState.LABOR_DISPLACEMENT:
-		return "Jobs automated"
+		return I18n.t("Jobs automated")
 	if section == "metrics":
 		return UiFormat.metric_name(key)
 	if section == "indices":
 		return UiFormat.metric_short(key)
 	for entry in TREASURY:
 		if entry[0] == key:
-			return String(entry[1])
+			return I18n.t(String(entry[1]))
 	return key.capitalize()
 
 
@@ -710,13 +726,13 @@ static func _short_delta(delta: float) -> String:
 ## "costs 12 scrip and 4 resilience", or "no cost".
 static func _cost_words(cost: Dictionary) -> String:
 	if cost.is_empty():
-		return "no cost"
+		return I18n.t("no cost")
 	var parts: Array[String] = []
 	for key in cost:
 		parts.append("%d %s" % [int(roundf(float(cost[key]))), _key_word(String(key))])
 	if parts.size() == 1:
-		return "costs " + parts[0]
-	return "costs %s and %s" % [", ".join(parts.slice(0, parts.size() - 1)), parts[parts.size() - 1]]
+		return I18n.t("costs %s") % parts[0]
+	return I18n.t("costs %s and %s") % [", ".join(parts.slice(0, parts.size() - 1)), parts[parts.size() - 1]]
 
 
 static func _initials(chapter: String) -> String:

@@ -60,11 +60,11 @@ func set_status(online: bool, provider_name: String) -> void:
 	_provider = provider_name
 	var text := ""
 	if online:
-		text = "● LLM ON" if _compact else "● [LLM ONLINE: %s]" % provider_name
+		text = tr("● LLM ON") if _compact else tr("● [LLM ONLINE: %s]") % provider_name
 	elif _probing:
-		text = "◌ LLM" if _compact else "◌ [LLM PROBING: %s]" % provider_name
+		text = "◌ LLM" if _compact else tr("◌ [LLM PROBING: %s]") % provider_name
 	else:
-		text = "▲ LLM OFF" if _compact else "▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]"
+		text = tr("▲ LLM OFF") if _compact else tr("▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]")
 	if _label != null:
 		_label.text = text
 	_apply_colors(1.0)
@@ -85,6 +85,8 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _style != null and _label != null \
 			and EraTheme.style_of(self) != _era_style:
 		_restyle()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _label != null:
+		set_status.call_deferred(_online, _provider)
 
 
 ## Shape and type follow the era: pills in Eras I and III, a chamfered tag in II.

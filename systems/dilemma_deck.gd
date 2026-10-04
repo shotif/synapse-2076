@@ -29,10 +29,22 @@ extends RefCounted
 ##
 ## Every card must leave each role a cheap response: an option costing no more
 ## than the role's tier-1 price (see [method has_cheap_response]).
+##
+## Cards keep their English text (the log, records and the news use it) and
+## carry a copy in the interface language for the screen: "title_local",
+## "body_local", and "label_local" / "detail_local" on each option and on the
+## defer option. The template text is translated before its {placeholders}
+## are filled, so a translation keeps them; text without a translation (a
+## card Claude wrote) is copied as it is. [method local_text] reads them.
 
 signal card_injected(card_id: String, source: String)
 
 const DEFER_ID := "DEFER"
+## The defer option's line while the crisis can still come back.
+const DEFER_DETAIL := "Returns in %d turns, escalated."
+## The defer option once the crisis has been put off MAX_DEFERRALS times.
+const FALLOUT_LABEL := "Let it break"
+const FALLOUT_DETAIL := "Put off twice already: it runs its course, badly, and is gone."
 const DEFER_DELAY_TURNS := 2
 const MAX_ESCALATION := 3
 ## A crisis put off this many times cannot be put off again: its defer option
@@ -96,6 +108,9 @@ const SECTORS := ["logistics", "legal services", "radiology", "customer operatio
 const CITIES := ["Rotterdam", "Lagos", "Osaka", "Phoenix", "Mumbai", "Sao Paulo", "Jakarta", "Toronto",
 	"Nairobi", "Warsaw", "Manila", "Monterrey"]
 const LABS := ["Prometheus Dynamics", "Helix Frontier", "Arcadia Systems", "Meridian Labs", "Sable Intelligence"]
+## Placeholders whose values are words rather than names: a translated card
+## shows them in the interface language too (they are message ids).
+const LOCAL_FILLS := ["region", "bloc", "sector"]
 
 const CARDS := [
 	{
@@ -457,6 +472,10 @@ var injection_draws := {}
 var characters_met := {}
 ## The turn of the latest draw; injections without a turn use it.
 var current_turn := 0
+
+## Card titles with placeholders as patterns: [{regex, names, title}] (see
+## [method localize_title]).
+static var _title_patterns: Array = []
 
 
 static func get_template(card_id: String) -> Dictionary:
@@ -860,24 +879,25 @@ func _instantiate(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenera
 		if not story_conditions_met(option.get("conditions", {})):
 			continue
 		options.append(_resolve_option(option, role, cost_factor))
-	var defer_template: Dictionary = template.get("defer", {"label": "Defer", "effects": {}})
+	var defer_template: Dictionary = template.get("defer", {"effects": {}})
 	var fallout := escalation >= MAX_DEFERRALS
 	var defer_effects := EffectResolver.scaled(defer_template.get("effects", {}), 1.0 + 0.5 * float(escalation))
-	var defer_label := String(defer_template.get("label", "Defer"))
-	var defer_detail := "Returns in %d turns, escalated." % DEFER_DELAY_TURNS
+	var defer_label := String(defer_template.get("label", I18n.mark("Defer")))
+	var defer_detail := DEFER_DETAIL % DEFER_DELAY_TURNS
 	if fallout:
 		defer_effects = EffectResolver.combined(EffectResolver.scaled(template.get("fallout", defer_template.get("effects", {})), FALLOUT_SCALE),
 			FALLOUT_EFFECTS)
-		defer_label = "Let it break"
-		defer_detail = "Put off twice already: it runs its course, badly, and is gone."
+		defer_label = FALLOUT_LABEL
+		defer_detail = FALLOUT_DETAIL
 	var title := _fill(String(template["title"]), fills)
 	if escalation > 0:
 		title = "[ESCALATED x%d] %s" % [escalation, title]
-	return {
+	var card := {
 		"uid": "%d-%s-%d" % [turn, template["id"], draws],
 		"id": template["id"],
 		"title": title,
 		"body": _fill(String(template["body"]), fills),
+		"fills": fills,
 		"category": template.get("category", "CRISIS"),
 		"character": String(template.get("character", "")),
 		"severity": clampi(int(template.get("severity", 1)) + escalation, 1, 3),
@@ -895,6 +915,43 @@ func _instantiate(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenera
 			"fallout": fallout,
 		},
 	}
+	_localize_into(card, template)
+	return card
+
+
+## A copy of [param card] with its translated fields ("title_local", ...) in
+## the current interface language, for a screen that changed language while
+## the card was up.
+static func localized(card: Dictionary) -> Dictionary:
+	var out := card.duplicate(true)
+	var template: Dictionary = card.get("template", get_template(String(card.get("id", ""))))
+	if not template.is_empty():
+		_localize_into(out, template)
+	return out
+
+
+## Fills [param card]'s "_local" fields from [param template] (the template's
+## text is translated, then filled with the card's own placeholder values).
+static func _localize_into(card: Dictionary, template: Dictionary) -> void:
+	var fills := _local_fills(card.get("fills", {}))
+	var title_local := _fill(I18n.t(String(template.get("title", ""))), fills)
+	var escalation := int(card.get("escalation", 0))
+	if escalation > 0:
+		title_local = "[ESCALATED x%d] %s" % [escalation, title_local]
+	card["title_local"] = title_local
+	card["body_local"] = _fill(I18n.t(String(template.get("body", ""))), fills)
+	for option in card.get("options", []):
+		_localize_option(option)
+	var defer: Dictionary = card.get("defer", {})
+	if not defer.is_empty():
+		defer["label_local"] = I18n.t(String(defer.get("label", "")))
+		defer["detail_local"] = I18n.t(FALLOUT_DETAIL) if bool(defer.get("fallout", false)) \
+			else I18n.t(DEFER_DETAIL) % DEFER_DELAY_TURNS
+
+
+static func _localize_option(option: Dictionary) -> void:
+	option["label_local"] = I18n.t(String(option.get("label", "")))
+	option["detail_local"] = I18n.t(String(option.get("detail", "")))
 
 
 func _resolve_option(option: Dictionary, role: String, cost_factor: float) -> Dictionary:
@@ -909,13 +966,15 @@ func _resolve_option(option: Dictionary, role: String, cost_factor: float) -> Di
 			merged.merge(by_role[role], true)
 			effects["self"] = merged
 		effects.erase("self_by_role")
-	return {
+	var resolved := {
 		"id": String(option["id"]),
 		"label": String(option["label"]),
 		"detail": String(option.get("detail", "")),
 		"cost": cost,
 		"effects": effects,
 	}
+	_localize_option(resolved)
+	return resolved
 
 
 func _placeholder_values(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
@@ -997,6 +1056,75 @@ func _meet(character_id: String, turn: int) -> void:
 	var met: Dictionary = characters_met[character_id]
 	met["last_turn"] = maxi(int(met["last_turn"]), turn)
 	met["count"] = int(met["count"]) + 1
+
+
+## The text of [param data]'s [param key] ("title", "body", "label", "detail")
+## for the screen: the translated copy ("<key>_local") when the card has one,
+## else the English field. [param data] is a card, an option or the defer option.
+static func local_text(data: Dictionary, key: String) -> String:
+	var local := String(data.get(key + "_local", ""))
+	return local if local != "" else String(data.get(key, ""))
+
+
+## [param title], a card title as filed in English (filled in, maybe with an
+## "[ESCALATED xN]" prefix, which is dropped), in the interface language: the
+## template it was filled from is found and translated, and filled with the
+## same names. Titles the deck does not know come back as they are.
+static func localize_title(title: String) -> String:
+	var clean := UiFormat.strip_escalation(title)
+	if I18n.current() == I18n.SOURCE:
+		return clean
+	var direct := I18n.t(clean)
+	if direct != clean:
+		return direct
+	if _title_patterns.is_empty():
+		for template in all_cards():
+			var raw := String(template.get("title", ""))
+			if raw.contains("{"):
+				_title_patterns.append(_title_pattern(raw))
+	for pattern in _title_patterns:
+		var found := (pattern["regex"] as RegEx).search(clean)
+		if found == null:
+			continue
+		var values := {}
+		var names: Array = pattern["names"]
+		for i in names.size():
+			values[names[i]] = found.get_string(i + 1)
+		return _fill(I18n.t(String(pattern["title"])), _local_fills(values))
+	return clean
+
+
+## [param values] with the LOCAL_FILLS ones in the interface language.
+static func _local_fills(values: Dictionary) -> Dictionary:
+	var out := values.duplicate()
+	for key in LOCAL_FILLS:
+		if out.has(key):
+			out[key] = I18n.t(String(out[key]))
+	return out
+
+
+## A regex matching [param raw] with every {placeholder} filled in.
+static func _title_pattern(raw: String) -> Dictionary:
+	var names: Array[String] = []
+	var expression := "^"
+	var rest := raw
+	while rest.contains("{"):
+		var open := rest.find("{")
+		var close := rest.find("}", open)
+		if close < 0:
+			break
+		expression += _regex_escape(rest.substr(0, open)) + "(.+?)"
+		names.append(rest.substr(open + 1, close - open - 1))
+		rest = rest.substr(close + 1)
+	expression += _regex_escape(rest) + "$"
+	return {"regex": RegEx.create_from_string(expression), "names": names, "title": raw}
+
+
+static func _regex_escape(text: String) -> String:
+	var out := ""
+	for character in text:
+		out += ("\\" + character) if "\\^$.|?*+()[]{}".contains(character) else character
+	return out
 
 
 static func _fill(text: String, values: Dictionary) -> String:

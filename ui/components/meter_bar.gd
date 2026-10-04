@@ -73,6 +73,10 @@ func _refresh_label() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED:
 		_apply_style()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and is_node_ready():
+		_refresh_label()
+		_refresh_tooltip()
+		queue_redraw()
 
 
 ## Sets the new value; tracks history, band and change since the last update.
@@ -309,4 +313,4 @@ func _draw_sparkline(rect: Rect2, color: Color, width: float) -> void:
 func _refresh_tooltip() -> void:
 	if not WorldState.METRIC_INFO.has(metric_key):
 		return
-	tooltip_text = "%s: %.1f\n%s" % [PlainLanguage.display_name(metric_key), value, WorldState.regime_for(metric_key, value)]
+	tooltip_text = "%s: %.1f\n%s" % [PlainLanguage.display_name(metric_key), value, tr(WorldState.regime_for(metric_key, value))]

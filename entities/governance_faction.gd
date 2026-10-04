@@ -140,9 +140,9 @@ func apply_passive_influence(world: WorldState, _tech: TechTreeManager, _compute
 
 func evaluate_loss(world: WorldState) -> Dictionary:
 	if get_resource("public_mandate") <= 0.0:
-		return {"code": "INSTITUTIONAL_OUSTER", "reason": "Institutional ouster: the public mandate collapsed to zero."}
+		return {"code": "INSTITUTIONAL_OUSTER", "reason": I18n.mark("Institutional ouster: the public mandate collapsed to zero.")}
 	if world.geopolitical_tension >= 100.0:
-		return {"code": "AUTONOMOUS_WORLD_WAR", "reason": "Outbreak of autonomous world war: geopolitical tension hit 100."}
+		return {"code": "AUTONOMOUS_WORLD_WAR", "reason": I18n.mark("Outbreak of autonomous world war: geopolitical tension hit 100.")}
 	return {}
 
 

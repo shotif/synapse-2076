@@ -10,6 +10,9 @@ extends ActorBase
 const BANKRUPTCY_TURNS := 2
 const NATIONALIZATION_GOODWILL := 10.0
 const NATIONALIZATION_TENSION := 80.0
+## How the losses are filed (English; the debrief translates them).
+const BANKRUPTCY_REASON := "Corporate bankruptcy: $0 capital for %d consecutive turns."
+const NATIONALIZATION_REASON := "State nationalization: goodwill below %d while geopolitical tension exceeds %d."
 
 const ACTIONS := {
 	"SCALE_FRONTIER_CLUSTERS": {
@@ -154,9 +157,9 @@ func evaluate_loss(world: WorldState) -> Dictionary:
 	else:
 		loss_streaks["bankrupt"] = 0
 	if int(loss_streaks["bankrupt"]) >= BANKRUPTCY_TURNS:
-		return {"code": "BANKRUPTCY", "reason": "Corporate bankruptcy: $0 capital for %d consecutive turns." % BANKRUPTCY_TURNS}
+		return {"code": "BANKRUPTCY", "reason": BANKRUPTCY_REASON % BANKRUPTCY_TURNS}
 	if get_resource("regulatory_goodwill") < NATIONALIZATION_GOODWILL and world.geopolitical_tension > NATIONALIZATION_TENSION:
-		return {"code": "NATIONALIZATION", "reason": "State nationalization: goodwill below %d while geopolitical tension exceeds %d." % [NATIONALIZATION_GOODWILL, NATIONALIZATION_TENSION]}
+		return {"code": "NATIONALIZATION", "reason": NATIONALIZATION_REASON % [NATIONALIZATION_GOODWILL, NATIONALIZATION_TENSION]}
 	return {}
 
 

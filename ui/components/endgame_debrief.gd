@@ -45,6 +45,8 @@ const JUSTIFY := TextServer.JUSTIFICATION_WORD_BOUND | TextServer.JUSTIFICATION_
 const BOOK_TITLE := "A HISTORY OF THE ALGORITHMIC CENTURY"
 const REASONS := {"TURN_LIMIT": "The century ran its course", "PLAYER_LOSS": "Instant loss",
 	"CATASTROPHE": "Catastrophic threshold"}
+## Loss reasons filed with numbers in them (the rest are message ids as they are).
+const REASON_FORMATS := [CeoFaction.BANKRUPTCY_REASON, CeoFaction.NATIONALIZATION_REASON]
 const MAX_TURNING_POINTS := 5
 const KIND_LABELS := {TurningPoints.CHOICE: "YOUR CHOICE", TurningPoints.FALLOUT: "LEFT TOO LONG",
 	TurningPoints.MOMENT: "THE ERA TURNS", TurningPoints.COLLAPSE: "COLLAPSE"}
@@ -80,6 +82,7 @@ var _chart: TrajectoryChart
 var _affinity_box: VBoxContainer
 var _stats_grid: GridContainer
 var _buttons: BoxContainer
+var _relabel_queued := false
 
 
 func _ready() -> void:
@@ -92,6 +95,8 @@ func _ready() -> void:
 	_frame.add_child(_book)
 	_spread = BoxContainer.new()
 	_spread.name = "Spread"
+	# The history book is written in English (EraChronicle); its buttons translate themselves.
+	_spread.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	_spread.add_theme_constant_override("separation", 0)
 	_book.add_child(_spread)
 	_left = _paper()
@@ -115,6 +120,19 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and _appendix != null and not _result.is_empty():
 		_restyle_appendix.call_deferred()
+	elif what == NOTIFICATION_TRANSLATION_CHANGED and _appendix != null and not _result.is_empty() and not _relabel_queued:
+		_relabel_queued = true
+		_relabel.call_deferred()
+
+
+## The language changed: the appendix and the book's buttons (the book itself
+## is English).
+func _relabel() -> void:
+	_relabel_queued = false
+	_build_affinities(_result.get("outcome", {}))
+	_build_stats(_result)
+	_restyle_appendix()
+	_show_page(_page_index)
 
 
 func set_compact(compact: bool) -> void:
@@ -455,9 +473,9 @@ func _turning_points_section() -> Control:
 		row.add_child(text_box)
 		if allow_rewind:
 			var rewind_turn := int(point.get("rewind_turn", point.get("turn", 1)))
-			var button := _book_button("What if?", "WhatIf%d" % i)
+			var button := _book_button(tr("What if?"), "WhatIf%d" % i)
 			button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			button.tooltip_text = "Go back to %s and choose differently" % UiFormat.year_label(SimConstants.year_for_turn(rewind_turn))
+			button.tooltip_text = tr("Go back to %s and choose differently") % UiFormat.year_label(SimConstants.year_for_turn(rewind_turn))
 			button.pressed.connect(_on_what_if.bind(rewind_turn))
 			row.add_child(button)
 		section.add_child(row)
@@ -484,12 +502,12 @@ func _epilogue_actions() -> Control:
 	row.name = "EpilogueActions"
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 10)
-	var share := _book_button("Share", "ShareButton", "share")
-	share.tooltip_text = "Save the ending as a front page of The Ledger"
+	var share := _book_button(tr("Share"), "ShareButton", "share")
+	share.tooltip_text = tr("Save the ending as a front page of The Ledger")
 	share.pressed.connect(func(): share_requested.emit())
 	row.add_child(share)
-	var endings := _book_button("Endings", "EndingsButton", "book")
-	endings.tooltip_text = "Every ending you have reached"
+	var endings := _book_button(tr("Endings"), "EndingsButton", "book")
+	endings.tooltip_text = tr("Every ending you have reached")
 	endings.pressed.connect(func(): endings_requested.emit())
 	row.add_child(endings)
 	for button in [share, endings]:
@@ -558,7 +576,7 @@ func _navigation() -> Control:
 	back.disabled = previous < 0
 	back.pressed.connect(_show_page.bind(maxi(previous, 0)))
 	row.add_child(back)
-	var appendix := _nav_button("Appendix" if _compact else "Appendix: the full record", false, true)
+	var appendix := _nav_button(tr("Appendix") if _compact else tr("Appendix: the full record"), false, true)
 	appendix.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	appendix.pressed.connect(_scroll_to_appendix)
 	row.add_child(appendix)
@@ -795,20 +813,29 @@ func _build_appendix() -> void:
 ## Era-dependent text and colors of the appendix.
 func _restyle_appendix() -> void:
 	var s := EraTheme.style_of(self)
-	_affinity_title.text = s.label("End-state affinity")
-	_stats_title.text = s.label("Final record")
+	_affinity_title.text = s.label(tr("End-state affinity"))
+	_stats_title.text = s.label(tr("Final record"))
 	var outcome: Dictionary = _result.get("outcome", {})
 	var reason := String(_result.get("reason", ""))
-	var detail := String(REASONS.get(reason, reason.capitalize()))
+	var detail := tr(String(REASONS.get(reason, reason.capitalize())))
 	if reason == "PLAYER_LOSS":
-		detail += ": " + String((_result.get("player_loss", {}) as Dictionary).get("reason", ""))
+		detail += ": " + _reason_text(String((_result.get("player_loss", {}) as Dictionary).get("reason", "")))
 	elif reason == "CATASTROPHE":
-		detail += ": " + String((_result.get("catastrophe", {}) as Dictionary).get("reason", ""))
-	_appendix_caption.text = "End-state %d of 8 · %s · turn %d · %d · %s%s" % [int(outcome.get("number", 0)),
-		outcome.get("name", ""), int(_result.get("turn", 0)), int(floor(float(_result.get("year", 2026.0)))), detail,
-		"" if bool(outcome.get("strict_match", true)) else " · nearest attractor"]
+		detail += ": " + _reason_text(String((_result.get("catastrophe", {}) as Dictionary).get("reason", "")))
+	_appendix_caption.text = tr("End-state %d of 8 · %s · turn %d · %d · %s") % [int(outcome.get("number", 0)),
+		tr(String(outcome.get("name", ""))), int(_result.get("turn", 0)), int(floor(float(_result.get("year", 2026.0)))), detail] \
+		+ ("" if bool(outcome.get("strict_match", true)) else " · " + tr("nearest attractor"))
 	for row in _affinity_box.get_children():
 		_style_affinity_row(row)
+
+
+## A loss or catastrophe reason (filed in English) in the interface language.
+func _reason_text(reason: String) -> String:
+	for format in REASON_FORMATS:
+		var shown := I18n.t_format(reason, String(format))
+		if shown != "":
+			return shown
+	return tr(reason)
 
 
 func _build_affinities(outcome: Dictionary) -> void:
@@ -821,7 +848,7 @@ func _build_affinities(outcome: Dictionary) -> void:
 		row.set_meta("chosen", outcome_id == String(outcome.get("id", "")))
 		var name_label := Label.new()
 		name_label.name = "Name"
-		name_label.text = "%d. %s" % [int(candidate["number"]), candidate["name"]]
+		name_label.text = "%d. %s" % [int(candidate["number"]), tr(String(candidate["name"]))]
 		name_label.add_theme_font_size_override("font_size", 12)
 		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		row.add_child(name_label)
@@ -872,14 +899,14 @@ func _build_stats(result: Dictionary) -> void:
 	var rows: Array = []
 	for key in WorldState.METRIC_KEYS:
 		rows.append([UiFormat.metric_name(key), "%.1f" % float(values.get(key, 0.0))])
-	rows.append(["Enforcement", "%.1f" % float(values.get("enforcement_level", 0.0))])
-	rows.append(["Citizen resilience", "%.1f" % float(values.get("citizen_resilience", 0.0))])
-	rows.append(["Training FLOPs", "10^%.1f" % float(tech.get("log_flops", 26.0))])
+	rows.append([tr("Enforcement"), "%.1f" % float(values.get("enforcement_level", 0.0))])
+	rows.append([tr("Citizen resilience"), "%.1f" % float(values.get("citizen_resilience", 0.0))])
+	rows.append([tr("Training FLOPs"), "10^%.1f" % float(tech.get("log_flops", 26.0))])
 	var milestones: Dictionary = result.get("milestones", {})
-	rows.append(["AGI milestone", str(int(SimConstants.year_for_turn(int(milestones["agi_turn"])))) if milestones.has("agi_turn") else "—"])
-	rows.append(["Paradigm shifts", "%d of 4" % (tech.get("unlocked_shifts", []) as Array).size()])
-	rows.append(["Emergences", str((tech.get("emerged_capabilities", []) as Array).size())])
-	rows.append(["Alignment taxes", str(int(tech.get("alignment_tax_events", 0)))])
+	rows.append([tr("AGI milestone"), str(int(SimConstants.year_for_turn(int(milestones["agi_turn"])))) if milestones.has("agi_turn") else "—"])
+	rows.append([tr("Paradigm shifts"), tr("%d of %d") % [(tech.get("unlocked_shifts", []) as Array).size(), 4]])
+	rows.append([tr("Emergences"), str((tech.get("emerged_capabilities", []) as Array).size())])
+	rows.append([tr("Alignment taxes"), str(int(tech.get("alignment_tax_events", 0)))])
 	for row in rows:
 		var label := Label.new()
 		label.text = String(row[0])
