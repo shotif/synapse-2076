@@ -204,10 +204,10 @@ func test_goals_toasts_and_calls() -> void:
 		var deals: Array = dashboard.engine.event_log.filter(func(e: Dictionary) -> bool: return e["category"] == "DEAL")
 		assert_eq(deals.size(), 1)
 	dashboard._negotiation.hang_up()
-	dashboard.engine.get_player().set_resource("community_resilience", 70.0)
+	dashboard.engine.world.set_value(WorldState.LABOR_DISPLACEMENT, 40.0)
 	_answer()
 	await tree.process_frame
-	assert_true(dashboard._goal_toast.is_showing(), "a met goal gets a banner")
+	assert_true(dashboard._goal_toast.is_showing(), "a missed goal gets a banner")
 	assert_false(dashboard._call_button.visible, "no calls between turns")
 
 

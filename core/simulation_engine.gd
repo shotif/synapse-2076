@@ -1186,7 +1186,7 @@ func _finish(reason: String, player_loss: Dictionary, catastrophe: Dictionary) -
 			else (eliminated.get(role, {}) as Dictionary).get("loss", {})
 		var actor: ActorBase = factions[role]
 		verdicts[role] = VictoryMatrix.role_verdict(role, outcome["id"], actor.get_objective_score(world, tech), loss,
-			goals.score_bonus(role))
+			goals.score_bonus(role), Difficulty.value(difficulty, "verdict_shift"))
 	var verdict: Dictionary = verdicts.get(player_role, {})
 	result = {
 		"reason": reason,

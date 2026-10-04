@@ -1,9 +1,10 @@
 class_name Difficulty
 extends RefCounted
 ## Difficulty presets. They change only the people playing (their starting
-## resources, income and crisis prices) and how hard the autonomous factions
-## push; the world model itself is the same in every preset, except that drift
-## accrues a little faster on Hard and slower on Story.
+## resources, income and crisis prices), how hard the autonomous factions push
+## and the score a verdict needs (verdict_shift moves the Victory and Pyrrhic
+## bars); the world model itself is the same in every preset, except that
+## drift accrues a little faster on Hard and slower on Story.
 
 const STORY := "story"
 const STANDARD := "standard"
@@ -15,16 +16,19 @@ const PRESETS := {
 		"name": "Story", "summary": "More resources, cheaper crises and calmer rivals. For reading the world as it unfolds.",
 		"start_resources": 1.3, "income": 1.25, "crisis_costs": 0.75,
 		"rival_intensity_bonus": 0.0, "injection_skip_chance": 0.5, "drift_accrual": 0.85, "goal_rewards": 1.25,
+		"verdict_shift": -10.0,
 	},
 	STANDARD: {
 		"name": "Standard", "summary": "The balance the campaign was tuned for.",
 		"start_resources": 1.0, "income": 1.0, "crisis_costs": 1.0,
 		"rival_intensity_bonus": 0.0, "injection_skip_chance": 0.0, "drift_accrual": 1.0, "goal_rewards": 1.0,
+		"verdict_shift": 0.0,
 	},
 	HARD: {
 		"name": "Hard", "summary": "Leaner budgets, pricier crises and rivals who push harder. Drift builds faster.",
 		"start_resources": 0.85, "income": 0.9, "crisis_costs": 1.25,
 		"rival_intensity_bonus": 0.25, "injection_skip_chance": 0.0, "drift_accrual": 1.15, "goal_rewards": 0.8,
+		"verdict_shift": 3.0,
 	},
 }
 

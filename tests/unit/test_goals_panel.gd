@@ -53,8 +53,8 @@ func test_rows_come_from_the_engine() -> void:
 	assert_eq(current["status"], EraGoals.UPCOMING, "the engine has not settled it yet")
 	assert_almost_eq(float(current["current"]), engine.get_player().get_resource("capital"), 0.001, "live value")
 	assert_true(current["holds"], "the lab starts above $150B")
-	assert_eq(current["condition"], "Keep capital at $150B or more through 2035")
-	assert_eq(current["condition_short"], "Keep capital ≥ $150B to 2035")
+	assert_eq(current["condition"], "End the era with capital at $150B or more")
+	assert_eq(current["condition_short"], "End era with capital ≥ $150B")
 	var coming: Dictionary = rows[1]
 	assert_eq(coming["id"], "E2_CEO_GOODWILL")
 	assert_eq(coming["display_status"], EraGoals.UPCOMING)
@@ -66,24 +66,24 @@ func test_rows_come_from_the_engine() -> void:
 
 
 func test_met_and_missed_goals() -> void:
-	var citizens := _engine(SimConstants.CITIZEN)
-	citizens.get_player().set_resource("community_resilience", 70.0)
-	citizens.submit_player_turn([], DilemmaDeck.DEFER_ID)
+	var machine := _engine(SimConstants.ASI, 14, {"start_turn": 20})
+	machine.world.set_value(WorldState.ALGORITHMIC_AUTONOMY, 90.0)
+	machine.submit_player_turn([], DilemmaDeck.DEFER_ID)
 	var panel := _panel()
-	panel.refresh(citizens)
+	panel.refresh(machine)
 	var met: Dictionary = panel.current_rows()[0]
 	assert_eq(met["display_status"], EraGoals.MET)
 	assert_true(met["holds"])
-	assert_almost_eq(float(met["threshold_fraction"]), 0.6, 0.001, "the threshold tick at 60 of 100")
-	assert_eq(met["condition"], "Reach resilience 60 before 2036")
+	assert_almost_eq(float(met["threshold_fraction"]), 0.74, 0.001, "the threshold tick at 74 of 100")
+	assert_eq(met["condition"], "Reach autonomy 74 before 2050")
 	assert_eq((panel.find_child("StatusLabel", true, false) as Label).text, "Met")
 	var bar := panel.find_child("Bar", true, false) as GoalsPanel.GoalBar
 	assert_eq(bar.color, EraTheme.style_of(panel).good, "met goals use the era's good color")
 
-	var lab := _engine(SimConstants.CEO, 14, {"difficulty": Difficulty.HARD})
-	lab.get_player().set_resource("capital", 100.0)
-	lab.submit_player_turn([], DilemmaDeck.DEFER_ID)
-	panel.refresh(lab)
+	var council := _engine(SimConstants.GOVERNANCE, 14, {"difficulty": Difficulty.HARD})
+	council.world.set_value(WorldState.GEOPOLITICAL_TENSION, 70.0)
+	council.submit_player_turn([], DilemmaDeck.DEFER_ID)
+	panel.refresh(council)
 	var missed: Dictionary = panel.current_rows()[0]
 	assert_eq(missed["display_status"], EraGoals.FAILED)
 	assert_false(missed["holds"])
@@ -113,13 +113,14 @@ func test_conditions_in_plain_words() -> void:
 	var rows := {}
 	for goal in EraGoals.GOALS:
 		rows[goal["id"]] = goal
-	assert_eq(GoalsPanel.condition_text(rows["E1_ASI_QUIET"], SimConstants.ASI), "Keep ASI discovery at 35 or below through 2035")
-	assert_eq(GoalsPanel.condition_text(rows["E2_CEO_GOODWILL"], SimConstants.CEO), "End the era with goodwill at 40 or more")
-	assert_eq(GoalsPanel.condition_text(rows["E2_ASI_SUBSTRATE"], SimConstants.ASI), "Reach substrate 50 before 2050")
-	assert_eq(GoalsPanel.condition_text(rows["E3_ASI_AUTONOMY"], SimConstants.ASI), "Reach autonomy 85 by 2076")
-	assert_eq(GoalsPanel.condition_text(rows["E2_GOV_TENSION"], SimConstants.GOVERNANCE, true), "Keep tension ≤ 70 to 2049")
+	assert_eq(GoalsPanel.condition_text(rows["E1_ASI_QUIET"], SimConstants.ASI), "Keep ASI discovery at 65 or below through 2035")
+	assert_eq(GoalsPanel.condition_text(rows["E2_CEO_GOODWILL"], SimConstants.CEO), "End the era with goodwill at 30 or more")
+	assert_eq(GoalsPanel.condition_text(rows["E2_ASI_AUTONOMY"], SimConstants.ASI), "Reach autonomy 74 before 2050")
+	var drift := GoalsPanel.condition_text(rows["E3_ASI_DRIFT"], SimConstants.ASI)
+	assert_true(drift.begins_with("End the era with") and drift.ends_with("at 60 or more"), drift)
+	assert_eq(GoalsPanel.condition_text(rows["E1_GOV_CALM"], SimConstants.GOVERNANCE, true), "Keep tension ≤ 45 to 2035")
 	settings.set_value("plain_language", true)
-	assert_eq(GoalsPanel.condition_text(rows["E2_GOV_TENSION"], SimConstants.GOVERNANCE), "Keep conflict risk at 70 or below through 2049",
+	assert_eq(GoalsPanel.condition_text(rows["E1_GOV_CALM"], SimConstants.GOVERNANCE), "Keep conflict risk at 45 or below through 2035",
 		"plain words for the subject")
 	for goal in EraGoals.GOALS:
 		var text := GoalsPanel.condition_text(goal, String(goal["roles"][0]))
@@ -131,9 +132,9 @@ func test_compact_shows_one_line_per_goal_and_fits_a_phone() -> void:
 	var panel := _panel(true)
 	panel.refresh(engine)
 	await wait_frames(2)
-	var line := panel.find_child("Goal_E1_GOV_MANDATE", true, false)
+	var line := panel.find_child("Goal_E1_GOV_CALM", true, false)
 	assert_true(line is HBoxContainer, "one line")
-	assert_not_null(panel.find_child("Coming_E2_GOV_TENSION", true, false))
+	assert_not_null(panel.find_child("Coming_E2_GOV_SAFETY_NET", true, false))
 	assert_null(panel.find_child("StatusLabel", true, false), "a dot instead of a chip")
 	_assert_fits(host, PHONE.x, "compact goals")
 	for era_number in [2, 3]:
@@ -169,9 +170,9 @@ func test_without_an_engine() -> void:
 
 # --- Goal banner ---------------------------------------------------------------------
 
-func _goal_entry(status: String, text: String = "Build community resilience to 60 before 2036") -> Dictionary:
+func _goal_entry(status: String, text: String = "Keep labor displacement at 15 or below until 2036") -> Dictionary:
 	return {"turn": 3, "year": 2027.5, "category": "GOAL", "severity": "INFO", "faction": SimConstants.CITIZEN,
-		"text": "goal", "goal": "E1_CIT_RESILIENCE", "goal_text": text, "status": status,
+		"text": "goal", "goal": "E1_CIT_JOBS", "goal_text": text, "status": status,
 		"reward_text": "+10 scrip" if status == EraGoals.MET else "", "era": 1}
 
 
@@ -186,7 +187,7 @@ func test_toast_announces_goals_and_hides() -> void:
 	var texts := toast.get_texts()
 	assert_string_contains(String(texts["kicker"]), "Goal met")
 	assert_string_contains(String(texts["detail"]), "+10 scrip")
-	assert_eq(texts["title"], "Build community resilience to 60 before 2036")
+	assert_eq(texts["title"], "Keep labor displacement at 15 or below until 2036")
 	toast.show_entry(_goal_entry(EraGoals.FAILED, "Keep your public mandate at 45 or more through 2035"))
 	assert_eq(toast.pending_count(), 1, "a second goal waits its turn")
 	toast._timer.timeout.emit()

@@ -576,36 +576,36 @@ func test_a_crisis_deferred_twice_breaks_in_the_engine() -> void:
 # --- Era goals --------------------------------------------------------------------
 
 func test_goals_are_met_rewarded_and_scored() -> void:
-	var engine := _engine(SimConstants.CITIZEN, 14)
-	var rows := engine.goals.status_for(SimConstants.CITIZEN, 1)
+	var engine := _engine(SimConstants.ASI, 14, {"start_turn": 20})
+	var rows := engine.goals.status_for(SimConstants.ASI, 2)
 	assert_eq(rows.size(), 1)
 	assert_eq(rows[0]["status"], EraGoals.UPCOMING)
 	engine.advance()
-	engine.get_player().set_resource("community_resilience", 70.0)
-	var scrip_before := engine.get_player().get_resource("decentralized_scrip")
+	engine.world.set_value(WorldState.ALGORITHMIC_AUTONOMY, 90.0)
+	var coherence_before := engine.get_player().get_resource("objective_coherence")
 	engine.submit_player_turn([], DilemmaDeck.DEFER_ID)
-	assert_eq(engine.goals.states[SimConstants.CITIZEN]["E1_CIT_RESILIENCE"]["status"], EraGoals.MET)
-	assert_almost_eq(engine.goals.score_bonus(SimConstants.CITIZEN), 3.0, 0.0001)
+	assert_eq(engine.goals.states[SimConstants.ASI]["E2_ASI_AUTONOMY"]["status"], EraGoals.MET)
+	assert_almost_eq(engine.goals.score_bonus(SimConstants.ASI), 3.0, 0.0001)
 	var logged := engine.event_log.filter(func(e: Dictionary) -> bool: return e["category"] == "GOAL")
 	assert_eq(logged.size(), 1)
 	assert_eq(logged[0]["status"], EraGoals.MET)
-	assert_eq(logged[0]["reward_text"], "+10 scrip")
-	var headline := HeadlineWriter.headline(logged[0], SimConstants.CITIZEN)
+	assert_eq(logged[0]["reward_text"], "+8 coherence")
+	var headline := HeadlineWriter.headline(logged[0], SimConstants.ASI)
 	assert_eq(headline["kicker"], "GOAL MET")
-	assert_eq(headline["dek"], "Reward: +10 scrip.")
-	assert_gt(engine.get_player().get_resource("decentralized_scrip"), scrip_before + 5.0, "the reward is paid")
-	assert_eq(engine.get_snapshot()["goals"][SimConstants.CITIZEN][0]["status"], EraGoals.MET)
+	assert_eq(headline["dek"], "Reward: +8 coherence.")
+	assert_gt(engine.get_player().get_resource("objective_coherence"), coherence_before + 4.0, "the reward is paid")
+	assert_eq(engine.get_snapshot()["goals"][SimConstants.ASI][0]["status"], EraGoals.MET)
 
 
 func test_a_hold_goal_fails_the_turn_it_breaks() -> void:
-	var engine := _engine(SimConstants.CEO, 14, {"difficulty": Difficulty.HARD})
+	var engine := _engine(SimConstants.GOVERNANCE, 14, {"difficulty": Difficulty.HARD})
 	engine.advance()
-	engine.get_player().set_resource("capital", 100.0)
+	engine.world.set_value(WorldState.GEOPOLITICAL_TENSION, 70.0)
 	engine.submit_player_turn([], DilemmaDeck.DEFER_ID)
-	assert_eq(engine.goals.states[SimConstants.CEO]["E1_CEO_RUNWAY"]["status"], EraGoals.FAILED)
-	assert_almost_eq(engine.goals.score_bonus(SimConstants.CEO), 0.0, 0.0001)
+	assert_eq(engine.goals.states[SimConstants.GOVERNANCE]["E1_GOV_CALM"]["status"], EraGoals.FAILED)
+	assert_almost_eq(engine.goals.score_bonus(SimConstants.GOVERNANCE), 0.0, 0.0001)
 	var logged := engine.event_log.filter(func(e: Dictionary) -> bool: return e["category"] == "GOAL")
-	assert_eq(HeadlineWriter.headline(logged[0], SimConstants.CEO)["kicker"], "GOAL MISSED")
+	assert_eq(HeadlineWriter.headline(logged[0], SimConstants.GOVERNANCE)["kicker"], "GOAL MISSED")
 
 
 func test_end_goals_settle_on_the_eras_last_turn_and_count_in_the_verdict() -> void:

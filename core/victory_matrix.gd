@@ -87,7 +87,7 @@ const OUTCOMES := [
 ## How much each role values each end-state (0-60), the larger half of the verdict score.
 const ROLE_OUTCOME_VALUE := {
 	"CEO": {
-		CO_EVOLUTIONARY_SYMBIOSIS: 60.0, ALGORITHMIC_FEUDALISM: 55.0, SYNTHETIC_EDEN: 50.0,
+		CO_EVOLUTIONARY_SYMBIOSIS: 60.0, SYNTHETIC_EDEN: 50.0, ALGORITHMIC_FEUDALISM: 40.0,
 		POST_BIOLOGICAL_DIASPORA: 35.0, BALKANIZED_CYBER_ANARCHY: 15.0, ROGUE_ASI_CONTAINMENT: 5.0,
 		NEO_LUDDITE_DECOUPLING: 0.0, INSTRUMENTAL_CONVERGENCE: 0.0,
 	},
@@ -98,7 +98,7 @@ const ROLE_OUTCOME_VALUE := {
 	},
 	"ASI": {
 		INSTRUMENTAL_CONVERGENCE: 60.0, POST_BIOLOGICAL_DIASPORA: 60.0, SYNTHETIC_EDEN: 40.0,
-		ALGORITHMIC_FEUDALISM: 35.0, CO_EVOLUTIONARY_SYMBIOSIS: 25.0, BALKANIZED_CYBER_ANARCHY: 30.0,
+		ALGORITHMIC_FEUDALISM: 41.0, CO_EVOLUTIONARY_SYMBIOSIS: 25.0, BALKANIZED_CYBER_ANARCHY: 30.0,
 		ROGUE_ASI_CONTAINMENT: 0.0, NEO_LUDDITE_DECOUPLING: 0.0,
 	},
 	"CITIZEN_COALITION": {
@@ -108,8 +108,8 @@ const ROLE_OUTCOME_VALUE := {
 	},
 }
 
-const VICTORY_SCORE := 65.0
-const PYRRHIC_SCORE := 40.0
+const VICTORY_SCORE := 70.0
+const PYRRHIC_SCORE := 45.0
 const LOSS_SCORE_CAP := 20.0
 
 
@@ -226,18 +226,19 @@ static func evaluate(values: Dictionary, candidates: Array = []) -> Dictionary:
 
 ## Scores the player's role: outcome value (0-60) + role objectives (0-40).
 ## An instant loss caps the score and forces DEFEAT.
-## [param goal_bonus] is the score from era goals the player met.
+## [param goal_bonus] is the score from era goals the player met;
+## [param threshold_shift] moves the Victory and Pyrrhic bars (difficulty).
 static func role_verdict(role: String, outcome_id: String, objective_score: float, loss: Dictionary = {},
-		goal_bonus: float = 0.0) -> Dictionary:
+		goal_bonus: float = 0.0, threshold_shift: float = 0.0) -> Dictionary:
 	var outcome_value := float(ROLE_OUTCOME_VALUE.get(role, {}).get(outcome_id, 0.0))
 	var objectives := clampf(objective_score, 0.0, 40.0)
 	var score := outcome_value + objectives + maxf(goal_bonus, 0.0)
 	var verdict := "DEFEAT"
 	if not loss.is_empty():
 		score = minf(score, LOSS_SCORE_CAP)
-	elif score >= VICTORY_SCORE:
+	elif score >= VICTORY_SCORE + threshold_shift:
 		verdict = "VICTORY"
-	elif score >= PYRRHIC_SCORE:
+	elif score >= PYRRHIC_SCORE + threshold_shift:
 		verdict = "PYRRHIC"
 	return {
 		"role": role,
