@@ -46,7 +46,7 @@ func test_rows_come_from_the_engine() -> void:
 	var panel := _panel()
 	panel.refresh(engine)
 	var rows := panel.get_rows()
-	assert_eq(rows.size(), 2, "this era's goal and the next era's")
+	assert_eq(rows.size(), 4, "this era's two goals and the next era's")
 	var current: Dictionary = rows[0]
 	assert_eq(current["id"], "E1_CEO_RUNWAY")
 	assert_eq(current["display_status"], EraGoals.ACTIVE, "an era-one goal is in play from the first turn")
@@ -55,10 +55,10 @@ func test_rows_come_from_the_engine() -> void:
 	assert_true(current["holds"], "the lab starts above $150B")
 	assert_eq(current["condition"], "End the era with capital at $150B or more")
 	assert_eq(current["condition_short"], "End era with capital ≥ $150B")
-	var coming: Dictionary = rows[1]
+	var coming: Dictionary = rows[2]
 	assert_eq(coming["id"], "E2_CEO_GOODWILL")
 	assert_eq(coming["display_status"], EraGoals.UPCOMING)
-	assert_eq(panel.current_rows().size(), 1)
+	assert_eq(panel.current_rows().size(), 2)
 	assert_not_null(panel.find_child("Goal_E1_CEO_RUNWAY", true, false), "a row for the goal")
 	assert_not_null(panel.find_child("Coming_E2_CEO_GOODWILL", true, false), "next era's goal as coming up")
 	var chip := panel.find_child("StatusLabel", true, false) as Label

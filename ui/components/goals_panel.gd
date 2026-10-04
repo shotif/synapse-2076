@@ -23,6 +23,9 @@ const ERA_LAST_YEAR := {1: 2035, 2: 2049, 3: 2076}
 const ERA_END_YEAR := {1: 2036, 2: 2050, 3: 2076}
 const COMPACT_BAR_WIDTH := 44.0
 
+## False hides the next era's goals while this era's are still in play (the
+## ACT column).
+var show_coming := true
 var compact := false
 
 var _style: EraStyle
@@ -222,6 +225,9 @@ func _rebuild() -> void:
 		_box.add_child(_header(s))
 	var current := current_rows()
 	var coming := _rows.filter(func(row: Dictionary) -> bool: return int(row["era"]) > _era)
+	if not show_coming and current.any(func(row: Dictionary) -> bool: return String(row["display_status"]) == EraGoals.ACTIVE):
+		# Tight spaces show what is still in play; the next era once this one is settled.
+		coming = []
 	if current.is_empty():
 		var empty := _text(s, tr("No goals this era.") if _role != "" else tr("Goals appear when a campaign starts."), 12, s.text_dim, false)
 		_box.add_child(empty)
@@ -236,7 +242,7 @@ func _header(s: EraStyle) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.add_child(Glyphs.icon("flag", 16, s.accent))
-	var title := _text(s, s.label(tr("Era %s goal") % EraStyle.ROMAN.get(_era, "I")), 14, s.text_bright, false, s.font_ui_bold)
+	var title := _text(s, s.label(tr("Era %s goals") % EraStyle.ROMAN.get(_era, "I")), 14, s.text_bright, false, s.font_ui_bold)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(title)

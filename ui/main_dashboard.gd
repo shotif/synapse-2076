@@ -781,6 +781,7 @@ func _build_feature_layers() -> void:
 	_goals = GoalsPanel.new()
 	_goals.name = "GoalsPanel"
 	_goals.set_compact(true)
+	_goals.show_coming = false
 	act_box.add_child(_goals)
 	act_box.move_child(_goals, 1)
 
