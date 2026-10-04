@@ -3,7 +3,10 @@ extends PanelContainer
 ## One crisis as a card: the category illustration (CrisisArt), category and
 ## severity dots, an "Escalated ×N" chip, where the card came from ("Injected
 ## by …", "Returns after deferral"), the title without its escalation prefix,
-## a one-sentence brief, and swipe hints for the first two responses.
+## a one-sentence brief, and swipe hints for the first two responses. A card
+## that names a recurring character ("character") shows them in a
+## CharacterBadge whose portrait sits on the illustration's bottom edge; see
+## set_story_context().
 ##
 ## The look follows the era: paper in Era I, glass with a chamfered cyan frame
 ## and corner brackets in Era II, a dark organic cell with a magenta edge in
@@ -59,6 +62,12 @@ var _body_label: Label
 var _hint_margin: MarginContainer
 var _hint_left: Label
 var _hint_right: Label
+var _badge_margin: MarginContainer
+var _badge: CharacterBadge
+# Story context for the badge (set_story_context).
+var _story_year := 0.0
+var _story_scores := {}
+var _story_memories := {}
 
 
 func _init() -> void:
@@ -81,6 +90,7 @@ func apply_style(s: EraStyle) -> void:
 	add_theme_stylebox_override("panel", box)
 	_decor.configure(s, radii, _colors["edge"])
 	_art.configure(s, _colors["tag"])
+	_badge.set_palette(badge_palette(s, _colors))
 	var pill: Array[float] = [99.0, 99.0, 99.0, 99.0]
 	var chip := shape_box(pill, 8)
 	chip.bg_color = _colors["chip_bg"]
@@ -138,6 +148,24 @@ func show_card(card: Dictionary) -> void:
 	_hint_left.text = "← " + short_label(card_id, 0, String((options[0] as Dictionary).get("label", ""))) if options.size() > 0 else ""
 	_hint_right.text = short_label(card_id, 1, String((options[1] as Dictionary).get("label", ""))) + " →" if options.size() > 1 else ""
 	_update_art()
+	_update_badge()
+
+
+## The story behind the next cards: the campaign [param year] (0 dates each
+## card by its turn), how each recurring character feels about the players
+## ([param character_scores], DilemmaDeck.characters) and what they remember
+## ([param memories]: character id -> line). Cards shown without it get a
+## neutral badge with no memory.
+func set_story_context(year: float, character_scores: Dictionary, memories: Dictionary) -> void:
+	_story_year = year if is_finite(year) else 0.0
+	_story_scores = character_scores.duplicate()
+	_story_memories = memories.duplicate()
+	_update_badge()
+
+
+## The badge naming the card's character (hidden when it names none).
+func get_badge() -> CharacterBadge:
+	return _badge
 
 
 ## Names the response a swipe or hold would choose, on [param side] of the
@@ -200,6 +228,14 @@ static func card_colors(s: EraStyle) -> Dictionary:
 		"chip_bg": Color("#C2410C", 0.12), "tag": Color(0.055, 0.063, 0.082, 0.86)}
 
 
+## CharacterBadge colors on the card (see CharacterBadge.set_palette): ink on
+## paper in Era I, the era's signals on glass and cells.
+static func badge_palette(s: EraStyle, colors: Dictionary) -> Dictionary:
+	return {"name": colors["title"], "role": colors["meta"], "memory": colors["body"], "neutral": colors["meta"],
+		"good": colors["kicker"] if s.era == 1 else s.good, "bad": colors["chip_text"] if s.era == 1 else s.bad,
+		"chip": 0.1 if s.era == 1 else 0.14, "ring": colors["card"]}
+
+
 ## Card corner radii [top-left, top-right, bottom-right, bottom-left] per era.
 static func card_radii(s: EraStyle) -> Array[float]:
 	var radii: Array[float] = []
@@ -242,6 +278,12 @@ func _build() -> void:
 	_art = CardArt.new()
 	_art.name = "Art"
 	stack.add_child(_art)
+	_badge_margin = MarginContainer.new()
+	_badge_margin.name = "BadgeMargin"
+	_badge_margin.visible = false
+	stack.add_child(_badge_margin)
+	_badge = CharacterBadge.new()
+	_badge_margin.add_child(_badge)
 	_text_margin = MarginContainer.new()
 	stack.add_child(_text_margin)
 	var text := VBoxContainer.new()
@@ -339,6 +381,14 @@ func _apply_fonts() -> void:
 	_text_margin.add_theme_constant_override("margin_bottom", 10)
 	_hint_margin.add_theme_constant_override("margin_top", 6)
 	_hint_margin.add_theme_constant_override("margin_bottom", 12 if compact else 16)
+	# The badge's portrait sits centered on the illustration's bottom edge.
+	var badge_gap := 10
+	for side in ["left", "right"]:
+		_badge_margin.add_theme_constant_override("margin_" + side, pad)
+	_badge_margin.add_theme_constant_override("margin_top", badge_gap)
+	_badge_margin.add_theme_constant_override("margin_bottom", 0)
+	_badge.set_compact(compact)
+	_badge.set_overlap(_badge.portrait_size() * 0.5 + badge_gap)
 	style_label(_category_label, s.font_mono, 11, c["meta"])
 	style_label(_severity_label, s.font_mono, 11, c["severity"])
 	style_label(_chip_label, s.font_mono, 10, c["chip_text"])
@@ -366,6 +416,17 @@ func _update_art() -> void:
 	_art.texture = CrisisArt.texture_for(String(data.get("category", "CRISIS")), _style.era,
 		Vector2i(roundi(_width), roundi(_art_height)), Vector2(radii[0], radii[1]))
 	_art.queue_redraw()
+
+
+## Shows the card's character, if it names one, as of the story context.
+func _update_badge() -> void:
+	var character_id := String(data.get("character", ""))
+	_badge_margin.visible = Characters.exists(character_id)
+	if not _badge_margin.visible:
+		_badge.present("", 0.0, 0.0, "")
+		return
+	var year := _story_year if _story_year > 0.0 else SimConstants.year_for_turn(int(data.get("turn", 0)))
+	_badge.present(character_id, year, float(_story_scores.get(character_id, 0.0)), String(_story_memories.get(character_id, "")))
 
 
 ## Small labels in the era's voice: capitals in Eras I and II, lower case in

@@ -226,3 +226,27 @@ func test_settings_and_the_first_campaign_coach() -> void:
 	assert_true(dashboard._coach.is_running(), "the first campaign is coached")
 	dashboard._coach.skip()
 	assert_true(bool(GameSettings.value("coach_done")))
+
+
+func test_people_page_and_the_character_on_the_card() -> void:
+	dashboard.start_campaign(SimConstants.CITIZEN, 21, false)
+	await tree.process_frame
+	var engine: SimulationEngine = dashboard.engine
+	dashboard._open_people()
+	assert_true(dashboard._people_layer.visible)
+	assert_eq(dashboard._cast.card_count(), 0, "nobody met yet")
+	dashboard._cast.closed.emit()
+	assert_false(dashboard._people_layer.visible)
+	engine.deck.characters_met["maya"] = {"first_turn": 1, "last_turn": 1, "count": 1}
+	engine.deck.adjust_character("maya", 2.0)
+	dashboard._open_people()
+	assert_eq(dashboard._cast.card_count(), 1, "Maya is on the People page")
+	dashboard._people_layer.visible = false
+	var card: Dictionary = engine.current_dilemma.duplicate(true)
+	card["character"] = "maya"
+	dashboard._set_story_context(card)
+	var dialog: DilemmaDialog = dashboard.get_node("%DilemmaDialog")
+	dialog.present(card, engine.get_player().resources, engine.player_role, engine.world.metrics_dict())
+	await tree.process_frame
+	var badge: CharacterBadge = dialog.get_card().get_badge()
+	assert_true(badge.visible, "the card shows who it is about")

@@ -101,6 +101,11 @@ var _audio: AudioDirector
 ## Pass-and-play: the cover between players, whose desk is showing, and how
 ## much of the log each player has seen.
 var _pass_device: PassDevice
+## The People page: everyone the players have met, at their age today.
+var _people_layer: Control
+var _people_frame: MarginContainer
+var _people_panel: PanelContainer
+var _cast: CastPanel
 var _desk_role := ""
 var _seen := {}
 var _handoff_context := {}
@@ -339,6 +344,50 @@ func _continue_campaign() -> void:
 	_meta = {"mode": String(file.get("mode", CampaignModes.mode_for(resumed.options))), "daily": String(file.get("daily", "")),
 		"spectate": false}
 	resume_campaign(resumed)
+
+
+## The year, how each recurring character feels about the players and what
+## the card's character remembers, for the portrait on the crisis card.
+func _set_story_context(card: Dictionary) -> void:
+	var memories := {}
+	var who := String(card.get("character", ""))
+	if Characters.exists(who):
+		memories[who] = Characters.memory_line(who, engine.deck)
+	_dilemma.set_story_context(engine.get_year(), engine.deck.characters, memories)
+
+
+func _build_people_page() -> void:
+	_people_layer = Control.new()
+	_people_layer.name = "PeoplePage"
+	_people_layer.z_index = 2
+	_people_layer.visible = false
+	add_child(_people_layer)
+	_people_frame = UiLayout.build_overlay(_people_layer, Color(0, 0, 0, 0.62))
+	_people_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_people_panel = PanelContainer.new()
+	_people_panel.theme_type_variation = "OverlayPanel"
+	_people_frame.add_child(_people_panel)
+	_cast = CastPanel.new()
+	_cast.set_scrolling(false)
+	_cast.set_closable(true)
+	_cast.closed.connect(func(): _people_layer.visible = false)
+	_people_panel.add_child(_cast)
+
+
+func _open_people() -> void:
+	var entries: Array = []
+	var year := float(SimConstants.START_YEAR)
+	if engine != null:
+		var memories := {}
+		for character_id in engine.deck.characters_met:
+			memories[character_id] = Characters.memory_line(String(character_id), engine.deck)
+		entries = CastPanel.entries_from(engine.deck.characters_met, engine.deck.characters, memories)
+		year = engine.get_year()
+	_cast.set_compact(compact)
+	_people_panel.custom_minimum_size.x = UiLayout.panel_width(size.x, 900.0, compact)
+	UiLayout.set_overlay_margin(_people_frame, compact)
+	_cast.set_cast(entries, year)
+	_people_layer.visible = true
 
 
 ## "What if?": back to [param turn]'s decision of the campaign that just ended.
@@ -758,6 +807,7 @@ func _build_feature_layers() -> void:
 	_share_card = ShareCard.new()
 	_share_card.name = "ShareCard"
 	add_child(_share_card)
+	_build_people_page()
 	_coach = Coach.new()
 	_coach.name = "Coach"
 	_coach.tab_requested.connect(show_tab)
@@ -791,6 +841,7 @@ func _build_menu() -> void:
 	_menu_panel.add_child(box)
 	box.add_child(_menu_item("New campaign", "home", func(): _show_role_select()))
 	box.add_child(_menu_item("Settings", "settings", func(): _open_settings()))
+	box.add_child(_menu_item("People", "person", func(): _open_people()))
 	box.add_child(_menu_item("Endings", "flag", func(): _open_endings()))
 	box.add_child(_menu_item("AI settings", "spark", func(): _open_llm_settings()))
 	if OS.has_feature("web"):
@@ -1088,6 +1139,7 @@ func _present_crisis(context: Dictionary) -> void:
 	_audio.play_sfx("card_appear")
 	if screen_mode != UiLayout.MODE_DESKTOP:
 		show_tab("act")
+	_set_story_context(context["dilemma"])
 	_dilemma.present(context["dilemma"], context["resources"], engine.player_role, engine.world.metrics_dict())
 	if _should_coach():
 		_coach.begin(_coach_targets())
@@ -1153,6 +1205,7 @@ func _on_desk_revealed(role: String) -> void:
 func _reopen_crisis() -> void:
 	if engine != null and engine.is_awaiting_player():
 		_audio.play_sfx("card_appear")
+		_set_story_context(engine.current_dilemma)
 		_dilemma.present(engine.current_dilemma, engine.get_player().resources, engine.player_role, engine.world.metrics_dict())
 
 
