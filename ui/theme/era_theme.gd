@@ -12,19 +12,80 @@ extends RefCounted
 ## border_strong, shade, text, text_dim, text_bright, accent, accent_hover,
 ## on_accent, good, bad, warn, critical, metric_<key>, faction_<id>), fonts
 ## (ui, ui_bold, display, mono, mono_bold) and constants (era, radius,
-## control_radius), so custom-drawn widgets follow the active era.
+## control_radius, colorblind, text_scale_pct), so custom-drawn widgets follow
+## the active era.
+##
+## Accessibility: every font size in the theme follows GameSettings
+## "text_scale", and the colors follow "colorblind" (EraStyle variants). Themes
+## are cached per era and settings. When either setting changes, call
+## [method invalidate], re-apply [method get_theme] to the root control and
+## call [method rescale_tree] on it, so explicit font-size overrides made with
+## [method set_scaled_font_size] follow too:
+##
+##   GameSettings.instance().changed.connect(func(key: String, _value: Variant) -> void:
+##       if key in EraTheme.SETTING_KEYS:
+##           EraTheme.invalidate()
+##           theme = EraTheme.get_theme(era)
+##           EraTheme.rescale_tree(self))
 
 const COLOR_NAMES := ["bg", "surface", "raised", "overlay", "border", "border_strong", "shade", "text", "text_dim",
 	"text_bright", "accent", "accent_hover", "on_accent", "good", "bad", "warn", "critical"]
+## GameSettings keys that change the theme.
+const SETTING_KEYS := ["text_scale", "colorblind"]
+## Meta holding the unscaled sizes set through set_scaled_font_size().
+const BASE_SIZES_META := &"era_base_font_sizes"
 
 static var _cache := {}
 
 
+## The theme of [param era] (1-3) for the current accessibility settings.
 static func get_theme(era: int) -> Theme:
-	var key := clampi(era, 1, 3)
+	var style := EraStyle.for_era(era)
+	var key := style.variant_key()
 	if not _cache.has(key):
-		_cache[key] = build(EraStyle.for_era(key))
+		_cache[key] = build(style)
 	return _cache[key]
+
+
+## Forgets the cached themes (call when "text_scale" or "colorblind" changes).
+static func invalidate() -> void:
+	_cache.clear()
+	EraStyle.forget_current()
+
+
+## GameSettings "text_scale": 1.0, 1.15 or 1.3.
+static func text_scale() -> float:
+	return EraStyle.text_scale_setting()
+
+
+## [param base_size] (a font size at 100%) at the current text size.
+static func scaled(base_size: float) -> int:
+	return maxi(1, roundi(base_size * text_scale()))
+
+
+## Sets [param control]'s [param property] font size override (font_size for
+## labels and buttons, normal_font_size and friends for rich text) to
+## [param base_size] at the current text size, and remembers the base so
+## [method rescale_tree] can follow later changes.
+static func set_scaled_font_size(control: Control, base_size: int, property: StringName = &"font_size") -> void:
+	var bases: Dictionary = control.get_meta(BASE_SIZES_META, {})
+	bases[property] = base_size
+	control.set_meta(BASE_SIZES_META, bases)
+	control.add_theme_font_size_override(property, scaled(base_size))
+
+
+## Re-applies every size set with [method set_scaled_font_size] at or under
+## [param root] at the current text size.
+static func rescale_tree(root: Node) -> void:
+	var nodes: Array = root.find_children("*", "Control", true, false)
+	nodes.append(root)
+	for node in nodes:
+		var control := node as Control
+		if control == null or not control.has_meta(BASE_SIZES_META):
+			continue
+		var bases: Dictionary = control.get_meta(BASE_SIZES_META)
+		for property in bases:
+			control.add_theme_font_size_override(property, scaled(float(bases[property])))
 
 
 ## The EraStyle behind [param control]'s inherited theme (Era I when none).
@@ -37,12 +98,14 @@ static func style_of(control: Control) -> EraStyle:
 static func build(s: EraStyle) -> Theme:
 	var t := Theme.new()
 	t.default_font = s.font_ui
-	t.default_font_size = 14
+	t.default_font_size = s.scaled(14)
 
 	# Era data for custom-drawn widgets.
 	t.set_constant("era", "Era", s.era)
 	t.set_constant("radius", "Era", s.radius)
 	t.set_constant("control_radius", "Era", s.control_radius)
+	t.set_constant("colorblind", "Era", 1 if s.colorblind else 0)
+	t.set_constant("text_scale_pct", "Era", roundi(s.text_scale * 100.0))
 	for color_name in COLOR_NAMES:
 		t.set_color(color_name, "Era", s.get(color_name))
 	for key in s.metric:
@@ -128,7 +191,7 @@ static func build(s: EraStyle) -> Theme:
 	t.set_color("font_pressed_color", "ChipButton", s.text_bright)
 	t.set_color("font_hover_pressed_color", "ChipButton", s.text_bright)
 	t.set_color("font_hover_color", "ChipButton", s.text_bright)
-	t.set_font_size("font_size", "ChipButton", 13)
+	t.set_font_size("font_size", "ChipButton", s.scaled(13))
 
 	t.set_type_variation("TabButton", "Button")
 	var tab_clear := box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, r, 6, 6, s.corner_detail)
@@ -143,17 +206,17 @@ static func build(s: EraStyle) -> Theme:
 	t.set_color("icon_pressed_color", "TabButton", s.accent)
 	t.set_color("icon_hover_pressed_color", "TabButton", s.accent)
 	t.set_font("font", "TabButton", s.font_ui_bold)
-	t.set_font_size("font_size", "TabButton", 11)
+	t.set_font_size("font_size", "TabButton", s.scaled(11))
 
 	# Labels.
 	t.set_color("font_color", "Label", s.text)
-	_label(t, "HeaderTitle", s.font_display, 20, s.accent if s.era == 2 else s.text_bright)
-	_label(t, "DisplayTitle", s.font_display, 30, s.text_bright)
-	_label(t, "PanelTitle", s.font_ui_bold, 13 if s.labels_upper else 15, s.accent if s.era == 2 else s.text_bright)
-	_label(t, "DimLabel", s.font_ui, 12, s.text_dim)
-	_label(t, "ValueLabel", s.font_mono_bold, 14, s.text_bright)
-	_label(t, "Caption", s.font_ui, 11, s.text_dim)
-	_label(t, "Kicker", s.font_mono, 11, s.accent)
+	_label(t, "HeaderTitle", s.font_display, s.scaled(20), s.accent if s.era == 2 else s.text_bright)
+	_label(t, "DisplayTitle", s.font_display, s.scaled(30), s.text_bright)
+	_label(t, "PanelTitle", s.font_ui_bold, s.scaled(13 if s.labels_upper else 15), s.accent if s.era == 2 else s.text_bright)
+	_label(t, "DimLabel", s.font_ui, s.scaled(12), s.text_dim)
+	_label(t, "ValueLabel", s.font_mono_bold, s.scaled(14), s.text_bright)
+	_label(t, "Caption", s.font_ui, s.scaled(11), s.text_dim)
+	_label(t, "Kicker", s.font_mono, s.scaled(11), s.accent)
 
 	# Progress bars and sliders.
 	t.set_stylebox("background", "ProgressBar", box(Color(s.text, 0.1), Color(0, 0, 0, 0), 0, 3))
@@ -201,8 +264,8 @@ static func build(s: EraStyle) -> Theme:
 	t.set_font("normal_font", "RichTextLabel", s.font_ui)
 	t.set_font("bold_font", "RichTextLabel", s.font_ui_bold)
 	t.set_font("mono_font", "RichTextLabel", s.font_mono)
-	t.set_font_size("normal_font_size", "RichTextLabel", 13)
-	t.set_font_size("bold_font_size", "RichTextLabel", 13)
+	t.set_font_size("normal_font_size", "RichTextLabel", s.scaled(13))
+	t.set_font_size("bold_font_size", "RichTextLabel", s.scaled(13))
 	t.set_color("default_color", "RichTextLabel", s.text)
 	t.set_stylebox("normal", "RichTextLabel", StyleBoxEmpty.new())
 
@@ -216,7 +279,7 @@ static func build(s: EraStyle) -> Theme:
 	# Tooltips.
 	t.set_stylebox("panel", "TooltipPanel", box(s.overlay, s.border_strong, 1, r, 10, 7, s.corner_detail))
 	t.set_color("font_color", "TooltipLabel", s.text_bright)
-	t.set_font_size("font_size", "TooltipLabel", 12)
+	t.set_font_size("font_size", "TooltipLabel", s.scaled(12))
 
 	t.set_constant("separation", "HSeparator", 10)
 	t.set_stylebox("separator", "HSeparator", CyberTheme.line_box(s.border))

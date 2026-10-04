@@ -56,7 +56,8 @@ static func role_title(role: String) -> String:
 	return String(ROLE_TITLES.get(role, role.capitalize()))
 
 
-## One-word currency names for tiles and chips.
+## One-word currency names for tiles and chips (resource_name() returns the
+## plain label instead when GameSettings "plain_language" is on).
 const RESOURCE_NAMES := {
 	"capital": "Capital", "talent": "Talent", "compute_clusters": "Compute", "regulatory_goodwill": "Goodwill",
 	"political_capital": "Political", "enforcement_budget": "Enforcement", "diplomatic_leverage": "Diplomacy",
@@ -67,6 +68,8 @@ const RESOURCE_NAMES := {
 
 
 static func resource_name(key: String) -> String:
+	if PlainLanguage.enabled() and PlainLanguage.CURRENCIES.has(key):
+		return PlainLanguage.short_name(key)
 	return String(RESOURCE_NAMES.get(key, key.capitalize()))
 
 
@@ -84,7 +87,9 @@ static func format_cost(role: String, cost: Dictionary) -> String:
 	return " + ".join(parts)
 
 
-## One-word metric names for glyph labels and chips.
+## One-word metric names for glyph labels and chips (metric_name() and
+## metric_short() return PlainLanguage's short labels instead when GameSettings
+## "plain_language" is on).
 const METRIC_NAMES := {
 	"compute_energy_sat": "Compute", "labor_displacement": "Labor", "geopolitical_tension": "Tension",
 	"algorithmic_autonomy": "Autonomy", "alignment_drift": "Drift", "epistemic_trust": "Trust",
@@ -92,6 +97,8 @@ const METRIC_NAMES := {
 
 
 static func metric_name(key: String) -> String:
+	if PlainLanguage.enabled() and _has_plain_metric(key):
+		return PlainLanguage.short_name(key)
 	return String(METRIC_NAMES.get(key, metric_short(key)))
 
 
@@ -133,6 +140,8 @@ static func strip_escalation(title: String) -> String:
 
 
 static func metric_short(key: String) -> String:
+	if PlainLanguage.enabled() and _has_plain_metric(key):
+		return PlainLanguage.short_name(key)
 	if WorldState.METRIC_INFO.has(key):
 		return String(WorldState.METRIC_INFO[key]["short"])
 	return String(INDEX_SHORT.get(key, key.capitalize()))
@@ -181,6 +190,11 @@ static func effects_summary(effects: Dictionary, role: String = "") -> String:
 
 static func year_label(year: float) -> String:
 	return "%d" % int(floor(year))
+
+
+## Metrics and indices have plain labels (GameSettings "plain_language").
+static func _has_plain_metric(key: String) -> bool:
+	return PlainLanguage.METRICS.has(key) or PlainLanguage.INDICES.has(key)
 
 
 static func _num(value: float) -> String:

@@ -14,12 +14,17 @@ extends PanelContainer
 ##   lens.directive_requested.connect(_open_act_with_directive)
 ##
 ## A lens keeps its own typography and palette; its frame (corner shape and
-## border) follows the hardware era of the surrounding theme. Subclasses build
-## their sections once in _build() and fill them in _refresh().
+## border) follows the hardware era of the surrounding theme. Its text follows
+## the player's text size and plain-language setting. Subclasses build their
+## sections once in _build() and fill them in _refresh(); widgets that show a
+## metric or index call _tap_metric() so a tap emits metric_pressed.
 
 ## Asks the dashboard to open ACT with [param action_id] (a directive of this
 ## lens's role) selected.
 signal directive_requested(action_id: String)
+## The player tapped a metric or index this lens shows (the dashboard explains
+## its change in a WhyPopup).
+signal metric_pressed(metric_key: String)
 
 ## Samples of the player's currencies kept for sparklines and charts.
 const HISTORY_LIMIT := 40
@@ -27,6 +32,8 @@ const EVENT_LIMIT := 80
 const CONSERVE := "CONSERVE_RESOURCES"
 ## Minimum height of anything a finger has to hit.
 const TOUCH := 44.0
+## A press that moves further than this is a drag (scrolling), not a tap.
+const TAP_SLOP := 12.0
 ## Short lowercase names for currencies in the lenses' plain voice.
 const KEY_WORDS := {
 	"capital": "capital", "talent": "talent", "compute_clusters": "clusters", "regulatory_goodwill": "goodwill",
@@ -371,6 +378,41 @@ func _affordable_intensity(cost: Dictionary) -> float:
 func _ready() -> void:
 	_ensure_built()
 	_refresh_now()
+	GameSettings.instance().changed.connect(_on_game_setting_changed)
+
+
+## Plain names and color-blind colors show at the next refresh.
+func _on_game_setting_changed(key: String, _value: Variant) -> void:
+	if key == "plain_language" or key == "colorblind":
+		_queue_refresh()
+
+
+## Makes [param control] report taps as [signal metric_pressed] with
+## [param metric_key] (or, when empty, its "metric_key" meta, which a refresh
+## can change). Drags still scroll the lens.
+func _tap_metric(control: Control, metric_key: String = "") -> void:
+	if metric_key != "":
+		control.set_meta("metric_key", metric_key)
+	if control.mouse_filter == Control.MOUSE_FILTER_IGNORE:
+		control.mouse_filter = Control.MOUSE_FILTER_PASS
+	control.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	if not control.has_meta("metric_tap"):
+		control.set_meta("metric_tap", true)
+		control.gui_input.connect(_on_metric_input.bind(control))
+
+
+func _on_metric_input(event: InputEvent, control: Control) -> void:
+	var button := event as InputEventMouseButton
+	if button == null or button.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if button.pressed:
+		control.set_meta("tap_from", button.global_position)
+	elif control.has_meta("tap_from"):
+		var start: Vector2 = control.get_meta("tap_from")
+		control.remove_meta("tap_from")
+		var key := String(control.get_meta("metric_key", ""))
+		if key != "" and start.distance_to(button.global_position) <= TAP_SLOP:
+			metric_pressed.emit(key)
 
 
 func _notification(what: int) -> void:
@@ -536,7 +578,7 @@ static func _label(text: String, font: Font, font_size: int, color: Color, wrap:
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_override("font", font)
-	label.add_theme_font_size_override("font_size", font_size)
+	EraTheme.set_scaled_font_size(label, font_size)
 	label.add_theme_color_override("font_color", color)
 	if wrap:
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -592,7 +634,7 @@ static func _style_button(button: Button, boxes: Dictionary, font: Font, font_si
 	button.add_theme_stylebox_override("disabled", boxes.get("disabled", normal))
 	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	button.add_theme_font_override("font", font)
-	button.add_theme_font_size_override("font_size", font_size)
+	EraTheme.set_scaled_font_size(button, font_size)
 	for key in colors:
 		button.add_theme_color_override(key, colors[key])
 

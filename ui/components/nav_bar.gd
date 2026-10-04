@@ -120,7 +120,7 @@ func _apply_styles() -> void:
 		button.custom_minimum_size = Vector2(ROUND_SIZE, ROUND_SIZE) if round_tabs else Vector2(0, 54 if s.era == 1 else 56)
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER if round_tabs else Control.SIZE_EXPAND_FILL
 		button.add_theme_font_override("font", s.font_ui_bold)
-		button.add_theme_font_size_override("font_size", 10 if s.era == 1 else 11)
+		EraTheme.set_scaled_font_size(button, 10 if s.era == 1 else 11)
 		button.add_theme_constant_override("h_separation", 3)
 		var fg := _tab_color(s, on)
 		for state in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:

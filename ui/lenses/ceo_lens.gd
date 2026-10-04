@@ -3,8 +3,9 @@ extends LensPanel
 ## Frontier Lab CEO lens ("Markets"): a trading terminal. The world arrives as
 ## a ticker tape and a price sheet, the company as a capital runway and a book
 ## of positions, the last move as a press release and the next directive as an
-## order ticket. Rises print green and falls red, as a trader reads them; the
-## price sheet is shaded by risk to the lab.
+## order ticket. Rises print green and falls red, as a trader reads them
+## (blue and orange with color-blind friendly colors on); the price sheet is
+## shaded by risk to the lab, and a tap on a priced metric explains its change.
 
 const BG := Color("#0A0C0F")
 const PANEL_BG := Color("#0D1014")
@@ -16,6 +17,9 @@ const DIM := Color("#8A96A3")
 const FAINT := Color("#5F6B78")
 const UP := Color("#39FF88")
 const DOWN := Color("#FF5C6C")
+## Rises and falls with GameSettings "colorblind" on.
+const UP_COLORBLIND := Color("#5AAEFF")
+const DOWN_COLORBLIND := Color("#FF9A3D")
 const BUTTON_LINE := Color("#2A313A")
 const ON_ACCENT := Color("#04080B")
 
@@ -248,6 +252,7 @@ func _build_priced() -> void:
 		values.add_child(delta)
 		stack.add_child(values)
 		tile.add_child(stack)
+		_tap_metric(tile, String(entry["metric"]))
 		grid.add_child(tile)
 		_tiles.append({"entry": entry, "panel": tile, "caption": caption, "value": value, "delta": delta})
 	block.add_child(grid)
@@ -456,7 +461,7 @@ func _refresh_press() -> void:
 func _refresh_orders() -> void:
 	var primary := suggested_action()
 	var picks := _order_picks(primary)
-	var parts: Array[String] = [primary, _accent.to_html()]
+	var parts: Array[String] = [primary, _accent.to_html(), str(EraStyle.colorblind_enabled())]
 	for action_id in picks:
 		var entry := action_entry(action_id)
 		parts.append("%s|%s|%s" % [action_id, entry.get("blocked_reason", ""), _order_price(action_id)[0]])
@@ -523,7 +528,7 @@ func _order_price(action_id: String) -> Array:
 	if cost.has("capital"):
 		return ["−$%dB" % int(roundf(float(cost["capital"]))), TEXT]
 	if gain > 0.0:
-		return ["+$%dB" % int(roundf(gain)), UP]
+		return ["+$%dB" % int(roundf(gain)), _change_color(1.0, 0)]
 	if cost.is_empty():
 		return ["FREE", TEXT]
 	return ["−" + UiFormat.format_cost(role, cost), TEXT]
@@ -543,6 +548,8 @@ func _change_color(delta: float, decimals: int) -> Color:
 	var shown := roundf(absf(delta) * pow(10.0, decimals))
 	if shown <= 0.0:
 		return DIM
+	if EraStyle.colorblind_enabled():
+		return UP_COLORBLIND if delta > 0.0 else DOWN_COLORBLIND
 	return UP if delta > 0.0 else DOWN
 
 

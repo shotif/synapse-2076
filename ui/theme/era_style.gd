@@ -6,6 +6,14 @@ extends RefCounted
 ## a living interface that the machines arrange. EraTheme turns a style into a
 ## Theme and publishes every value under the "Era" theme type, so custom-drawn
 ## widgets read the same palette and restyle when the dashboard swaps themes.
+##
+## Accessibility settings make variants: with GameSettings "colorblind" on,
+## better and worse (good, bad) are a strong blue and orange in every era and
+## warnings and critical states are amber and deep orange, kept apart in
+## lightness as well as hue; "text_scale" (1.0, 1.15 or 1.3) is carried as
+## [member text_scale] so custom-drawn text can follow it ([method scaled]).
+## [method for_era] returns the variant for the current settings, so a style
+## object changes whenever either setting does.
 
 const NAMES := {1: "Silicon & Nuclear", 2: "Optical & SMR Grids", 3: "Neuromorphic"}
 const SPANS := {1: "2026–2035", 2: "2036–2049", 3: "2050–2076"}
@@ -14,9 +22,20 @@ const FONT_DIR := "res://ui/fonts/"
 ## Covers arrows, triangles, check marks and box drawing that the display
 ## faces lack.
 const SYMBOL_FONT := preload("res://ui/fonts/JetBrainsMono-Regular.ttf")
+## Color-blind friendly signals per era (GameSettings "colorblind"): better is
+## blue, worse orange, warnings amber, critical states deep orange.
+const COLORBLIND := {
+	1: {"good": Color("#4C9EFF"), "bad": Color("#FF9330"), "warn": Color("#FFCC33"), "critical": Color("#FF6B1A")},
+	2: {"good": Color("#3FA9FF"), "bad": Color("#FF9F2E"), "warn": Color("#FFD84D"), "critical": Color("#FF7629")},
+	3: {"good": Color("#79B8FF"), "bad": Color("#FFAA4D"), "warn": Color("#FFE07A"), "critical": Color("#FF8742")},
+}
 
 var era := 1
 var name := ""
+## True for the color-blind friendly variant.
+var colorblind := false
+## Interface text size (GameSettings "text_scale"): multiply font sizes by it.
+var text_scale := 1.0
 
 # Surfaces.
 var bg := Color.BLACK
@@ -71,13 +90,67 @@ var globe := {}
 
 static var _styles := {}
 static var _fonts := {}
+## era -> the style for the settings in use; cleared when they change, so the
+## common lookup does not read the settings at all.
+static var _current := {}
+static var _current_settings: GameSettings
 
 
+## The style of [param era_number] (1-3) for the current accessibility settings.
 static func for_era(era_number: int) -> EraStyle:
-	var key := clampi(era_number, 1, 3)
+	var era_key := clampi(era_number, 1, 3)
+	var settings := GameSettings.instance()
+	if settings != _current_settings:
+		_current.clear()
+		_current_settings = settings
+		if not settings.changed.is_connected(_on_settings_changed):
+			settings.changed.connect(_on_settings_changed)
+	var style: EraStyle = _current.get(era_key)
+	if style != null:
+		return style
+	var colorblind_on := colorblind_enabled()
+	var scale := text_scale_setting()
+	var key := variant_key_for(era_key, colorblind_on, scale)
 	if not _styles.has(key):
-		_styles[key] = _build(key)
+		_styles[key] = _build(era_key, colorblind_on, scale)
+	_current[era_key] = _styles[key]
 	return _styles[key]
+
+
+static func _on_settings_changed(_key: String, _value: Variant) -> void:
+	forget_current()
+
+
+## Makes the next for_era() read the settings again (EraTheme.invalidate()
+## calls it, so a theme rebuilt in any GameSettings.changed handler is current).
+static func forget_current() -> void:
+	_current.clear()
+
+
+## True when GameSettings "colorblind" is on.
+static func colorblind_enabled() -> bool:
+	return bool(GameSettings.value("colorblind"))
+
+
+## GameSettings "text_scale" (1.0 when unset or invalid).
+static func text_scale_setting() -> float:
+	var value: Variant = GameSettings.value("text_scale")
+	var scale := float(value) if (value is float or value is int) else 1.0
+	return clampf(scale, 0.5, 2.0) if is_finite(scale) else 1.0
+
+
+static func variant_key_for(era_number: int, colorblind_on: bool, scale: float) -> String:
+	return "%d|%d|%d" % [era_number, 1 if colorblind_on else 0, roundi(scale * 100.0)]
+
+
+## Identifies this variant: era, color-blind colors and text size.
+func variant_key() -> String:
+	return variant_key_for(era, colorblind, text_scale)
+
+
+## [param base_size] (a font size at 100%) at the variant's text size.
+func scaled(base_size: float) -> int:
+	return maxi(1, roundi(base_size * text_scale))
 
 
 ## A font face from res://ui/fonts with the symbol fallback attached.
@@ -107,7 +180,7 @@ func label(text_value: String) -> String:
 	return text_value.to_upper() if labels_upper else text_value
 
 
-static func _build(era_number: int) -> EraStyle:
+static func _build(era_number: int, colorblind_on: bool = false, scale: float = 1.0) -> EraStyle:
 	var s := EraStyle.new()
 	s.era = era_number
 	s.name = NAMES[era_number]
@@ -118,6 +191,14 @@ static func _build(era_number: int) -> EraStyle:
 			_build_holographic(s)
 		_:
 			_build_neuromorphic(s)
+	s.text_scale = scale
+	s.colorblind = colorblind_on
+	if colorblind_on:
+		var signals: Dictionary = COLORBLIND[era_number]
+		s.good = signals["good"]
+		s.bad = signals["bad"]
+		s.warn = signals["warn"]
+		s.critical = signals["critical"]
 	return s
 
 

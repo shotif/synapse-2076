@@ -16,7 +16,8 @@ extends BoxContainer
 ##
 ## Statements are untrusted LLM text and only ever go into Label nodes, so any
 ## markup in them is shown literally. The chrome follows the era theme; the
-## serif headline face stays the same in every era.
+## serif headline face stays the same in every era. Text follows the player's
+## text size (EraTheme.set_scaled_font_size).
 
 signal filter_changed(desk: String)
 
@@ -256,18 +257,18 @@ func _restyle() -> void:
 		return
 	var s := EraTheme.style_of(self)
 	_title_label.add_theme_font_override("font", EraStyle.font(SERIF))
-	_title_label.add_theme_font_size_override("font_size", 24 if _horizontal else (28 if _compact else 30))
+	EraTheme.set_scaled_font_size(_title_label, 24 if _horizontal else (28 if _compact else 30))
 	_title_label.add_theme_color_override("font_color", s.text_bright)
 	_title_label.add_theme_constant_override("line_spacing", 0)
 	_meta_label.add_theme_font_override("font", s.font_ui)
-	_meta_label.add_theme_font_size_override("font_size", 12)
+	EraTheme.set_scaled_font_size(_meta_label, 12)
 	_meta_label.add_theme_color_override("font_color", s.text_dim)
 	_meta_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if _horizontal else HORIZONTAL_ALIGNMENT_RIGHT
 	_rule.color = Color(s.text, 0.85)
 	_rule.queue_redraw()
 	_empty_label.add_theme_color_override("font_color", s.text_dim)
 	_empty_label.add_theme_font_override("font", s.font_ui)
-	_empty_label.add_theme_font_size_override("font_size", 13)
+	EraTheme.set_scaled_font_size(_empty_label, 13)
 	for desk in _chip_buttons:
 		var chip: Button = _chip_buttons[desk]
 		chip.custom_minimum_size = Vector2(0, 44 if _compact else 34)
@@ -464,7 +465,7 @@ func _list_body(h: Dictionary, s: EraStyle, tone: Color, title: String, conteste
 		dek.text = String(h["dek"])
 		dek.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		dek.add_theme_font_override("font", s.font_ui)
-		dek.add_theme_font_size_override("font_size", 14)
+		EraTheme.set_scaled_font_size(dek, 14)
 		dek.add_theme_color_override("font_color", s.text_dim)
 		text.add_child(dek)
 	if String(h.get("incoming", "")) != "":
@@ -472,7 +473,7 @@ func _list_body(h: Dictionary, s: EraStyle, tone: Color, title: String, conteste
 		incoming.text = "▸ " + String(h["incoming"])
 		incoming.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		incoming.add_theme_font_override("font", s.font_ui)
-		incoming.add_theme_font_size_override("font_size", 12)
+		EraTheme.set_scaled_font_size(incoming, 12)
 		incoming.add_theme_color_override("font_color", s.warn)
 		text.add_child(incoming)
 	text.add_child(_byline_row(h, s, contested))
@@ -505,7 +506,7 @@ func _kicker_row(h: Dictionary, s: EraStyle, contested: bool, trust: float, with
 	kicker.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	kicker.add_theme_font_override("font", _kicker_font(s))
-	kicker.add_theme_font_size_override("font_size", 11)
+	EraTheme.set_scaled_font_size(kicker, 11)
 	kicker.add_theme_color_override("font_color", _severity_color(String(h["severity"]), s))
 	row.add_child(kicker)
 	if trust < UNCONFIRMED_TRUST:
@@ -522,7 +523,7 @@ func _meta(h: Dictionary, s: EraStyle) -> Label:
 	var meta := Label.new()
 	meta.text = "%d · T%d" % [int(floor(float(h["year"]))), int(h["turn"])]
 	meta.add_theme_font_override("font", s.font_mono)
-	meta.add_theme_font_size_override("font_size", 11)
+	EraTheme.set_scaled_font_size(meta, 11)
 	meta.add_theme_color_override("font_color", s.text_dim)
 	return meta
 
@@ -533,7 +534,7 @@ func _headline_label(title: String, s: EraStyle, font_size: int) -> Label:
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.add_theme_font_override("font", EraStyle.font(SERIF))
-	label.add_theme_font_size_override("font_size", font_size)
+	EraTheme.set_scaled_font_size(label, font_size)
 	label.add_theme_color_override("font_color", s.text_bright)
 	label.add_theme_constant_override("line_spacing", 0)
 	return label
@@ -558,7 +559,7 @@ func _byline_row(h: Dictionary, s: EraStyle, contested: bool) -> Control:
 	byline.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	byline.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	byline.add_theme_font_override("font", s.font_ui)
-	byline.add_theme_font_size_override("font_size", 12)
+	EraTheme.set_scaled_font_size(byline, 12)
 	byline.add_theme_color_override("font_color", s.text_dim)
 	row.add_child(byline)
 	if not contested:
@@ -590,7 +591,7 @@ func _pips(deltas: Dictionary, s: EraStyle) -> Control:
 		var label := Label.new()
 		label.text = marks
 		label.add_theme_font_override("font", EraStyle.SYMBOL_FONT)
-		label.add_theme_font_size_override("font_size", 8)
+		EraTheme.set_scaled_font_size(label, 8)
 		label.add_theme_color_override("font_color", color)
 		label.add_theme_constant_override("line_spacing", 0)
 		pip.add_child(label)

@@ -215,9 +215,10 @@ static func shape_box(radii: Array[float], detail: int) -> StyleBoxFlat:
 	return box
 
 
+## Font, size (at the player's text size, EraTheme) and color for a label.
 static func style_label(label: Label, font: Font, font_size: int, color: Color) -> void:
 	label.add_theme_font_override("font", font)
-	label.add_theme_font_size_override("font_size", font_size)
+	EraTheme.set_scaled_font_size(label, font_size)
 	label.add_theme_color_override("font_color", color)
 
 
@@ -413,7 +414,7 @@ class CardArt extends Control:
 
 	func set_tag_font(font: Font, font_size: int) -> void:
 		_tag_label.add_theme_font_override("font", font)
-		_tag_label.add_theme_font_size_override("font_size", font_size)
+		EraTheme.set_scaled_font_size(_tag_label, font_size)
 
 	func show_tag(text: String, side: int, alpha: float, color: Color) -> void:
 		_tag_label.text = text

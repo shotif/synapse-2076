@@ -8,7 +8,9 @@ extends LensPanel
 ## the most useful affordable directive, a verification desk fact-checking the
 ## latest unattributed or ASI event, and the week's other events. Light by
 ## default with a dark palette one tap away. No vote tallies, follower or
-## comment counts: only numbers the simulation produced.
+## comment counts: only numbers the simulation produced. Better and worse are
+## green and amber, or blue and orange with color-blind friendly colors on; a
+## tap on a watched chip explains its change.
 
 const LIGHT := {
 	"bg": Color("#F2F3F0"), "surface": Color("#FFFFFF"), "border": Color("#E1E4DF"), "border_strong": Color("#C9CEC8"),
@@ -21,6 +23,16 @@ const DARK := {
 	"chip": Color("#222825"), "text": Color("#EDF1EE"), "text2": Color("#A7B0AB"), "text3": Color("#6E7772"),
 	"accent": Color("#4CC38A"), "on_accent": Color("#06140D"), "accent_soft": Color("#183126"), "accent_ink": Color("#6BD9A3"),
 	"warn": Color("#F2B35B"), "warn_soft": Color("#33260F"), "critical": Color("#F97066"), "critical_soft": Color("#3B1B18"),
+}
+
+## Better ("good") and worse ("bad") with GameSettings "colorblind" on.
+const LIGHT_COLORBLIND := {
+	"good": Color("#1F5FBF"), "good_soft": Color("#E3ECFA"), "good_ink": Color("#1F5FBF"),
+	"bad": Color("#B35400"), "bad_soft": Color("#F8E9DA"), "bad_ink": Color("#B35400"),
+}
+const DARK_COLORBLIND := {
+	"good": Color("#6CAEFF"), "good_soft": Color("#172A40"), "good_ink": Color("#8CC0FF"),
+	"bad": Color("#FFA54D"), "bad_soft": Color("#36260F"), "bad_ink": Color("#FFB566"),
 }
 
 const TABS := ["For you", "Motions", "Events"]
@@ -314,8 +326,9 @@ func _refresh_chips() -> void:
 		row.add_child(_centered(_label("%d" % int(roundf(value)) if not snapshot.is_empty() else "—", _bold, 12, _c("text"))))
 		var shown := _arrow(delta)
 		if shown != "=":
-			row.add_child(_centered(_label(shown, _regular, 12, _c("accent") if UiFormat.is_improvement(key, delta) else _c("warn"))))
+			row.add_child(_centered(_label(shown, _regular, 12, _tone_color("accent" if UiFormat.is_improvement(key, delta) else "warn"))))
 		chip.add_child(row)
+		_tap_metric(chip, key)
 		_chip_flow.add_child(chip)
 
 
@@ -629,8 +642,8 @@ func _impact_chip(item: Dictionary) -> PanelContainer:
 	var delta := float(item["delta"])
 	var section := String(item["section"])
 	var tone := _tone(key, delta, section)
-	var bg := _c("chip") if tone == "neutral" else _c(tone + "_soft")
-	var ink := _c("text2") if tone == "neutral" else (_c("accent_ink") if tone == "accent" else _c(tone))
+	var bg := _c("chip") if tone == "neutral" else _tone_color(tone, "_soft")
+	var ink := _c("text2") if tone == "neutral" else _tone_color(tone, "_ink")
 	var chip := _panel(_box(bg, 8, 10.0, 0.0))
 	chip.custom_minimum_size.y = 28
 	var row := _hbox(5)
@@ -640,6 +653,17 @@ func _impact_chip(item: Dictionary) -> PanelContainer:
 	row.add_child(_centered(_label("%s %s" % [_effect_name(key, section), _short_delta(delta)], _semibold, 12, ink)))
 	chip.add_child(row)
 	return chip
+
+
+## The color of a better ("accent") or worse ("warn") tone; [param part] is
+## "", "_soft" (chip backgrounds) or "_ink" (text and glyphs on them).
+func _tone_color(tone: String, part: String = "") -> Color:
+	if EraStyle.colorblind_enabled() and (tone == "accent" or tone == "warn"):
+		var signals: Dictionary = DARK_COLORBLIND if dark else LIGHT_COLORBLIND
+		return signals[("good" if tone == "accent" else "bad") + part]
+	if part == "_ink":
+		return _c("accent_ink") if tone == "accent" else _c(tone)
+	return _c(tone + part)
 
 
 static func _tone(key: String, delta: float, section: String) -> String:

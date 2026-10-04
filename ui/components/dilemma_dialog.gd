@@ -192,6 +192,11 @@ func get_card() -> CrisisCard:
 	return _card
 
 
+## The column of response rows and the help line under them.
+func get_responses() -> Control:
+	return _options
+
+
 ## Previews a response on the vitals as if its row were hovered (tests,
 ## tooling); "" clears it.
 func preview_option(option_id: String) -> void:
