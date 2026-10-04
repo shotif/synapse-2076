@@ -514,10 +514,10 @@ func _restyle_chrome() -> void:
 	_lattice_button.text = s.label("Lattice")
 	_update_spectate_buttons()
 	_restyle_header_type(s)
-	_viewport_caption.add_theme_font_size_override("normal_font_size", 11)
+	EraTheme.set_scaled_font_size(_viewport_caption, 11, &"normal_font_size")
 	_viewport_caption.add_theme_color_override("default_color", s.text_dim)
-	_indices_label.add_theme_font_size_override("normal_font_size", 12)
-	_indices_label.add_theme_font_size_override("mono_font_size", 12)
+	EraTheme.set_scaled_font_size(_indices_label, 12, &"normal_font_size")
+	EraTheme.set_scaled_font_size(_indices_label, 12, &"mono_font_size")
 	if _menu_panel != null:
 		_restyle_menu(s)
 
@@ -539,7 +539,7 @@ func _restyle_header_type(s: EraStyle) -> void:
 			title_size = 26 if compact else 40
 		_:
 			title_size = 17 if compact else 20
-	_title_label.add_theme_font_size_override("font_size", title_size)
+	EraTheme.set_scaled_font_size(_title_label, title_size)
 	_title_label.add_theme_font_override("font", s.font_display)
 	if s.era == 2:
 		_title_label.add_theme_color_override("font_shadow_color", Color(s.accent, 0.35))
@@ -551,11 +551,11 @@ func _restyle_header_type(s: EraStyle) -> void:
 		_title_label.remove_theme_constant_override("shadow_outline_size")
 	_title_label.add_theme_color_override("font_color", s.text_bright)
 	_subtitle.add_theme_font_override("font", s.font_mono if s.era != 1 else s.font_ui)
-	_subtitle.add_theme_font_size_override("font_size", 11 if s.era != 1 else 13)
+	EraTheme.set_scaled_font_size(_subtitle, 11 if s.era != 1 else 13)
 	_kicker.add_theme_font_override("font", EraStyle.font("ChakraPetch-SemiBold.ttf", 2))
-	_kicker.add_theme_font_size_override("font_size", 11 if compact else 12)
+	EraTheme.set_scaled_font_size(_kicker, 11 if compact else 12)
 	_year_label.add_theme_font_override("font", s.font_ui_bold if s.era == 1 else s.font_mono)
-	_year_label.add_theme_font_size_override("font_size", 13)
+	EraTheme.set_scaled_font_size(_year_label, 13)
 	_year_label.add_theme_color_override("font_color", s.text_dim if s.era == 1 else s.text)
 	# Phones trim the lines to fit beside the buttons; the desktop shows them whole.
 	for label in [_kicker, _title_label, _subtitle]:

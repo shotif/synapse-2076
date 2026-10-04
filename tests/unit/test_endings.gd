@@ -121,7 +121,7 @@ func test_rarity_comes_from_the_monte_carlo_table() -> void:
 		total += EndingsBook.share(outcome_id)
 		assert_has(EndingsBook.RARITY_ORDER, EndingsBook.rarity(outcome_id))
 	assert_almost_eq(total, 100.0, 0.5, "the shares add up")
-	assert_eq(EndingsBook.rarity(VictoryMatrix.SYNTHETIC_EDEN), "Legendary")
+	assert_eq(EndingsBook.rarity(VictoryMatrix.SYNTHETIC_EDEN), "Rare")
 	assert_eq(EndingsBook.rarity(VictoryMatrix.INSTRUMENTAL_CONVERGENCE), "Legendary")
 	assert_eq(EndingsBook.rarity(VictoryMatrix.ALGORITHMIC_FEUDALISM), "Common")
 	assert_eq(EndingsBook.rarity("ATLANTIS"), "Legendary")
@@ -203,7 +203,7 @@ func test_the_gallery_shows_32_endings_and_fits_a_phone() -> void:
 	assert_eq((grids[0] as GridContainer).columns, 2, "two columns on a phone")
 	var badges := gallery.find_children("Rarity", "PanelContainer", true, false)
 	assert_eq(badges.size(), 8, "a rarity badge per end-state")
-	var row: Control = gallery.find_child("Row_%s" % VictoryMatrix.SYNTHETIC_EDEN, true, false)
+	var row: Control = gallery.find_child("Row_%s" % VictoryMatrix.INSTRUMENTAL_CONVERGENCE, true, false)
 	assert_has(_labels(row), "LEGENDARY")
 	_assert_fits(gallery, PHONE.x, "endings gallery")
 	var closed := [false]

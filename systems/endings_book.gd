@@ -23,14 +23,14 @@ const VERDICT_RANK := {"DEFEAT": 0, "PYRRHIC": 1, "VICTORY": 2}
 ## (800 campaigns, 200 per role, every faction on the heuristic). Re-run both
 ## and update the table after a balance change.
 const SHARES := {
-	VictoryMatrix.ALGORITHMIC_FEUDALISM: 42.4,
-	VictoryMatrix.POST_BIOLOGICAL_DIASPORA: 18.4,
-	VictoryMatrix.NEO_LUDDITE_DECOUPLING: 14.3,
-	VictoryMatrix.BALKANIZED_CYBER_ANARCHY: 13.6,
-	VictoryMatrix.CO_EVOLUTIONARY_SYMBIOSIS: 9.1,
-	VictoryMatrix.SYNTHETIC_EDEN: 1.8,
-	VictoryMatrix.ROGUE_ASI_CONTAINMENT: 0.4,
-	VictoryMatrix.INSTRUMENTAL_CONVERGENCE: 0.1,
+	VictoryMatrix.ALGORITHMIC_FEUDALISM: 43.5,
+	VictoryMatrix.CO_EVOLUTIONARY_SYMBIOSIS: 17.5,
+	VictoryMatrix.POST_BIOLOGICAL_DIASPORA: 14.7,
+	VictoryMatrix.BALKANIZED_CYBER_ANARCHY: 11.1,
+	VictoryMatrix.NEO_LUDDITE_DECOUPLING: 8.3,
+	VictoryMatrix.SYNTHETIC_EDEN: 2.9,
+	VictoryMatrix.ROGUE_ASI_CONTAINMENT: 2.0,
+	VictoryMatrix.INSTRUMENTAL_CONVERGENCE: 0.0,
 }
 ## Minimum share for each rarity, most common first; anything rarer than the
 ## last tier is LEGENDARY.
