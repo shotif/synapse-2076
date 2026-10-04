@@ -192,7 +192,7 @@ Rules every card follows (enforced by the tests): every role has at least two an
 
 ## Era goals (`core/era_goals.gd`)
 
-Each human player gets one goal per era for their role. A goal is a condition on a metric, an index or one of the player's currencies; "hold" goals must stay true through the era, "reach" goals must come true once, "end" goals must be true on the era's last turn. A met goal pays a reward (currencies, scaled by difficulty) and adds 3 points (4 in Era III) to the verdict score. The thresholds sit near what the heuristic reaches about half the time.
+Each human player gets two goals per era for their role. A goal is a condition on a metric, an index or one of the player's currencies; "hold" goals must stay true through the era, "reach" goals must come true once, "end" goals must be true on the era's last turn. A met goal pays a reward (currencies, scaled by difficulty) and adds 2 points to the verdict score. The thresholds sit near what the heuristic reaches about half the time.
 
 ## Early termination
 
@@ -222,7 +222,7 @@ Interpretations of ambiguous PRD wording:
 
 If no signature is fully met, the world settles into the **nearest attractor**: the lowest mean normalized shortfall. A miss is measured relative to how far the threshold sits from 50. For example, missing "> 95" by 9 is 9/45 = 0.2. Only end-states whose regime the world has entered on at least one condition are candidates. Affinity is 100·exp(−shortfall/0.5).
 
-**Role verdict** = the role's value for the end-state (0–60) plus the role's objective score (0–40) plus the score of the era goals it met (up to 10). VICTORY needs 70 or more and PYRRHIC needs 45 or more, moved by the difficulty (Story −10, Hard +3). Anything lower, or any instant loss, is DEFEAT.
+**Role verdict** = the role's value for the end-state (0–60) plus the role's objective score (0–40) plus the score of the era goals it met (up to 12). VICTORY needs 70 or more and PYRRHIC needs 45 or more, moved by the difficulty (Story −10, Hard +3). Anything lower, or any instant loss, is DEFEAT.
 
 ## Balance snapshot
 
@@ -231,18 +231,18 @@ From `tools/monte_carlo.gd --runs=60`: 240 autoplay campaigns on Standard, 60 pe
 | End-state | Share |
 |---|---|
 | Algorithmic Feudalism | 44.6% |
-| Co-Evolutionary Symbiosis | 17.1% |
-| Post-Biological Diaspora | 12.9% |
+| Co-Evolutionary Symbiosis | 17.5% |
+| Post-Biological Diaspora | 15.4% |
 | Neo-Luddite Decoupling | 10.4% |
 | Balkanized Cyber-Anarchy | 10.0% |
-| Synthetic Eden | 3.3% |
-| Rogue ASI Containment | 1.7% |
+| Synthetic Eden | 2.1% |
+| Rogue ASI Containment | 0.0% |
 | Instrumental Convergence | 0.0% |
 
-- 22% of campaigns strictly match a signature; the rest resolve to the nearest attractor.
-- 98% of campaigns reach 2076. 0.4% end in autonomous world war and 1.2% in an air-gap purge. Early endings used to be common because a deferred rival crisis could return every other turn for the rest of the campaign; since a crisis put off twice breaks and is gone, the heuristic rarely tips the world over. Players who race, or let crises break, still can.
-- Verdicts (victory / pyrrhic / defeat out of 60): CEO 38 / 22 / 0, Governance 39 / 21 / 0, ASI 37 / 20 / 3, Citizens 40 / 14 / 6. Over another 60 seeds per role (`--seed-offset=5000`) the counts move by up to ten victories (the CEO won 48).
+- 23% of campaigns strictly match a signature; the rest resolve to the nearest attractor.
+- 98% of campaigns reach 2076. 0.8% end in autonomous world war and 1.2% in an air-gap purge. Early endings used to be common because a deferred rival crisis could return every other turn for the rest of the campaign; since a crisis put off twice breaks and is gone, the heuristic rarely tips the world over. Players who race, or let crises break, still can.
+- Verdicts (victory / pyrrhic / defeat out of 60): CEO 43 / 17 / 0, Governance 40 / 18 / 2, ASI 42 / 15 / 3, Citizens 43 / 14 / 3. Over other seed sets (`--seed-offset=5000`) the counts move by up to ten victories.
 - Difficulty moves these sharply (30 seeds per role): on Story the heuristic wins 25–30 of 30 in every role; on Hard it wins 0–12 and the Council loses most campaigns.
-- Era goals are met roughly half the time each; the ones a role can reach by playing its own game are set near the heuristic's median.
+- Each era goal is met in roughly 35–75% of campaigns; their thresholds sit near the heuristic's median.
 - The player's crisis choices steer the world heavily. On identical seeds, Governance and Citizen players reach Symbiosis, Diaspora and Neo-Luddite endings, while an autopiloted CEO or ASI ends in Feudalism most of the time.
 - `tests/unit/test_balance.gd` holds loose guardrails on these properties. `EndingsBook.SHARES` (the rarity of each ending) comes from 800 campaigns: rerun the two commands in its comment after a balance change.

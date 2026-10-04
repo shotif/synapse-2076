@@ -15,7 +15,7 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
 - **A deck that tells a story.** About 90 crisis cards in three era decks, from *My Kid's Best Friend Is a Chatbot* in 2026 to *A Model Asks for a Lawyer* in the 2050s. Rival factions push crises from families of related cards and never the same one twice in a row. Some answers come back years later as follow-ups. A crisis you put off twice breaks on its own, badly.
 - **People who remember.** Six people and one machine recur across the fifty years. Their portraits age with the campaign, and they remember what you did to them.
 - **Goals and explanations.** Each era sets you a goal with a reward. Tap any number to see why it changed this turn: your moves, your rivals', and the world's own dynamics.
-- **For everyone.** Three coached first turns, a plain-language switch and a glossary, text size, color-blind friendly colors, music and sound for each era, and vibration on phones.
+- **For everyone.** English, German, Spanish and French; three coached first turns, a plain-language switch and a glossary, text size, color-blind friendly colors, music and sound for each era, and vibration on phones.
 - **Endings to collect.** Eight end-states for each of the four roles, each with its rarity, and a shareable front page for every ending.
 - **Optional Claude features.** With an LLM configured, Claude can write some of your crises to fit your world, and you can call a faction's leader to negotiate a deal that binds them.
 
@@ -70,6 +70,10 @@ godot --headless --path . -- --role=CEO --seed=42                        # autop
 godot --headless --path . --script res://tests/headless_sim_test.gd      # PRD smoke test: 100 turns x 4 roles
 ```
 
+## Languages
+
+The game is in English, German (Deutsch), Spanish (Español) and French (Français): the interface, the setup, the tutorial and glossary, every crisis card, directive, goal and scenario, and the leaders' scripted lines in negotiations. It follows your system language when it is one of these; **Settings → Language** changes it at any time. The newswire, the era front pages, the history book and the share image are written in English, as is anything Claude or a player writes. The strings live in `locale/de.gd`, `locale/es.gd` and `locale/fr.gd`; `godot --headless --path . --script res://tools/i18n_catalog.gd -- --missing=de` lists any string a language still lacks.
+
 ## Testing
 
 All tests run headless, with no addons and no GPU:
@@ -81,7 +85,7 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
 ```
 
 - **`tests/run_tests.gd`** is a zero-dependency runner. Assertion names mirror [GUT](https://github.com/bitwes/Gut) (`assert_eq`, `assert_almost_eq`, `assert_between`, …), so suites port to GUT by changing their `extends` line.
-- **Suites** live in `tests/unit/`. There are 17 of them with 240 tests:
+- **Suites** live in `tests/unit/`. There are 40 of them with 499 tests:
   - world dynamics fuzzing (2,000 extreme ticks with no NaN or overflow)
   - tech tree, compute physics, factions and the PRD loss conditions
   - heuristic decision trees (PRD 7.4 rules)
@@ -92,6 +96,12 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
   - the LLM service against a real mock HTTP server (timeouts, HTTP 500, garbage JSON, auth failures)
   - headless dashboard smoke tests, plus phone and tablet layouts that must fit the screen width on every tab, dialog and era
   - the redesign: era themes and the system upgrade, the globe's metric layers and overlay, the swipe crisis card, the four lenses, headlines, front pages and the history book
+  - the campaign foundation: records and exact replays, pass-and-play, the cause ledger, difficulty, scenarios, late starts, deals, written cards, follow-ups and era goals
+  - the deck: era decks, injection families and cooldowns, the cheap-response rule, story chains and character memories
+  - saves and Continue, campaign modes and the setup screen, endings and rarity, turning points and the share card
+  - goals, the coach, plain language, "why did this change?", accessibility, settings, portraits and the People page, audio, haptics and the pass-the-device screen
+  - the crisis writer and negotiations against fake LLM replies
+  - translations: exact catalogs, placeholders kept, and every layout fitting a phone in German and French
   - balance guardrails
   - full 100-turn campaigns in automated and scripted-interactive modes
 - **The wrapper fails on script errors.** `tools/run_tests.sh` fails if Godot prints any `SCRIPT ERROR`, because GDScript runtime errors don't change the exit code.
@@ -275,7 +285,7 @@ ui/
                            endings_gallery, negotiation_dialog, pass_device, llm_status_badge,
                            llm_settings_dialog
   audio/                   AudioDirector: era music with crossfades, effects, cues for log entries
-  game_settings.gd  plain_language.gd  haptics.gd
+  game_settings.gd  plain_language.gd  haptics.gd  i18n.gd (languages; strings in locale/)
   lenses/                  CeoLens (markets), GovLens (daily brief), AsiLens (perception),
                            CitizenLens (the Commons), on a shared LensPanel
   story/                   HeadlineWriter, Newswire, EraChronicle, FrontPage, StoryCopy, InkChart, ShareCard
@@ -288,6 +298,7 @@ viewports_3d/
   shaders/                 wireframe_globe, globe_* (core, atmosphere, sprite, ring, wall, ribbon, route),
                            neural_glow, data_flow, hologram_point, loss_landscape
 assets/audio/              era music loops and interface sounds, synthesized by tools/make_audio.sh
+locale/                    German, Spanish and French strings (English is the message id)
 proxy/                     optional Cloudflare Worker that holds a Claude API key for the web build
 tests/   tools/   docs/
 ```
