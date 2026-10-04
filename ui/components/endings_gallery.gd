@@ -17,7 +17,9 @@ signal closed
 
 const DESKTOP_WIDTH := 1240.0
 const HEADER_WIDTH := 300.0
+## Phones name the role in every cell; the desktop columns are labelled once.
 const CELL_HEIGHT := 96.0
+const DESKTOP_CELL_HEIGHT := 78.0
 ## Glyphs for the end-states and the verdict seals (also used by ShareCard).
 const OUTCOME_GLYPHS := {
 	VictoryMatrix.ALGORITHMIC_FEUDALISM: "capital",
@@ -315,32 +317,28 @@ func _cell(outcome: Dictionary, role: String, s: EraStyle) -> PanelContainer:
 	var card := PanelContainer.new()
 	card.name = "Cell_%s_%s" % [outcome_id, role]
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(0, CELL_HEIGHT)
+	card.custom_minimum_size = Vector2(0, CELL_HEIGHT if _compact else DESKTOP_CELL_HEIGHT)
+	var border := s.border_strong if s.border_width > 0 else Color(s.text, 0.14)
 	var style := EraTheme.panel(s, s.raised if unlocked else Color(s.raised, 0.35),
-		Color(tint, 0.85) if fresh else (Color(tint, 0.45) if unlocked else Color(s.border, 0.5)), s.control_radius + 2, 10)
+		Color(tint, 0.85) if fresh else (Color(tint, 0.45) if unlocked else Color(border, border.a * 0.6)), s.control_radius + 2, 10)
 	style.set_border_width_all(2 if fresh else 1)
 	card.add_theme_stylebox_override("panel", style)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 3)
 	card.add_child(box)
-	var role_line := HBoxContainer.new()
-	role_line.add_theme_constant_override("separation", 5)
-	role_line.add_child(Glyphs.icon(Glyphs.for_faction(role), 14, tint if unlocked else Color(s.text_dim, 0.6)))
-	var role_label := Label.new()
-	role_label.text = UiFormat.role_name(role)
-	role_label.theme_type_variation = "Caption"
-	role_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	role_label.clip_text = true
-	role_line.add_child(role_label)
-	if fresh:
-		var new_label := Label.new()
-		new_label.name = "New"
-		new_label.text = "NEW"
-		new_label.add_theme_font_override("font", s.font_mono_bold)
-		new_label.add_theme_font_size_override("font_size", 10)
-		new_label.add_theme_color_override("font_color", s.accent)
-		role_line.add_child(new_label)
-	box.add_child(role_line)
+	if _compact:
+		var role_line := HBoxContainer.new()
+		role_line.add_theme_constant_override("separation", 5)
+		role_line.add_child(Glyphs.icon(Glyphs.for_faction(role), 14, tint if unlocked else Color(s.text_dim, 0.6)))
+		var role_label := Label.new()
+		role_label.text = UiFormat.role_name(role)
+		role_label.theme_type_variation = "Caption"
+		role_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		role_label.clip_text = true
+		role_line.add_child(role_label)
+		if fresh:
+			role_line.add_child(_new_mark(s))
+		box.add_child(role_line)
 	if not unlocked:
 		var mystery := Label.new()
 		mystery.name = "Locked"
@@ -379,7 +377,10 @@ func _cell(outcome: Dictionary, role: String, s: EraStyle) -> PanelContainer:
 	verdict_label.add_theme_font_override("font", s.font_mono_bold)
 	verdict_label.add_theme_font_size_override("font_size", 12)
 	verdict_label.add_theme_color_override("font_color", color)
+	verdict_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	verdict_line.add_child(verdict_label)
+	if fresh and not _compact:
+		verdict_line.add_child(_new_mark(s))
 	box.add_child(verdict_line)
 	var date := Label.new()
 	date.name = "Date"
@@ -390,3 +391,15 @@ func _cell(outcome: Dictionary, role: String, s: EraStyle) -> PanelContainer:
 	box.add_child(date)
 	card.tooltip_text = String(outcome["description"])
 	return card
+
+
+## "NEW" on an ending this campaign unlocked.
+static func _new_mark(s: EraStyle) -> Label:
+	var label := Label.new()
+	label.name = "New"
+	label.text = "NEW"
+	label.add_theme_font_override("font", s.font_mono_bold)
+	label.add_theme_font_size_override("font_size", 10)
+	label.add_theme_color_override("font_color", s.accent)
+	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return label
