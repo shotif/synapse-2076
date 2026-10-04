@@ -39,7 +39,7 @@ mkdir -p build/web && godot --headless --path . --export-release "Web" build/web
   1. Add an entry to the faction's `ACTIONS` with `name`, `description`, `cost`, `cooldown`, `effects` and `statement`, using the effect schema in `effect_resolver.gd`.
   2. Add a rule to the faction's tree in `systems/llm/heuristic_fallback.gd` so the AI uses it.
   3. `tests/unit/test_factions.gd::test_catalog_effects_reference_known_keys` validates every key automatically.
-- **New crisis card:** add a template to `DilemmaDeck.CARDS`. Every role must see at least 2 options (use `"roles"` for role-specific ones) and every option needs a `cost` or `cost_tier`. `test_dilemma_deck.gd` enforces this. Set `"injection_only": true` for cards that only autonomous factions trigger (through `"inject_dilemma"` in an action's effects).
+- **New crisis card:** add a template to `DilemmaDeck.CARDS`. Every role must see at least 2 options (use `"roles"` for role-specific ones) and every option needs a `cost` or `cost_tier`. `test_dilemma_deck.gd` enforces this. Set `"injection_only": true` for cards that only autonomous factions trigger (through `"inject_dilemma"` in an action's effects). A new `category` needs an illustration in `ui/components/crisis_art.gd` (`test_crisis_card.gd` checks), and the swipe hints for options A and B go in `CrisisCard.SWIPE_HINTS`.
 - **Model or balance change:**
   1. Edit the named constants (`WorldState.K_*`, `*_REINFORCEMENT`, `ComputeScaling`, `TechTreeManager`).
   2. Run `tools/monte_carlo.gd` before and after the change.
