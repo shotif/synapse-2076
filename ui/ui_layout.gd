@@ -94,6 +94,23 @@ static func set_overlay_margin(margin: MarginContainer, compact: bool) -> void:
 		scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER if compact else ScrollContainer.SCROLL_MODE_AUTO
 
 
+## Godot 4.3 keeps the height an autowrapped CheckBox (or Button) measured at
+## an earlier, narrower width: one word per line, far too tall. Once the panel
+## has its width, setting the wrap mode again measures it anew. Waits a frame.
+static func reflow_wrapped_buttons(root: Node) -> void:
+	if root == null or not root.is_inside_tree():
+		return
+	await root.get_tree().process_frame
+	if not is_instance_valid(root):
+		return
+	for node in root.find_children("*", "Button", true, false):
+		var button := node as Button
+		if button.autowrap_mode != TextServer.AUTOWRAP_OFF:
+			var mode := button.autowrap_mode
+			button.autowrap_mode = TextServer.AUTOWRAP_OFF
+			button.autowrap_mode = mode
+
+
 ## Lets touch drags that start anywhere on [param node] or its descendants
 ## reach the enclosing ScrollContainer. Godot only drag-scrolls when the touch
 ## propagates to it (MOUSE_FILTER_PASS all the way up), and cancels a pressed

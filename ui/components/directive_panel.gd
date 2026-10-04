@@ -52,6 +52,7 @@ var _crisis_meta: Label
 var _crisis_title: Label
 var _crisis_label: RichTextLabel
 var _review_button: Button
+var _crisis_actions: BoxContainer
 var _directives_title: Label
 var _scroll: ScrollContainer
 var _list: VBoxContainer
@@ -183,6 +184,7 @@ func set_compact(compact: bool) -> void:
 		return
 	_execute_button.custom_minimum_size = Vector2(0, 48 if compact else 44)
 	_review_button.custom_minimum_size = Vector2(0, 44 if compact else 38)
+	_crisis_actions.vertical = compact
 	_rebuild_all()
 
 
@@ -315,8 +317,21 @@ func _build_crisis_card() -> PanelContainer:
 	_review_button.theme_type_variation = "AccentButton"
 	_review_button.tooltip_text = "Open the crisis card"
 	_review_button.pressed.connect(func(): review_crisis_requested.emit())
-	box.add_child(_review_button)
+	_review_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_crisis_actions = BoxContainer.new()
+	_crisis_actions.name = "CrisisActions"
+	_crisis_actions.add_theme_constant_override("separation", 6)
+	_crisis_actions.vertical = _compact
+	_crisis_actions.add_child(_review_button)
+	box.add_child(_crisis_actions)
 	return _crisis_panel
+
+
+## Puts [param button] beside the crisis summary's review button (under it on
+## phones and tablets), e.g. the dashboard's call to a faction leader.
+func add_crisis_action(button: Button) -> void:
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_crisis_actions.add_child(button)
 
 
 func _rebuild_all() -> void:

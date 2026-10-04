@@ -150,6 +150,7 @@ func open() -> void:
 	_apply_layout()
 	visible = true
 	(get_node("OverlayScroll") as ScrollContainer).scroll_vertical = 0
+	UiLayout.reflow_wrapped_buttons(_panel)
 
 
 func close() -> void:

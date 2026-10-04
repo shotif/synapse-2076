@@ -2839,4 +2839,6 @@ const STRINGS := {
 	"Finish with surveillance saturation at 18 or below": "Finissez avec une saturation de surveillance de 18 ou moins",
 	"+8 counter-surveillance": "+8 contre-surveillance",
 	"Era %s goals": "Objectifs de l'ère %s",
+	# --- interface: the call button
+	"Call a leader": "Appeler un leader",
 }

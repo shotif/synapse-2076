@@ -2839,4 +2839,6 @@ const STRINGS := {
 	"Finish with surveillance saturation at 18 or below": "Beende das Spiel mit einer Überwachungssättigung von höchstens 18",
 	"+8 counter-surveillance": "+8 Gegenüberwachung",
 	"Era %s goals": "Ziele der Ära %s",
+	# --- interface: the call button
+	"Call a leader": "Anführer anrufen",
 }

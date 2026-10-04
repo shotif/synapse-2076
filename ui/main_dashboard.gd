@@ -792,10 +792,8 @@ func _build_feature_layers() -> void:
 	_call_button.tooltip_text = "Negotiate a deal with another faction's leader"
 	_call_button.visible = false
 	_call_button.pressed.connect(_open_call)
-	act_box.add_child(_call_button)
-	# Right under the crisis summary, before the directives.
-	var crisis_panel: Control = _directive_panel.get("_crisis_panel")
-	act_box.move_child(_call_button, crisis_panel.get_index() + 1 if crisis_panel != null and crisis_panel.get_parent() == act_box else act_box.get_child_count() - 1)
+	# Beside "Change response" in the crisis summary, so the directives keep their room.
+	_directive_panel.add_crisis_action(_call_button)
 	_dilemma.get_vitals().metric_pressed.connect(_explain)
 
 	_goal_toast = GoalToast.new()
@@ -1020,8 +1018,8 @@ func _update_call_button() -> void:
 	_call_button.visible = can_call
 	if can_call:
 		var s := EraStyle.for_era(era)
-		_call_button.text = s.label(tr("Call a faction leader"))
-		_call_button.custom_minimum_size = Vector2(0, 44 if compact else 36)
+		_call_button.text = s.label(tr("Call a leader"))
+		_call_button.custom_minimum_size = Vector2(0, 44 if compact else 38)
 
 
 func _open_call() -> void:
