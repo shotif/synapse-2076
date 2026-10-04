@@ -9,6 +9,7 @@ var server: Node
 var service: LLMService
 var received: Array = []
 var statuses: Array = []
+var completions: Array = []
 
 
 func before_each() -> void:
@@ -21,8 +22,11 @@ func before_each() -> void:
 	service.configure({"endpoint_url": server.url(), "model_name": "mock-model", "request_timeout_sec": 2.0})
 	received = []
 	statuses = []
+	completions = []
 	service.actor_decision_received.connect(func(f: String, p: Dictionary): received.append({"faction": f, "payload": p}))
 	service.llm_status_changed.connect(func(online: bool, provider: String): statuses.append([online, provider]))
+	service.completion_received.connect(func(id: int, ok: bool, text: String, error: String):
+		completions.append({"id": id, "ok": ok, "text": text, "error": error}))
 
 
 func after_each() -> void:
@@ -43,6 +47,13 @@ func _wait_for_decisions(count: int, timeout_sec: float) -> bool:
 	while received.size() < count and Time.get_ticks_msec() < deadline:
 		await tree.process_frame
 	return received.size() >= count
+
+
+func _wait_for_completions(count: int, timeout_sec: float) -> bool:
+	var deadline := Time.get_ticks_msec() + int(timeout_sec * 1000.0)
+	while completions.size() < count and Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	return completions.size() >= count
 
 
 func test_defaults_match_prd() -> void:
@@ -349,3 +360,165 @@ func test_web_build_config_from_repository_variables() -> void:
 	var effort: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
 		"SYNAPSE_LLM_EFFORT": "none"})
 	assert_eq(effort["settings"]["synapse/llm/effort"], "", "none leaves the model's default effort")
+
+
+# --- Generic completions (crisis writer, negotiations) --------------------------------
+
+## A conversation as a feature would build it: a stray assistant turn first,
+## then alternating turns and two user turns in a row at the end.
+const CONVERSATION := [
+	{"role": "assistant", "content": "Dropped: a conversation starts with the user."},
+	{"role": "user", "content": "What do you want?"},
+	{"role": "assistant", "content": "{\"say\": \"Calm borders.\", \"offer\": null}"},
+	{"role": "system", "content": "Dropped: only user and assistant turns."},
+	{"role": "user", "content": "Lower tension"},
+	{"role": "user", "content": "Please."},
+]
+
+
+func test_completion_round_trip_openai_compatible() -> void:
+	service.api_key = "sk-test-123"
+	server.reply_text = "{\"say\": \"Calm costs.\"}"
+	service.set_online(true)
+	var request_id := service.request_completion("negotiation", "You are Nadia Esposito.", CONVERSATION, 300)
+	assert_eq(service.pending_completion_count(), 1)
+	assert_true(await _wait_for_completions(1, 3.0), "reply arrived")
+	assert_eq(completions[0]["id"], request_id)
+	assert_true(completions[0]["ok"], String(completions[0]["error"]))
+	assert_eq(completions[0]["text"], "{\"say\": \"Calm costs.\"}", "the raw reply text; the feature parses it")
+	var request: Dictionary = server.requests[0]
+	assert_eq(request["path"], "/v1/chat/completions")
+	assert_eq(request["headers"].get("authorization", ""), "Bearer sk-test-123")
+	var body: Dictionary = request["body"]
+	var messages: Array = body["messages"]
+	assert_eq(messages[0], {"role": "system", "content": "You are Nadia Esposito."})
+	assert_eq(messages.size(), 4, "system + user + assistant + user: %s" % str(messages))
+	assert_eq(messages[-1], {"role": "user", "content": "Lower tension\n\nPlease."}, "consecutive user turns merge")
+	assert_eq(int(body["max_tokens"]), 300)
+	assert_eq(body["response_format"], {"type": "json_object"}, "JSON mode by default")
+	assert_true(body.has("temperature"), "local models keep their sampling settings")
+	assert_eq(service.pending_completion_count(), 0)
+	service.request_completion("negotiation", "", [{"role": "user", "content": "Plain text, please."}], 300, {"json": false})
+	assert_true(await _wait_for_completions(2, 3.0))
+	var plain: Dictionary = server.requests[1]["body"]
+	assert_false(plain.has("response_format"), "callers can turn JSON mode off")
+	assert_eq((plain["messages"] as Array).size(), 1, "no empty system message")
+	assert_eq(service.stats["completions"], 2)
+
+
+func test_completion_round_trip_claude() -> void:
+	service.configure({"endpoint_url": server.claude_url(), "api_key": "sk-ant-test", "model_name": "claude-mock", "effort": "low"})
+	server.reply_text = "{\"title\": \"A card\"}"
+	server.thinking_block = true
+	service.set_online(true)
+	var request_id := service.request_completion("crisis_writer", "Write one crisis card.", CONVERSATION, 1200)
+	assert_true(await _wait_for_completions(1, 3.0), "reply arrived")
+	assert_eq(completions[0]["id"], request_id)
+	assert_true(completions[0]["ok"], String(completions[0]["error"]))
+	assert_eq(completions[0]["text"], "{\"title\": \"A card\"}", "text blocks only, never content[0] (a thinking block here)")
+	var request: Dictionary = server.requests[0]
+	assert_eq(request["path"], "/v1/messages")
+	assert_eq(request["headers"].get("x-api-key", ""), "sk-ant-test")
+	assert_eq(request["headers"].get("anthropic-version", ""), LLMService.ANTHROPIC_VERSION)
+	assert_false(request["headers"].has("authorization"))
+	var body: Dictionary = request["body"]
+	assert_eq(body["system"], "Write one crisis card.", "the system prompt is a top-level field")
+	var messages: Array = body["messages"]
+	assert_eq(messages.size(), 3)
+	assert_eq(messages[0]["role"], "user", "starts with the user")
+	assert_eq(messages[-1]["role"], "user", "no assistant prefill: current Claude models reject it")
+	for i in range(1, messages.size()):
+		assert_ne(messages[i]["role"], messages[i - 1]["role"], "roles alternate")
+	assert_eq(int(body["max_tokens"]), LLMService.CLAUDE_MAX_TOKENS, "room for adaptive thinking")
+	assert_eq(body["output_config"], {"effort": "low"})
+	for key in ["temperature", "top_p", "top_k", "response_format", "stream"]:
+		assert_false(body.has(key), "no %s for Claude" % key)
+	service.request_completion("crisis_writer", "x", [{"role": "user", "content": "y"}], 3000)
+	assert_true(await _wait_for_completions(2, 3.0))
+	assert_eq(int(server.requests[1]["body"]["max_tokens"]), 3000, "a bigger budget is kept")
+	service.configure({"model_name": "claude-haiku-mock"})
+	assert_false(LLMService.supports_effort(service.model_name))
+	service.request_completion("crisis_writer", "x", [{"role": "user", "content": "y"}], 400)
+	assert_true(await _wait_for_completions(3, 3.0))
+	assert_false((server.requests[2]["body"] as Dictionary).has("output_config"), "no effort where the model rejects it")
+
+
+func test_completion_fails_fast_without_traffic() -> void:
+	var request_id := service.request_completion("negotiation", "x", [{"role": "user", "content": "hello"}])
+	assert_eq(completions.size(), 0, "never answered before the caller has the id")
+	await wait_frames(2)
+	assert_eq(completions.size(), 1, "offline: answered on the next frame")
+	assert_eq(completions[0]["id"], request_id)
+	assert_false(completions[0]["ok"])
+	assert_eq(completions[0]["error"], "offline")
+	service.set_online(true)
+	service.request_completion("negotiation", "x", [{"role": "assistant", "content": "a prefill only"}])
+	service.configure({"enabled": false})
+	service.request_completion("negotiation", "x", [{"role": "user", "content": "hello"}])
+	await wait_frames(2)
+	assert_eq(completions.size(), 3)
+	assert_eq(completions[1]["error"], "no user message to send")
+	assert_eq(completions[2]["error"], "disabled")
+	assert_eq(server.requests.size(), 0, "no network traffic")
+	assert_eq(service.stats["completion_failures"], 3)
+	var outside := LLMService.new()
+	outside.set_online(true)
+	var outside_results: Array = []
+	outside.completion_received.connect(func(_id: int, ok: bool, _text: String, error: String): outside_results.append([ok, error]))
+	outside.request_completion("negotiation", "x", [{"role": "user", "content": "hello"}])
+	await wait_frames(2)
+	assert_eq(outside_results, [[false, "service not in scene tree"]])
+	outside.free()
+
+
+func test_completion_errors_and_timeouts() -> void:
+	server.mode = "not_found"
+	service.configure({"endpoint_url": server.claude_url(), "api_key": "sk-ant-test"})
+	service.set_online(true)
+	service.request_completion("negotiation", "x", [{"role": "user", "content": "hello"}])
+	assert_true(await _wait_for_completions(1, 3.0))
+	assert_false(completions[0]["ok"])
+	assert_eq(completions[0]["error"], "HTTP 404: model: mock-missing")
+	assert_true(service.is_online, "one failure does not trip the breaker")
+	server.mode = "hang"
+	var started := Time.get_ticks_msec()
+	service.configure({"request_timeout_sec": 0.4})
+	service.request_completion("crisis_writer", "x", [{"role": "user", "content": "hello"}], 400, {"timeout_sec": 0.6})
+	assert_true(await _wait_for_completions(2, 3.0))
+	assert_false(completions[1]["ok"])
+	assert_string_contains(String(completions[1]["error"]), "timeout")
+	assert_gte(float(Time.get_ticks_msec() - started), 550.0, "a feature may wait longer than the decisions")
+	assert_false(service.is_online, "transport failures count toward the circuit breaker")
+	assert_eq(service.pending_completion_count(), 0)
+
+
+func test_completion_can_be_cancelled() -> void:
+	server.mode = "hang"
+	service.set_online(true)
+	var request_id := service.request_completion("negotiation", "x", [{"role": "user", "content": "hello"}])
+	assert_eq(service.pending_completion_count(), 1)
+	service.cancel_completion(request_id)
+	assert_eq(service.pending_completion_count(), 0)
+	await wait_seconds(0.3)
+	assert_eq(completions.size(), 0, "a cancelled request stays silent")
+	assert_true(service.is_online, "and is not a failure")
+
+
+func test_write_crises_setting_is_saved_with_the_llm_config() -> void:
+	var fresh := LLMService.new()
+	assert_false(fresh.write_crises, "off by default")
+	fresh.free()
+	var path := "user://test_synapse_llm_%d.cfg" % Time.get_ticks_usec()
+	service.config_path = path
+	service.configure({"write_crises": true, "api_key": "sk-never-saved"})
+	assert_eq(service.save_user_configuration(false), OK)
+	var config := ConfigFile.new()
+	assert_eq(config.load(path), OK)
+	assert_eq(config.get_value("llm", "write_crises", false), true)
+	assert_false(config.has_section_key("llm", "api_key"), "the key is only saved when asked")
+	var loaded := LLMService.new()
+	loaded.config_path = path
+	loaded.load_configuration()
+	assert_true(loaded.write_crises, "read back from the config file")
+	loaded.free()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

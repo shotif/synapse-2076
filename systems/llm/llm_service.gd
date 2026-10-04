@@ -21,10 +21,19 @@ extends Node
 ## they cannot end up in version control or in an exported build. Web builds
 ## can also take a key from the page URL (#llm-key=...), see
 ## [method import_page_url_settings].
+##
+## Besides the faction decisions, [method request_completion] sends any
+## system prompt and conversation over the same transport (Claude's crisis
+## writer and the "Call the ..." negotiations) and answers with
+## [signal completion_received].
 
 signal llm_status_changed(is_online: bool, provider_name: String)
 signal actor_decision_received(faction: String, action_payload: Dictionary)
 signal probe_finished(is_online: bool, detail: String)
+## The reply to one [method request_completion] call: [param text] is the
+## model's text (Claude: its text blocks) when [param ok], otherwise
+## [param error] says why it failed.
+signal completion_received(request_id: int, ok: bool, text: String, error: String)
 
 const DEFAULT_ENDPOINT := "http://127.0.0.1:11434/v1/chat/completions"
 const DEFAULT_MODEL := "llama3:8b"
@@ -57,11 +66,19 @@ var max_tokens := 400
 var max_consecutive_failures := 2
 ## Seconds between automatic re-probes while offline (0 disables).
 var reprobe_interval_sec := 60.0
+## Lets the model write a crisis card for the human players every few turns
+## (CrisisWriter). Off by default; saved in user://synapse_llm.cfg.
+var write_crises := false
+## Where [method load_configuration] and [method save_user_configuration] keep
+## the player's settings (tests point it elsewhere).
+var config_path := USER_CONFIG_PATH
 var is_probing := false
 var last_error := ""
-var stats := {"requests": 0, "llm_decisions": 0, "fallbacks": 0, "timeouts": 0, "invalid": 0}
+var stats := {"requests": 0, "llm_decisions": 0, "fallbacks": 0, "timeouts": 0, "invalid": 0,
+	"completions": 0, "completion_failures": 0}
 
 var _pending := {}
+var _completions := {}
 var _next_request_id := 1
 var _consecutive_failures := 0
 var _probe_request: HTTPRequest
@@ -93,6 +110,7 @@ func configure(settings: Dictionary) -> void:
 	api_format = format if format in API_FORMATS else "auto"
 	var level := String(settings.get("effort", effort)).strip_edges().to_lower()
 	effort = level if level in EFFORT_LEVELS else ""
+	write_crises = bool(settings.get("write_crises", write_crises))
 	if previous != [endpoint_url, api_key, api_format]:
 		_auth_failed = false
 	if not enabled and is_online:
@@ -111,9 +129,10 @@ func load_configuration() -> void:
 		"effort": ProjectSettings.get_setting("synapse/llm/effort", "low"),
 	})
 	var config := ConfigFile.new()
-	if config.load(USER_CONFIG_PATH) == OK:
+	if config.load(config_path) == OK:
 		var from_file := {}
-		for key in ["endpoint_url", "model_name", "api_key", "enabled", "request_timeout_sec", "json_mode", "api_format", "effort"]:
+		for key in ["endpoint_url", "model_name", "api_key", "enabled", "request_timeout_sec", "json_mode", "api_format", "effort",
+				"write_crises"]:
 			if config.has_section_key("llm", key):
 				from_file[key] = config.get_value("llm", key)
 		configure(from_file)
@@ -142,19 +161,20 @@ func load_configuration() -> void:
 ## key then removes a stored one.
 func save_user_configuration(include_api_key: bool = false) -> Error:
 	var config := ConfigFile.new()
-	config.load(USER_CONFIG_PATH)
+	config.load(config_path)
 	config.set_value("llm", "endpoint_url", endpoint_url)
 	config.set_value("llm", "model_name", model_name)
 	config.set_value("llm", "enabled", enabled)
 	config.set_value("llm", "request_timeout_sec", request_timeout_sec)
 	config.set_value("llm", "api_format", api_format)
 	config.set_value("llm", "effort", effort)
+	config.set_value("llm", "write_crises", write_crises)
 	if include_api_key:
 		if api_key != "":
 			config.set_value("llm", "api_key", api_key)
 		elif config.has_section_key("llm", "api_key"):
 			config.erase_section_key("llm", "api_key")
-	return config.save(USER_CONFIG_PATH)
+	return config.save(config_path)
 
 
 ## Reads settings from a URL fragment such as "#llm-key=sk-ant-...&llm=on", so
@@ -188,14 +208,14 @@ func import_page_url_settings() -> bool:
 	# Store only what the link carried: the endpoint and model keep following the
 	# build, so a redeploy with a new endpoint reaches devices that imported a key.
 	var config := ConfigFile.new()
-	config.load(USER_CONFIG_PATH)
+	config.load(config_path)
 	for key in settings:
 		if key == "api_key" and String(settings[key]) == "":
 			if config.has_section_key("llm", key):
 				config.erase_section_key("llm", key)
 		else:
 			config.set_value("llm", key, settings[key])
-	config.save(USER_CONFIG_PATH)
+	config.save(config_path)
 	JavaScriptBridge.eval("history.replaceState(null, '', window.location.pathname + window.location.search)", true)
 	return true
 
@@ -345,6 +365,127 @@ func query_actor_decision(faction_name: String, world_state: Dictionary) -> void
 
 func pending_request_count() -> int:
 	return _pending.size()
+
+
+## Sends [param system] and the conversation [param messages] ({"role":
+## "user" | "assistant", "content": text}, ending with the user's turn) for a
+## feature other than the faction decisions; [param purpose] names it in errors.
+## Uses the same endpoint, wire format, headers, timeout and failure accounting
+## as the decisions. Claude requests get at least CLAUDE_MAX_TOKENS (thinking
+## counts toward max_tokens), no sampling parameters and output_config.effort
+## only where [method supports_effort] allows it. [param options]:
+##   "timeout_sec"  a longer timeout for long replies (never below request_timeout_sec)
+##   "json"         false: do not ask OpenAI-compatible servers for a JSON object
+## Returns the request id. Each call emits exactly one [signal completion_received]
+## for that id (unless cancelled). A request that cannot be sent (offline,
+## disabled, outside the scene tree, no user turn) fails fast: ok=false on the
+## next idle frame, with no network traffic.
+func request_completion(purpose: String, system: String, messages: Array, max_reply_tokens: int = 400,
+		options: Dictionary = {}) -> int:
+	var request_id := _next_request_id
+	_next_request_id += 1
+	var turns := PromptTemplates.normalize_turns(messages)
+	var refusal := ""
+	if not enabled:
+		refusal = "disabled"
+	elif not is_online:
+		refusal = "offline"
+	elif not is_inside_tree():
+		refusal = "service not in scene tree"
+	elif turns.is_empty():
+		refusal = "no user message to send"
+	if refusal != "":
+		_fail_completion_soon(request_id, refusal)
+		return request_id
+	stats["requests"] += 1
+	stats["completions"] += 1
+	var timeout := maxf(request_timeout_sec, float(options.get("timeout_sec", 0.0)))
+	var body := PromptTemplates.build_anthropic_completion_body(model_name, system, turns,
+			maxi(max_reply_tokens, CLAUDE_MAX_TOKENS), effort if supports_effort(model_name) else "") \
+		if uses_anthropic_format() \
+		else PromptTemplates.build_completion_body(model_name, system, turns, json_mode and bool(options.get("json", true)),
+			temperature, maxi(max_reply_tokens, 16))
+	var http := HTTPRequest.new()
+	http.timeout = timeout
+	add_child(http)
+	http.request_completed.connect(_on_completion_completed.bind(request_id))
+	var error := http.request(endpoint_url, _headers(), HTTPClient.METHOD_POST, JSON.stringify(body))
+	if error != OK:
+		http.queue_free()
+		_register_failure("request error %d" % error)
+		_fail_completion_soon(request_id, "%s: request error %d" % [purpose, error])
+		return request_id
+	var deadline := get_tree().create_timer(timeout + 0.25)
+	deadline.timeout.connect(_on_completion_deadline.bind(request_id))
+	_completions[request_id] = {"purpose": purpose, "http": http, "timeout": timeout}
+	return request_id
+
+
+## Drops a pending [method request_completion]; no signal follows for it.
+func cancel_completion(request_id: int) -> void:
+	if not _completions.has(request_id):
+		return
+	var entry: Dictionary = _completions[request_id]
+	_completions.erase(request_id)
+	var http: HTTPRequest = entry["http"]
+	http.cancel_request()
+	http.queue_free()
+
+
+func pending_completion_count() -> int:
+	return _completions.size()
+
+
+func _on_completion_completed(result: int, response_code: int, _headers_in: PackedStringArray, body: PackedByteArray,
+		request_id: int) -> void:
+	if not _completions.has(request_id):
+		return
+	var entry: Dictionary = _completions[request_id]
+	_completions.erase(request_id)
+	(entry["http"] as HTTPRequest).queue_free()
+	if result != HTTPRequest.RESULT_SUCCESS:
+		var reason := "timeout" if result == HTTPRequest.RESULT_TIMEOUT else "transport error %d" % result
+		if result == HTTPRequest.RESULT_TIMEOUT:
+			stats["timeouts"] += 1
+		_register_failure(reason)
+		_finish_completion(request_id, false, "", reason)
+		return
+	if response_code < 200 or response_code >= 300:
+		var reason := describe_http_error(response_code, body.get_string_from_utf8())
+		_register_failure(reason)
+		_finish_completion(request_id, false, "", reason)
+		return
+	# The endpoint answered: transport is healthy even if the content is bad.
+	_consecutive_failures = 0
+	var reply := PromptTemplates.parse_completion_text(body.get_string_from_utf8())
+	if not reply["ok"]:
+		_finish_completion(request_id, false, "", "invalid response: " + String(reply["error"]))
+		return
+	_finish_completion(request_id, true, String(reply["text"]), "")
+
+
+func _on_completion_deadline(request_id: int) -> void:
+	if not _completions.has(request_id):
+		return
+	var entry: Dictionary = _completions[request_id]
+	_completions.erase(request_id)
+	var http: HTTPRequest = entry["http"]
+	http.cancel_request()
+	http.queue_free()
+	stats["timeouts"] += 1
+	_register_failure("timeout")
+	_finish_completion(request_id, false, "", "timeout after %.1fs" % float(entry["timeout"]))
+
+
+func _fail_completion_soon(request_id: int, reason: String) -> void:
+	stats["completion_failures"] += 1
+	_finish_completion.call_deferred(request_id, false, "", reason, false)
+
+
+func _finish_completion(request_id: int, ok: bool, text: String, error: String, count_failure: bool = true) -> void:
+	if not ok and count_failure:
+		stats["completion_failures"] += 1
+	completion_received.emit(request_id, ok, text, error)
 
 
 func _send_api_request(faction_name: String, world_state: Dictionary) -> void:

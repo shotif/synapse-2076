@@ -31,7 +31,7 @@ For `POST /v1/messages`, in order:
 4. If `ACCESS_CODE` is set, the request must carry it (`401`). The comparison is constant-time.
 5. The body must be at most 64 KiB (`413`) and a JSON object (`400`).
 6. `model` must be one of `ALLOWED_MODELS` (`400`).
-7. `messages` must be an array of 1 to 8 objects (`400`).
+7. `messages` must be an array of 1 to 16 objects, each with the role `user` or `assistant` (`400`). A "Call the …" negotiation sends its whole conversation: up to six player messages and the replies between them.
 8. `system` and each message's `content` must be text: a string or `text` blocks (`400`). Image and document blocks are refused, because URL, file and PDF sources can bring in far more tokens than the character limit allows.
 9. `system` plus all message content may hold at most 48,000 characters (`413`).
 
@@ -49,7 +49,7 @@ Know what each control does and what it doesn't do.
 - **Access code.** This is the real gate. With `ACCESS_CODE` set, every API request must carry it. Anyone who has the code can use the proxy, and players' browsers may store it, so share it only with people you trust and change it when it leaks. Never put it in the web build, the repository or a public variable. Without an access code, anyone who sends an allowed `Origin` header can use the proxy.
 - **Requests without an Origin header** (curl, scripts) are refused unless an access code is set and supplied. This stops casual use of the URL as a free API. It is not a security boundary, because `Origin` is easy to fake.
 - **Model allowlist, `max_tokens` cap, text-only content and size limits** bound the cost of a single request. They don't limit how many requests arrive.
-- **Rate limiter.** `wrangler.toml` binds 60 requests per 60 seconds per client IP (one game turn sends three). Cloudflare counts per location and approximately, so it slows a single client down but not a distributed one. Without the binding, the proxy runs unthrottled.
+- **Rate limiter.** `wrangler.toml` binds 60 requests per 60 seconds per client IP (one game turn sends three, plus one when Claude writes a crisis card and one per message in a "Call the …" negotiation). Cloudflare counts per location and approximately, so it slows a single client down but not a distributed one. Without the binding, the proxy runs unthrottled.
 - **Spend limit.** This is the only hard ceiling on cost. Create a separate workspace in the Anthropic Console, give it a monthly spend limit, and create the proxy's API key in that workspace. If the proxy is abused, spending stops at the limit and nothing else in your organization is affected. Revoke the key there if you need to shut the proxy off immediately.
 - **No request logging.** The Worker never logs request bodies, keys or access codes. Cloudflare still sees request metadata, and Workers Logs record more if you turn on observability.
 

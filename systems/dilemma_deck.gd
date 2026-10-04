@@ -501,6 +501,9 @@ func draw(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 			var template: Dictionary = entry.get("template", get_template(entry["id"]))
 			var card := _instantiate(template, ctx, rng, "DEFERRED", int(entry["escalation"]))
 			card["origin"] = entry.get("origin", "DECK")
+			if entry.has("template"):
+				# A card written outside the deck keeps its template for its next deferral.
+				card["template"] = entry["template"]
 			_remember(card["id"])
 			return card
 	for i in scheduled.size():
