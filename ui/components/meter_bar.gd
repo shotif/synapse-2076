@@ -5,7 +5,12 @@ extends Control
 ##   Era II  a ring gauge with the value inside and the name below.
 ##   Era III a living cell whose size follows the value.
 ## Every variant marks the warning and critical bands. The compact variant is
-## a slim tile (glyph, value, bar) for tight spaces.
+## a slim tile (glyph, value, bar) for tight spaces. Text follows the player's
+## text size and the name their plain-language setting; a click or tap emits
+## metric_pressed (the dashboard explains the change in a WhyPopup).
+
+## Emitted when the player clicks or taps the meter (not when a drag scrolls).
+signal metric_pressed(metric_key: String)
 
 @export var metric_key := ""
 @export var label_text := "Metric"
@@ -24,15 +29,45 @@ const HISTORY_LENGTH := 32
 ## Minimum sizes per era (card, ring, cell) and for the compact tile.
 const SIZES := {1: Vector2(150, 92), 2: Vector2(96, 112), 3: Vector2(96, 118)}
 const COMPACT_SIZE := Vector2(92, 40)
+## A press that moves further than this is a drag, not a tap.
+const TAP_SLOP := 12.0
+
+var _press_at := Vector2.INF
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
+	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_display_value = value
 	_phase = randf() * TAU
+	_refresh_label()
+	_apply_style()
+	GameSettings.instance().changed.connect(_on_setting_changed)
+
+
+func _gui_input(event: InputEvent) -> void:
+	var button := event as InputEventMouseButton
+	if button == null or button.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if button.pressed:
+		_press_at = button.position
+	elif _press_at != Vector2.INF:
+		var tapped := button.position.distance_to(_press_at) <= TAP_SLOP
+		_press_at = Vector2.INF
+		if tapped and metric_key != "":
+			metric_pressed.emit(metric_key)
+
+
+func _on_setting_changed(key: String, _value: Variant) -> void:
+	if key == "plain_language":
+		_refresh_label()
+		_refresh_tooltip()
+		queue_redraw()
+
+
+func _refresh_label() -> void:
 	if metric_key != "" and WorldState.METRIC_INFO.has(metric_key):
 		label_text = UiFormat.metric_name(metric_key)
-	_apply_style()
 
 
 func _notification(what: int) -> void:
@@ -68,7 +103,9 @@ func set_history(values: Array) -> void:
 
 func _apply_style() -> void:
 	_style = EraTheme.style_of(self)
-	custom_minimum_size = COMPACT_SIZE if compact else SIZES[_style.era]
+	var base: Vector2 = COMPACT_SIZE if compact else SIZES[_style.era]
+	# Larger text needs a little more height; the width stays on the grid.
+	custom_minimum_size = Vector2(base.x, roundf(base.y * (1.0 + (_style.text_scale - 1.0) * 0.6)))
 	queue_redraw()
 
 
@@ -139,11 +176,11 @@ func _draw_card() -> void:
 	var color := _metric_color()
 	draw_style_box(EraTheme.box(s.surface, Color(_band_color(), 0.6 * _flash), 1 if _flash > 0.0 else 0, 18), Rect2(Vector2.ZERO, size))
 	draw_texture_rect(Glyphs.texture(Glyphs.for_metric(metric_key), 16, 2.0), Rect2(14, 12, 16, 16), false, color)
-	draw_string(s.font_ui_bold, Vector2(36, 25), label_text, HORIZONTAL_ALIGNMENT_LEFT, w - 64, 13, color)
+	draw_string(s.font_ui_bold, Vector2(36, 25), label_text, HORIZONTAL_ALIGNMENT_LEFT, w - 64, s.scaled(13), color)
 	if band > 0:
 		draw_circle(Vector2(w - 18, 20), 4.0, _band_color())
-	draw_string(s.font_ui_bold, Vector2(14, h - 26), _readout(), HORIZONTAL_ALIGNMENT_LEFT, -1, 28, s.text)
-	draw_string(s.font_ui, Vector2(14, h - 10), _delta_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, _delta_color())
+	draw_string(s.font_ui_bold, Vector2(14, h - 26), _readout(), HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(28), s.text)
+	draw_string(s.font_ui, Vector2(14, h - 10), _delta_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(12), _delta_color())
 	_draw_sparkline(Rect2(w - 78, h - 40, 64, 26), color, 1.8)
 
 
@@ -161,16 +198,17 @@ func _draw_ring() -> void:
 		draw_arc(center, radius, start, start + sweep, 64, Color(color, 0.22 + 0.3 * _flash), 11.0, true)
 		draw_arc(center, radius, start, start + sweep, 64, color, 5.0, true)
 	_draw_ring_marks(center, radius)
-	var value_font_size := 18 if radius > 26.0 else 15
+	var value_font_size := s.scaled(18 if radius > 26.0 else 15)
 	draw_string(s.font_mono, Vector2(0, center.y + 6), _readout(), HORIZONTAL_ALIGNMENT_CENTER, size.x, value_font_size, s.text_bright)
 	var name_y := center.y + radius + 22.0
 	var label := s.label(label_text)
-	var label_width := s.font_ui_bold.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-	var x0 := (size.x - label_width - 16.0) * 0.5
+	var name_size := s.scaled(11)
+	var label_width := minf(s.font_ui_bold.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, name_size).x, size.x - 18.0)
+	var x0 := maxf(0.0, (size.x - label_width - 16.0) * 0.5)
 	draw_texture_rect(Glyphs.texture(Glyphs.for_metric(metric_key), 12, 2.0), Rect2(x0, name_y - 11, 12, 12), false, color)
-	draw_string(s.font_ui_bold, Vector2(x0 + 16.0, name_y), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color)
+	draw_string(s.font_ui_bold, Vector2(x0 + 16.0, name_y), label, HORIZONTAL_ALIGNMENT_LEFT, label_width + 1.0, name_size, color)
 	if absf(delta) >= 0.5:
-		draw_string(s.font_mono, Vector2(0, name_y + 14), _delta_text(), HORIZONTAL_ALIGNMENT_CENTER, size.x, 10, _delta_color())
+		draw_string(s.font_mono, Vector2(0, name_y + 14), _delta_text(), HORIZONTAL_ALIGNMENT_CENTER, size.x, s.scaled(10), _delta_color())
 
 
 ## Warning and critical thresholds as short ticks across the ring.
@@ -212,8 +250,8 @@ func _draw_cell() -> void:
 	outline.append(points[0])
 	draw_polyline(outline, Color(_band_color(), 0.6), 1.0, true)
 	draw_texture_rect(Glyphs.texture(Glyphs.for_metric(metric_key), 16, 1.8), Rect2(center.x - 8, center.y - 30, 16, 16), false, color)
-	draw_string(s.font_mono, Vector2(0, center.y + 7), _readout(), HORIZONTAL_ALIGNMENT_CENTER, size.x, 19, s.text_bright)
-	draw_string(s.font_ui_bold, Vector2(0, center.y + 22), label_text.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, size.x, 9, color)
+	draw_string(s.font_mono, Vector2(0, center.y + 7), _readout(), HORIZONTAL_ALIGNMENT_CENTER, size.x, s.scaled(19), s.text_bright)
+	draw_string(s.font_ui_bold, Vector2(0, center.y + 22), label_text.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, size.x, s.scaled(9), color)
 
 
 # --- Compact tile -------------------------------------------------------------------
@@ -225,8 +263,8 @@ func _draw_tile() -> void:
 	draw_style_box(EraTheme.box(s.surface, Color(_band_color(), 0.25 + 0.5 * _flash), maxi(s.border_width, 1) if band > 0 else s.border_width,
 		s.control_radius, 0, 0, s.corner_detail), Rect2(Vector2.ZERO, size))
 	draw_texture_rect(Glyphs.texture(Glyphs.for_metric(metric_key), 13, 2.0), Rect2(6, 6, 13, 13), false, color)
-	draw_string(s.font_ui_bold, Vector2(23, 17), s.label(label_text), HORIZONTAL_ALIGNMENT_LEFT, w - 50, 10, s.text_dim)
-	draw_string(s.font_mono_bold, Vector2(0, 17), _readout(), HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 13, _band_color() if band > 0 else s.text_bright)
+	draw_string(s.font_ui_bold, Vector2(23, 17), s.label(label_text), HORIZONTAL_ALIGNMENT_LEFT, w - 50, s.scaled(10), s.text_dim)
+	draw_string(s.font_mono_bold, Vector2(0, 17), _readout(), HORIZONTAL_ALIGNMENT_RIGHT, w - 6, s.scaled(13), _band_color() if band > 0 else s.text_bright)
 	var bar := Rect2(6, size.y - 11, w - 12, 4)
 	draw_rect(bar, Color(color, 0.16))
 	var fill := bar.size.x * _display_value / 100.0
@@ -271,5 +309,4 @@ func _draw_sparkline(rect: Rect2, color: Color, width: float) -> void:
 func _refresh_tooltip() -> void:
 	if not WorldState.METRIC_INFO.has(metric_key):
 		return
-	var info: Dictionary = WorldState.METRIC_INFO[metric_key]
-	tooltip_text = "%s: %.1f\n%s" % [info["label"], value, WorldState.regime_for(metric_key, value)]
+	tooltip_text = "%s: %.1f\n%s" % [PlainLanguage.display_name(metric_key), value, WorldState.regime_for(metric_key, value)]

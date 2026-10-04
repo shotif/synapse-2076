@@ -171,6 +171,7 @@ func _build_variables() -> void:
 		cell.add_child(_label(String(entry[1]), _mono, 9, SOFT, true))
 		var value := _label("", _mono, 15, TEXT)
 		cell.add_child(value)
+		_tap_metric(cell, String(entry[0]))
 		grid.add_child(cell)
 		_variable_values.append(value)
 	block.add_child(grid)

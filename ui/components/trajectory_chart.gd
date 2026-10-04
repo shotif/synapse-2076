@@ -3,8 +3,8 @@ extends Control
 ## Historical trajectory line chart (the debrief's appendix). Plots each macro
 ## metric over the campaign with the hardware-era boundaries, a 0-100 grid and
 ## a hover crosshair that reads out every series at the pointed turn. Colors,
-## fonts and corner shape follow the era theme (EraTheme.style_of) and the
-## chart redraws when the dashboard swaps themes.
+## fonts, text size and corner shape follow the era theme (EraTheme.style_of)
+## and the chart redraws when the dashboard swaps themes.
 
 var history: Array = []
 var series_keys: Array = WorldState.METRIC_KEYS
@@ -55,10 +55,10 @@ func _legend_items(s: EraStyle) -> Array:
 	var y := 26.0
 	for key in series_keys:
 		var series_name := s.label(UiFormat.metric_name(key))
-		var width := 24.0 + s.font_ui.get_string_size(series_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+		var width := 24.0 + s.font_ui.get_string_size(series_name, HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(11)).x
 		if x > 12.0 and x + width > size.x - 6.0:
 			x = 12.0
-			y += 15.0
+			y += 4.0 + float(s.scaled(11))
 		items.append({"key": key, "name": series_name, "pos": Vector2(x, y)})
 		x += width
 	return items
@@ -83,7 +83,7 @@ func _draw() -> void:
 	var mono := s.font_mono
 	var plot := _plot_rect()
 	draw_style_box(EraTheme.panel(s, s.bg.lerp(s.surface, 0.6), s.border, s.control_radius + 2, 0.0), Rect2(Vector2.ZERO, size))
-	draw_string(s.font_ui_bold, Vector2(12, 18), s.label(title), HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
+	draw_string(s.font_ui_bold, Vector2(12, 18), s.label(title), HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(12),
 		s.accent if s.era == 2 else s.text_bright)
 
 	# Legend.
@@ -91,7 +91,7 @@ func _draw() -> void:
 		var color := s.metric_color(item["key"])
 		var pos: Vector2 = item["pos"]
 		draw_rect(Rect2(pos.x, pos.y - 1.0, 12, 3), color)
-		draw_string(s.font_ui, Vector2(pos.x + 16, pos.y + 4), item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, s.text_dim)
+		draw_string(s.font_ui, Vector2(pos.x + 16, pos.y + 4), item["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(11), s.text_dim)
 
 	# Hardware eras: a faint band for each and its numeral.
 	for era in [1, 2, 3]:
@@ -101,25 +101,25 @@ func _draw() -> void:
 		if era % 2 == 0:
 			draw_rect(Rect2(x0, plot.position.y, x1 - x0, plot.size.y), Color(s.accent, 0.05))
 		draw_string(mono, Vector2(x0 + 5, plot.end.y - 5), "ERA %s" % EraStyle.ROMAN[era], HORIZONTAL_ALIGNMENT_LEFT, -1,
-			9, Color(s.accent, 0.7))
+			s.scaled(9), Color(s.accent, 0.7))
 
 	# Grid.
 	for level in [0.0, 25.0, 50.0, 75.0, 100.0]:
 		var y: float = plot.end.y - plot.size.y * level / 100.0
 		draw_line(Vector2(plot.position.x, y), Vector2(plot.end.x, y), Color(s.border, s.border.a * (1.6 if level == 0.0 else 0.9)), 1.0)
-		draw_string(mono, Vector2(6, y + 4), "%3d" % int(level), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, s.text_dim)
+		draw_string(mono, Vector2(6, y + 4), "%3d" % int(level), HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(10), s.text_dim)
 	var span_years := SimConstants.YEARS_PER_TURN * float(SimConstants.TOTAL_TURNS)
 	for year in [2026, 2036, 2046, 2056, 2066, 2076]:
 		var yx: float = plot.position.x + plot.size.x * (float(year) - SimConstants.START_YEAR) / span_years
 		var label := str(year)
-		var width := mono.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+		var width := mono.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(10)).x
 		draw_string(mono, Vector2(clampf(yx - width * 0.5, 2.0, size.x - width - 2.0), size.y - 7), label,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, s.text_dim)
+			HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(10), s.text_dim)
 
 	if history.size() < 2:
 		var empty := s.label("No telemetry")
-		draw_string(s.font_ui, plot.get_center() - Vector2(s.font_ui.get_string_size(empty, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x * 0.5, 0),
-			empty, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, s.text_dim)
+		draw_string(s.font_ui, plot.get_center() - Vector2(s.font_ui.get_string_size(empty, HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(12)).x * 0.5, 0),
+			empty, HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(12), s.text_dim)
 		return
 
 	# Series.
@@ -144,13 +144,15 @@ func _draw() -> void:
 		var entry: Dictionary = history[_hover_index]
 		var hx := _x_for_turn(plot, float(entry.get("turn", 0)))
 		draw_line(Vector2(hx, plot.position.y), Vector2(hx, plot.end.y), Color(s.text_bright, 0.5), 1.0)
-		var box_x := hx + 8.0 if hx < plot.get_center().x else hx - 186.0
-		var box := Rect2(box_x, plot.position.y + 6, 178, 20 + 15 * series_keys.size())
+		var line := 4.0 + float(s.scaled(11))
+		var box_width := 178.0 * s.text_scale
+		var box_x := hx + 8.0 if hx < plot.get_center().x else hx - box_width - 8.0
+		var box := Rect2(box_x, plot.position.y + 6, box_width, 20 + line * series_keys.size())
 		draw_style_box(EraTheme.box(Color(s.overlay, 0.94), s.border_strong, 1, s.control_radius, 0.0, 0.0, s.corner_detail), box)
 		draw_string(mono, box.position + Vector2(8, 15), "T%d · %d" % [int(entry.get("turn", 0)), int(float(entry.get("year", 2026.0)))],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, s.text_bright)
+			HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(11), s.text_bright)
 		var row := 1
 		for key in series_keys:
-			draw_string(mono, box.position + Vector2(8, 15 + 15 * row), "%-10s %5.1f" % [UiFormat.metric_name(key), float(entry.get(key, 0.0))],
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 10, s.metric_color(key))
+			draw_string(mono, box.position + Vector2(8, 15 + line * row), "%-10s %5.1f" % [UiFormat.metric_name(key), float(entry.get(key, 0.0))],
+				HORIZONTAL_ALIGNMENT_LEFT, -1, s.scaled(10), s.metric_color(key))
 			row += 1

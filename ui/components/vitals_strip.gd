@@ -9,7 +9,8 @@ extends Control
 ## Compact (phones): one row of six small tiles, 64 px tall; the dashboard can
 ## use it as the phone vitals header. Desktop: each tile has the metric name,
 ## value and predicted value beside it (needs about 720 px). Colors, fonts and
-## tile shapes follow the era theme the control inherits (EraTheme). Drawn in
+## tile shapes follow the era theme the control inherits (EraTheme), its text
+## the player's text size, and the names their plain-language setting. Drawn in
 ## one pass with no child nodes; it only processes while values ease or a
 ## preview pulses.
 
@@ -61,6 +62,7 @@ func _init() -> void:
 		_values[key] = 0.0
 		_shown[key] = 0.0
 	set_process(false)
+	GameSettings.instance().changed.connect(_on_setting_changed)
 
 
 func _get_minimum_size() -> Vector2:
@@ -71,6 +73,13 @@ func _get_minimum_size() -> Vector2:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED or what == NOTIFICATION_THEME_CHANGED:
+		_shapes_dirty = true
+		queue_redraw()
+
+
+## Names follow the plain-language setting; colors and sizes follow the theme.
+func _on_setting_changed(key: String, _value: Variant) -> void:
+	if key == "plain_language" or key in EraTheme.SETTING_KEYS:
 		_shapes_dirty = true
 		queue_redraw()
 
@@ -291,10 +300,11 @@ func _draw_compact_text(s: EraStyle, key: String, cell: Rect2, tile: Rect2, puls
 	var mono := s.font_mono
 	if _preview.has(key):
 		var pips := UiFormat.pips(float(_preview[key]))
-		draw_string(mono, Vector2(cell.position.x, PIP_BAND - 4.0), pips, HORIZONTAL_ALIGNMENT_CENTER, cell.size.x, 10,
+		draw_string(mono, Vector2(cell.position.x, PIP_BAND - 4.0), pips, HORIZONTAL_ALIGNMENT_CENTER, cell.size.x, s.scaled(10),
 			Color(_tone(s, key), pulse_alpha))
 	var value := "%d" % roundi(float(_shown[key]))
-	draw_string(mono, Vector2(cell.position.x, minf(tile.end.y + 12.0, size.y - 1.0)), value, HORIZONTAL_ALIGNMENT_CENTER, cell.size.x, 11, s.text_dim)
+	draw_string(mono, Vector2(cell.position.x, minf(tile.end.y + 12.0, size.y - 1.0)), value, HORIZONTAL_ALIGNMENT_CENTER, cell.size.x,
+		s.scaled(11), s.text_dim)
 
 
 func _draw_desktop_text(s: EraStyle, key: String, cell: Rect2, tile: Rect2, pulse_alpha: float) -> void:
@@ -303,19 +313,20 @@ func _draw_desktop_text(s: EraStyle, key: String, cell: Rect2, tile: Rect2, puls
 	if width < 24.0:
 		return
 	var name_text := s.label(UiFormat.metric_name(key))
-	draw_string(s.font_ui, Vector2(x, tile.position.y + 15.0), name_text, HORIZONTAL_ALIGNMENT_LEFT, width, 12, s.text_dim)
+	draw_string(s.font_ui, Vector2(x, tile.position.y + 15.0), name_text, HORIZONTAL_ALIGNMENT_LEFT, width, s.scaled(12), s.text_dim)
 	var value := "%d" % roundi(float(_shown[key]))
 	var value_font := s.font_mono_bold
 	var baseline := tile.end.y - 6.0
-	draw_string(value_font, Vector2(x, baseline), value, HORIZONTAL_ALIGNMENT_LEFT, width, 22, s.text_bright)
+	var value_size := s.scaled(22)
+	draw_string(value_font, Vector2(x, baseline), value, HORIZONTAL_ALIGNMENT_LEFT, width, value_size, s.text_bright)
 	if not _preview.has(key):
 		return
 	var tone := _tone(s, key)
 	var pips := UiFormat.pips(float(_preview[key]))
-	draw_string(s.font_mono, Vector2(x, tile.position.y + 15.0), pips, HORIZONTAL_ALIGNMENT_RIGHT, width, 11, Color(tone, pulse_alpha))
-	var after := value_font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x + 6.0
+	draw_string(s.font_mono, Vector2(x, tile.position.y + 15.0), pips, HORIZONTAL_ALIGNMENT_RIGHT, width, s.scaled(11), Color(tone, pulse_alpha))
+	var after := value_font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, value_size).x + 6.0
 	var predicted := "→ %d" % roundi(get_predicted(key))
-	draw_string(s.font_mono, Vector2(x + after, baseline), predicted, HORIZONTAL_ALIGNMENT_LEFT, maxf(0.0, width - after), 14, tone)
+	draw_string(s.font_mono, Vector2(x + after, baseline), predicted, HORIZONTAL_ALIGNMENT_LEFT, maxf(0.0, width - after), s.scaled(14), tone)
 
 
 func _tone(s: EraStyle, key: String) -> Color:
@@ -324,7 +335,7 @@ func _tone(s: EraStyle, key: String) -> Color:
 
 func _ensure_boxes(s: EraStyle) -> void:
 	var side := _tile_rect(_cell_rect(0)).size.x
-	var key := "%d|%.1f" % [s.era, side]
+	var key := "%s|%.1f" % [s.variant_key(), side]
 	if key == _boxes_key and not _boxes.is_empty():
 		return
 	_boxes_key = key
@@ -459,7 +470,7 @@ func _get_tooltip(at_position: Vector2) -> String:
 	if index < 0 or compact:
 		return ""
 	var key: String = WorldState.METRIC_KEYS[index]
-	var text := "%s: %d" % [String(WorldState.METRIC_INFO[key]["label"]), roundi(get_value(key))]
+	var text := "%s: %d" % [PlainLanguage.display_name(key), roundi(get_value(key))]
 	if _preview.has(key):
 		text += "  →  %d (%s)" % [roundi(get_predicted(key)), UiFormat.signed(float(_preview[key]))]
 	return text

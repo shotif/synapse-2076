@@ -7,7 +7,8 @@ extends PanelContainer
 ## as its check box; selected directives get an intensity slider (1.0x-2.0x
 ## of the base cost, with diminishing returns on effect). Execute stays
 ## locked until the crisis is resolved and the combined spend is affordable.
-## The compact variant (phones, tablets) enlarges every touch target.
+## The compact variant (phones, tablets) enlarges every touch target. Text
+## follows the player's text size, and names their plain-language setting.
 
 signal execute_requested(directives: Array)
 signal review_crisis_requested
@@ -38,7 +39,8 @@ var _crisis_cost := {}
 var _interactive := false
 var _compact := false
 var _focus_tween: Tween
-var _era := 0
+## The style variant the panel was last styled with (era, colors, text size).
+var _era_style: EraStyle
 
 var _title: Label
 var _resource_box: GridContainer
@@ -98,7 +100,7 @@ func _ready() -> void:
 	root.add_child(_summary_label)
 	_message_label = Label.new()
 	_message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_message_label.add_theme_font_size_override("font_size", 12)
+	EraTheme.set_scaled_font_size(_message_label, 12)
 	root.add_child(_message_label)
 
 	_execute_button = Button.new()
@@ -108,11 +110,28 @@ func _ready() -> void:
 	_execute_button.pressed.connect(_on_execute_pressed)
 	root.add_child(_execute_button)
 	_restyle()
+	GameSettings.instance().changed.connect(_on_setting_changed)
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_THEME_CHANGED and _title != null and EraTheme.style_of(self).era != _era:
+	if what == NOTIFICATION_THEME_CHANGED and _title != null and EraTheme.style_of(self) != _era_style:
 		_restyle()
+
+
+## Plain names show at once; colors and text size follow the theme.
+func _on_setting_changed(key: String, _value: Variant) -> void:
+	if key == "plain_language" and _title != null:
+		_rebuild_all()
+
+
+## The Execute button (the guided first campaign points at it).
+func get_execute_button() -> Button:
+	return _execute_button
+
+
+## The scrolling list of directive cards.
+func get_directive_list() -> Control:
+	return _scroll
 
 
 ## Populates the panel for a new player phase (SimulationEngine.get_player_context()).
@@ -293,16 +312,16 @@ func _rebuild_all() -> void:
 
 func _restyle() -> void:
 	var s := EraTheme.style_of(self)
-	_era = s.era
+	_era_style = s
 	_crisis_kicker.add_theme_font_override("font", s.font_mono if s.era == 3 else s.font_ui_bold)
-	_crisis_kicker.add_theme_font_size_override("font_size", 12)
+	EraTheme.set_scaled_font_size(_crisis_kicker, 12)
 	_crisis_kicker.add_theme_color_override("font_color", s.text_dim)
 	_crisis_meta.add_theme_font_override("font", s.font_mono)
-	_crisis_meta.add_theme_font_size_override("font_size", 11)
+	EraTheme.set_scaled_font_size(_crisis_meta, 11)
 	_crisis_title.add_theme_font_override("font", s.font_ui_bold)
-	_crisis_title.add_theme_font_size_override("font_size", 16 if s.era == 1 else 17)
+	EraTheme.set_scaled_font_size(_crisis_title, 16 if s.era == 1 else 17)
 	_crisis_title.add_theme_color_override("font_color", s.text_bright)
-	_crisis_label.add_theme_font_size_override("normal_font_size", 13)
+	EraTheme.set_scaled_font_size(_crisis_label, 13, &"normal_font_size")
 	_crisis_label.add_theme_color_override("default_color", s.text_dim)
 	_restyle_crisis()
 	_rebuild_all()
@@ -378,7 +397,7 @@ func _resource_cell(s: EraStyle, key: String, amount: float) -> Control:
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.add_theme_font_override("font", s.font_ui)
-	name_label.add_theme_font_size_override("font_size", 10 if s.labels_upper else 11)
+	EraTheme.set_scaled_font_size(name_label, 10 if s.labels_upper else 11)
 	name_label.add_theme_color_override("font_color", s.text_dim)
 	head.add_child(name_label)
 	box.add_child(head)
@@ -386,7 +405,7 @@ func _resource_cell(s: EraStyle, key: String, amount: float) -> Control:
 	value_label.text = UiFormat.format_resource(_role, key, amount)
 	value_label.clip_text = true
 	value_label.add_theme_font_override("font", s.font_ui_bold if s.era == 1 else s.font_mono)
-	value_label.add_theme_font_size_override("font_size", 16 if s.era == 1 else 14)
+	EraTheme.set_scaled_font_size(value_label, 16 if s.era == 1 else 14)
 	value_label.add_theme_color_override("font_color", s.text_bright)
 	box.add_child(value_label)
 	for child in [box, head, value_label]:
@@ -422,7 +441,7 @@ func _directive_card(s: EraStyle, action: Dictionary) -> PanelContainer:
 	check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	check.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	check.add_theme_font_override("font", s.font_ui_bold)
-	check.add_theme_font_size_override("font_size", 14)
+	EraTheme.set_scaled_font_size(check, 14)
 	check.add_theme_constant_override("h_separation", 10)
 	check.custom_minimum_size = Vector2(0, 40 if _compact else 34)
 	var glyph := _action_glyph(action)
@@ -434,7 +453,7 @@ func _directive_card(s: EraStyle, action: Dictionary) -> PanelContainer:
 	header.add_child(check)
 	var cost_label := Label.new()
 	cost_label.add_theme_font_override("font", s.font_mono)
-	cost_label.add_theme_font_size_override("font_size", 12)
+	EraTheme.set_scaled_font_size(cost_label, 12)
 	cost_label.add_theme_color_override("font_color", s.text_dim)
 	cost_label.text = UiFormat.format_cost(_role, action["cost"])
 	header.add_child(cost_label)
@@ -444,7 +463,7 @@ func _directive_card(s: EraStyle, action: Dictionary) -> PanelContainer:
 	description.theme_type_variation = "DimLabel"
 	description.text = String(action["description"])
 	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	description.add_theme_font_size_override("font_size", 12)
+	EraTheme.set_scaled_font_size(description, 12)
 	box.add_child(description)
 	var effects := _effect_chips(s, action.get("effects", {}))
 	if effects != null:
@@ -509,7 +528,7 @@ func _effect_chips(s: EraStyle, effects: Dictionary) -> Control:
 		var pips := Label.new()
 		pips.text = UiFormat.pips(amount)
 		pips.add_theme_font_override("font", s.font_mono)
-		pips.add_theme_font_size_override("font_size", 10)
+		EraTheme.set_scaled_font_size(pips, 10)
 		pips.add_theme_color_override("font_color", color)
 		chip.add_child(pips)
 		flow.add_child(chip)

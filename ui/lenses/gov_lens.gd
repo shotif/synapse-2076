@@ -275,6 +275,7 @@ func _build_threat_board(page: VBoxContainer) -> void:
 		(cells[0] as Label).custom_minimum_size.x = 86
 		(cells[2] as Label).custom_minimum_size.x = 30
 		for cell in cells:
+			_tap_metric(cell)
 			grid.add_child(cell)
 		_threat_cells.append(cells)
 	block.add_child(grid)
@@ -502,6 +503,8 @@ func _refresh_threats() -> void:
 		var cells: Array = _threat_cells[i]
 		var filled := clampi(int(roundf(value / 10.0)), 0, TICKS)
 		var status := _threat_status(key, value)
+		for cell in cells:
+			(cell as Control).set_meta("metric_key", key)
 		(cells[0] as Label).text = UiFormat.metric_name(key).to_upper()
 		(cells[1] as Control).set_meta("filled", filled if not snapshot.is_empty() else 0)
 		(cells[1] as Control).queue_redraw()
