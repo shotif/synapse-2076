@@ -17,6 +17,7 @@ var _model: LineEdit
 var _api_key: LineEdit
 var _timeout: LineEdit
 var _enabled: CheckBox
+var _write_crises: CheckBox
 var _remember_key: CheckBox
 var _status: Label
 
@@ -44,10 +45,14 @@ func _ready() -> void:
 	_enabled = CheckBox.new()
 	_enabled.text = "Enable LLM-driven factions (heuristic fallback is always available)"
 	box.add_child(_enabled)
+	_write_crises = CheckBox.new()
+	_write_crises.name = "WriteCrises"
+	_write_crises.text = "Write crises with Claude: every few turns your crisis card is written for the world you are in (uses more tokens)"
+	box.add_child(_write_crises)
 	_remember_key = CheckBox.new()
 	_remember_key.text = "Remember the key on this device (plain text in user://, browser site storage on the web)"
 	box.add_child(_remember_key)
-	for check in [_enabled, _remember_key]:
+	for check in [_enabled, _write_crises, _remember_key]:
 		(check as CheckBox).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	if OS.has_feature("web"):
 		var hint := Label.new()
@@ -106,6 +111,21 @@ func _apply_layout() -> void:
 	for button in _panel.find_children("*", "Button", true, false):
 		if not (button is CheckBox):
 			(button as Control).custom_minimum_size = Vector2(0, 42 if _compact else 0)
+	_reflow_checks()
+
+
+## Godot 4.3 keeps the height an autowrapped CheckBox measured at an earlier
+## width (a few pixels wide: one word per line, over a thousand pixels tall).
+## Once the panel has its width, setting the wrap mode again measures it anew.
+func _reflow_checks() -> void:
+	if not is_inside_tree():
+		return
+	await get_tree().process_frame
+	for check in [_enabled, _write_crises, _remember_key]:
+		var box := check as CheckBox
+		if is_instance_valid(box):
+			box.autowrap_mode = TextServer.AUTOWRAP_OFF
+			box.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 
 func open(llm_service: LLMService) -> void:
@@ -117,9 +137,11 @@ func open(llm_service: LLMService) -> void:
 	_api_key.text = service.api_key
 	_timeout.text = "%.1f" % service.request_timeout_sec
 	_enabled.button_pressed = service.enabled
+	_write_crises.button_pressed = service.write_crises
 	_status.text = "Status: %s%s" % ["ONLINE" if service.is_online else "OFFLINE",
 		"" if service.last_error == "" else " (" + service.last_error + ")"]
 	visible = true
+	_reflow_checks()
 
 
 func _apply() -> void:
@@ -129,6 +151,7 @@ func _apply() -> void:
 		"api_key": _api_key.text,
 		"request_timeout_sec": _timeout.text.to_float() if _timeout.text.is_valid_float() else 5.0,
 		"enabled": _enabled.button_pressed,
+		"write_crises": _write_crises.button_pressed,
 	})
 
 

@@ -138,6 +138,13 @@ static func _dilemma(entry: Dictionary, h: Dictionary) -> void:
 	var crisis := StoryCopy.sentence_case_title(card_id, crisis_title) if crisis_title != "" else ""
 	if crisis != "":
 		h["dek"] = crisis + (". It will return, escalated." if deferred else ".")
+	# Cards written for this campaign (Claude's crisis writer) have no story
+	# copy: their own headline leads and the dek says what was done.
+	if copy.is_empty() and card_id.begins_with("WRITTEN_") and crisis != "":
+		var label := String(entry.get("option_label", ""))
+		h["title"] = crisis
+		h["dek"] = "%s puts it off. It will return, escalated." % StoryCopy.actor(actor_id) if deferred or label.is_empty() \
+			else "%s picks “%s”." % [StoryCopy.actor(actor_id), label]
 	if bool(entry.get("fallout", false)):
 		title = StoryCopy.fill(StoryCopy.FALLOUT_HEAD, {"crisis": crisis}) if crisis != "" else ""
 		if title.is_empty() or title.length() > MAX_TITLE:
