@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Headless test entry point for humans, CI and coding agents.
 #
-#   tools/run_tests.sh                                  # import + unit tests + 100-turn headless sim
+#   tools/run_tests.sh                                  # import + script lint + unit tests + 100-turn headless sim
 #   tools/run_tests.sh --suite=world_state              # forward filters to the unit runner
 #   tools/run_tests.sh --suite=engine --filter=async
 #   GODOT=/opt/godot/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
@@ -42,6 +42,7 @@ run_step() {
 }
 
 status=0
+run_step check_scripts --script res://tools/check_scripts.gd || status=1
 run_step unit_tests --script res://tests/run_tests.gd -- "$@" || status=1
 if [[ $# -eq 0 ]]; then
   run_step headless_sim --script res://tests/headless_sim_test.gd || status=1

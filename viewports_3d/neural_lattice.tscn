@@ -1,0 +1,31 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://viewports_3d/neural_lattice.gd" id="1_lattice"]
+[ext_resource type="Script" path="res://viewports_3d/orbit_camera.gd" id="2_orbit"]
+
+[sub_resource type="Environment" id="Environment_void"]
+background_mode = 1
+background_color = Color(0.0235294, 0.0352941, 0.0509804, 1)
+ambient_light_source = 1
+
+[node name="NeuralLattice" type="Node3D"]
+script = ExtResource("1_lattice")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_void")
+
+[node name="OrbitCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 6.5)
+fov = 45.0
+near = 0.05
+far = 100.0
+script = ExtResource("2_orbit")
+target = Vector3(0, -0.4, 0)
+distance = 6.6
+min_distance = 2.5
+max_distance = 14.0
+yaw = 0.35
+pitch = 0.28
+auto_rotate_speed = 0.0
+
+[node name="GraphRoot" type="Node3D" parent="."]

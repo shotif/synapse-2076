@@ -94,10 +94,10 @@ const ACTIONS := {
 }
 
 const RESOURCE_INFO := {
-	"community_resilience": {"label": "Community Resilience", "unit": "", "max": 100.0, "scale": 100.0},
-	"decentralized_scrip": {"label": "Decentralized Scrip / Energy", "unit": "", "max": 100.0, "scale": 100.0},
-	"counter_surveillance": {"label": "Counter-Surveillance Tooling", "unit": "", "max": 100.0, "scale": 100.0},
-	"collective_disruption": {"label": "Collective Disruption", "unit": "", "max": 100.0, "scale": 100.0},
+	"community_resilience": {"short": "RES", "label": "Community Resilience", "unit": "", "max": 100.0, "scale": 100.0},
+	"decentralized_scrip": {"short": "SCR", "label": "Decentralized Scrip / Energy", "unit": "", "max": 100.0, "scale": 100.0},
+	"counter_surveillance": {"short": "CSV", "label": "Counter-Surveillance Tooling", "unit": "", "max": 100.0, "scale": 100.0},
+	"collective_disruption": {"short": "DSR", "label": "Collective Disruption", "unit": "", "max": 100.0, "scale": 100.0},
 }
 
 

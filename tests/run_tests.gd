@@ -13,6 +13,9 @@ const UNIT_DIR := "res://tests/unit"
 
 
 func _initialize() -> void:
+	# _initialize() runs before the root window joins the tree; wait one frame so
+	# tests that add nodes (HTTPRequest, timers, scenes) get a live SceneTree.
+	await process_frame
 	var suite_filter := ""
 	var test_filter := ""
 	for arg in OS.get_cmdline_user_args():

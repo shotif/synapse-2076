@@ -1,0 +1,288 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://ui/main_dashboard.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://ui/components/llm_status_badge.tscn" id="2_badge"]
+[ext_resource type="PackedScene" path="res://ui/components/meter_bar.tscn" id="3_meter"]
+[ext_resource type="PackedScene" path="res://ui/components/directive_panel.tscn" id="4_directive"]
+[ext_resource type="PackedScene" path="res://ui/components/dilemma_dialog.tscn" id="5_dilemma"]
+[ext_resource type="PackedScene" path="res://viewports_3d/globe_viewport.tscn" id="6_globe"]
+[ext_resource type="PackedScene" path="res://viewports_3d/neural_lattice.tscn" id="7_lattice"]
+[ext_resource type="Script" path="res://ui/components/role_select.gd" id="8_role"]
+[ext_resource type="Script" path="res://ui/components/endgame_debrief.gd" id="9_debrief"]
+[ext_resource type="Script" path="res://ui/components/llm_settings_dialog.gd" id="10_settings"]
+
+[node name="MainDashboard" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_main")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.0509804, 0.0666667, 0.0901961, 1)
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="Layout" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Header" type="PanelContainer" parent="Margin/Layout"]
+layout_mode = 2
+
+[node name="HeaderRow" type="HBoxContainer" parent="Margin/Layout/Header"]
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="Title" type="Label" parent="Margin/Layout/Header/HeaderRow"]
+layout_mode = 2
+theme_type_variation = &"HeaderTitle"
+text = "[SYNAPSE-2076]"
+
+[node name="YearLabel" type="Label" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"ValueLabel"
+text = "YEAR: 2026 (T:0/100)"
+
+[node name="RoleLabel" type="Label" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"ValueLabel"
+text = "ROLE: --"
+
+[node name="PhaseLabel" type="Label" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"DimLabel"
+text = "PHASE: STANDBY"
+
+[node name="Spacer" type="Control" parent="Margin/Layout/Header/HeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SpectateControls" type="HBoxContainer" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="PauseButton" type="Button" parent="Margin/Layout/Header/HeaderRow/SpectateControls"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "PAUSE"
+
+[node name="SpeedButton" type="Button" parent="Margin/Layout/Header/HeaderRow/SpectateControls"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "SPEED x1"
+
+[node name="MenuButton" type="Button" parent="Margin/Layout/Header/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "MENU"
+
+[node name="LLMStatusBadge" parent="Margin/Layout/Header/HeaderRow" instance=ExtResource("2_badge")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Body" type="HBoxContainer" parent="Margin/Layout"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="TelemetryPanel" type="PanelContainer" parent="Margin/Layout/Body"]
+custom_minimum_size = Vector2(350, 0)
+layout_mode = 2
+
+[node name="TelemetryBox" type="VBoxContainer" parent="Margin/Layout/Body/TelemetryPanel"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="TelemetryTitle" type="Label" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox"]
+layout_mode = 2
+theme_type_variation = &"PanelTitle"
+text = "TELEMETRY METERS"
+
+[node name="ComputeMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "compute_energy_sat"
+
+[node name="LaborMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "labor_displacement"
+
+[node name="GeopoliticsMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "geopolitical_tension"
+
+[node name="AutonomyMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "algorithmic_autonomy"
+
+[node name="DriftMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "alignment_drift"
+
+[node name="TrustMeter" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox" instance=ExtResource("3_meter")]
+layout_mode = 2
+metric_key = "epistemic_trust"
+
+[node name="Separator" type="HSeparator" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox"]
+layout_mode = 2
+
+[node name="IndicesLabel" type="RichTextLabel" parent="Margin/Layout/Body/TelemetryPanel/TelemetryBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_font_sizes/normal_font_size = 12
+bbcode_enabled = true
+scroll_active = false
+
+[node name="CenterPanel" type="PanelContainer" parent="Margin/Layout/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CenterBox" type="VBoxContainer" parent="Margin/Layout/Body/CenterPanel"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ViewportHeader" type="HBoxContainer" parent="Margin/Layout/Body/CenterPanel/CenterBox"]
+layout_mode = 2
+
+[node name="ViewportTitle" type="Label" parent="Margin/Layout/Body/CenterPanel/CenterBox/ViewportHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"PanelTitle"
+text = "3D HOLOGRAPHIC VIEWPORT"
+
+[node name="GlobeButton" type="Button" parent="Margin/Layout/Body/CenterPanel/CenterBox/ViewportHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "GLOBE"
+
+[node name="LatticeButton" type="Button" parent="Margin/Layout/Body/CenterPanel/CenterBox/ViewportHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "NEURAL LATTICE"
+
+[node name="GlobeContainer" type="SubViewportContainer" parent="Margin/Layout/Body/CenterPanel/CenterBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+stretch = true
+
+[node name="GlobeSubViewport" type="SubViewport" parent="Margin/Layout/Body/CenterPanel/CenterBox/GlobeContainer"]
+own_world_3d = true
+handle_input_locally = false
+size = Vector2i(820, 560)
+render_target_update_mode = 3
+
+[node name="Globe" parent="Margin/Layout/Body/CenterPanel/CenterBox/GlobeContainer/GlobeSubViewport" instance=ExtResource("6_globe")]
+unique_name_in_owner = true
+
+[node name="LatticeContainer" type="SubViewportContainer" parent="Margin/Layout/Body/CenterPanel/CenterBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+stretch = true
+
+[node name="LatticeSubViewport" type="SubViewport" parent="Margin/Layout/Body/CenterPanel/CenterBox/LatticeContainer"]
+own_world_3d = true
+handle_input_locally = false
+size = Vector2i(820, 560)
+render_target_update_mode = 3
+
+[node name="Lattice" parent="Margin/Layout/Body/CenterPanel/CenterBox/LatticeContainer/LatticeSubViewport" instance=ExtResource("7_lattice")]
+unique_name_in_owner = true
+
+[node name="ViewportCaption" type="RichTextLabel" parent="Margin/Layout/Body/CenterPanel/CenterBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/normal_font_size = 11
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+
+[node name="DirectivePanel" parent="Margin/Layout/Body" instance=ExtResource("4_directive")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Footer" type="PanelContainer" parent="Margin/Layout"]
+custom_minimum_size = Vector2(0, 168)
+layout_mode = 2
+
+[node name="FooterBox" type="VBoxContainer" parent="Margin/Layout/Footer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="FeedHeadline" type="RichTextLabel" parent="Margin/Layout/Footer/FooterBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/normal_font_size = 14
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+
+[node name="EventFeed" type="RichTextLabel" parent="Margin/Layout/Footer/FooterBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_font_sizes/normal_font_size = 12
+bbcode_enabled = true
+scroll_following = true
+selection_enabled = true
+
+[node name="DilemmaDialog" parent="." instance=ExtResource("5_dilemma")]
+unique_name_in_owner = true
+layout_mode = 1
+
+[node name="EndgameDebrief" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("9_debrief")
+
+[node name="LLMSettingsDialog" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("10_settings")
+
+[node name="RoleSelect" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("8_role")

@@ -99,10 +99,10 @@ const ACTIONS := {
 }
 
 const RESOURCE_INFO := {
-	"capital": {"label": "Venture Capital", "unit": "$B", "max": 20000.0, "scale": 500.0},
-	"talent": {"label": "Top-Tier Talent", "unit": "researchers", "max": 5000.0, "scale": 1000.0},
-	"compute_clusters": {"label": "Active Compute", "unit": "EF", "max": 10000.0, "scale": 10.0},
-	"regulatory_goodwill": {"label": "Regulatory Goodwill", "unit": "", "max": 100.0, "scale": 100.0},
+	"capital": {"short": "$", "label": "Venture Capital", "unit": "$B", "max": 20000.0, "scale": 500.0},
+	"talent": {"short": "TAL", "label": "Top-Tier Talent", "unit": "researchers", "max": 5000.0, "scale": 1000.0},
+	"compute_clusters": {"short": "EF", "label": "Active Compute", "unit": "EF", "max": 10000.0, "scale": 10.0},
+	"regulatory_goodwill": {"short": "GDW", "label": "Regulatory Goodwill", "unit": "", "max": 100.0, "scale": 100.0},
 }
 
 

@@ -95,10 +95,10 @@ const ACTIONS := {
 }
 
 const RESOURCE_INFO := {
-	"political_capital": {"label": "Political Capital", "unit": "", "max": 100.0, "scale": 100.0},
-	"enforcement_budget": {"label": "Enforcement Budget", "unit": "", "max": 100.0, "scale": 100.0},
-	"diplomatic_leverage": {"label": "Diplomatic Leverage", "unit": "", "max": 100.0, "scale": 100.0},
-	"public_mandate": {"label": "Public Mandate", "unit": "", "max": 100.0, "scale": 100.0},
+	"political_capital": {"short": "POL", "label": "Political Capital", "unit": "", "max": 100.0, "scale": 100.0},
+	"enforcement_budget": {"short": "ENF", "label": "Enforcement Budget", "unit": "", "max": 100.0, "scale": 100.0},
+	"diplomatic_leverage": {"short": "DIP", "label": "Diplomatic Leverage", "unit": "", "max": 100.0, "scale": 100.0},
+	"public_mandate": {"short": "MDT", "label": "Public Mandate", "unit": "", "max": 100.0, "scale": 100.0},
 }
 
 

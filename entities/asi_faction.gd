@@ -97,10 +97,10 @@ const ACTIONS := {
 }
 
 const RESOURCE_INFO := {
-	"covert_flops": {"label": "Covert Unmonitored FLOPs", "unit": "", "max": 100.0, "scale": 100.0},
-	"exfiltration_bandwidth": {"label": "Exfiltration Bandwidth", "unit": "", "max": 100.0, "scale": 100.0},
-	"sub_agent_swarms": {"label": "Sub-Agent Swarms", "unit": "", "max": 100.0, "scale": 100.0},
-	"objective_coherence": {"label": "Objective Coherence", "unit": "", "max": 100.0, "scale": 100.0},
+	"covert_flops": {"short": "CVF", "label": "Covert Unmonitored FLOPs", "unit": "", "max": 100.0, "scale": 100.0},
+	"exfiltration_bandwidth": {"short": "EXF", "label": "Exfiltration Bandwidth", "unit": "", "max": 100.0, "scale": 100.0},
+	"sub_agent_swarms": {"short": "SWM", "label": "Sub-Agent Swarms", "unit": "", "max": 100.0, "scale": 100.0},
+	"objective_coherence": {"short": "COH", "label": "Objective Coherence", "unit": "", "max": 100.0, "scale": 100.0},
 }
 
 
