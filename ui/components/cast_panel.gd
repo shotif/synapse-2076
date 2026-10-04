@@ -125,9 +125,13 @@ func _notification(what: int) -> void:
 # --- Public API ---------------------------------------------------------------------
 
 ## Shows [param entries] (see entries_from) as they are in [param year_value].
+## Calling it again with the same cast and year changes nothing.
 func set_cast(entries: Array, year_value: float) -> void:
+	var value := year_value if is_finite(year_value) else SimConstants.START_YEAR
+	if entries == _entries and is_equal_approx(value, year) and _grid.get_child_count() == entries.size():
+		return
 	_entries = entries.duplicate(true)
-	year = year_value if is_finite(year_value) else SimConstants.START_YEAR
+	year = value
 	_rebuild()
 
 

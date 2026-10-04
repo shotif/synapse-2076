@@ -763,15 +763,17 @@ class Painter extends RefCounted:
 						sk.stroke(PackedVector2Array([Vector2(inset, y), Vector2(100.0 - inset, y)]), Color(s.accent, 0.05),
 							0.0, "scanline")
 						y += 3.0
-				sk.stroke(frame, Color(s.accent, 0.55), 0.0, "frame", true)
+				sk.stroke(frame, Color(s.accent, 0.55 if not simple else 0.4), 0.0, "frame", true)
+				# Corner brackets, lighter on small plates.
 				var cut := 15.0
-				var arm := 9.0
+				var arm := 9.0 if not simple else 6.0
+				var bracket := 1.6 if not simple else 1.1
 				for corner in [
 						[Vector2(0, cut + arm), Vector2(0, cut), Vector2(cut, 0), Vector2(cut + arm, 0)],
 						[Vector2(100 - cut - arm, 0), Vector2(100 - cut, 0), Vector2(100, cut), Vector2(100, cut + arm)],
 						[Vector2(100, 100 - cut - arm), Vector2(100, 100 - cut), Vector2(100 - cut, 100), Vector2(100 - cut - arm, 100)],
 						[Vector2(cut + arm, 100), Vector2(cut, 100), Vector2(0, 100 - cut), Vector2(0, 100 - cut - arm)]]:
-					sk.stroke(PackedVector2Array(corner), s.accent, 1.6 / sk.scale, "frame")
+					sk.stroke(PackedVector2Array(corner), s.accent, bracket / sk.scale, "frame")
 			3:
 				_rim_light()
 				var drift := s.metric_color("alignment_drift")
@@ -780,9 +782,9 @@ class Painter extends RefCounted:
 					shifted.append(point + Vector2(0.5, 0.35))
 				sk.stroke(shifted, Color(drift, 0.35), 0.0, "frame", true)
 				var inner := Portrait.grow(frame, -2.2 / sk.scale)
-				if not inner.is_empty():
+				if not inner.is_empty() and not tiny:
 					sk.stroke(inner, Color(s.accent, 0.12), 3.0 / sk.scale, "frame", true)
-				sk.stroke(frame, Color(s.accent, 0.9), 1.3 / sk.scale, "frame", true)
+				sk.stroke(frame, Color(s.accent, 0.9), (1.3 if not simple else 1.0) / sk.scale, "frame", true)
 
 	## Era III: a luminous edge along the figure's silhouette.
 	func _rim_light() -> void:
@@ -1694,8 +1696,8 @@ class Painter extends RefCounted:
 		var frame_color := Color("#16171b") if world_era == 1 else Color("#3a3f47").lerp(accent, 0.25)
 		var width := 0.8 if world_era == 1 else 0.5
 		if world_era == 3:
-			# Frameless smart lenses with a fine lit rim.
-			frame_color = Color(accent.lightened(0.25), 0.85)
+			# Frameless smart lenses with a fine rim in her color.
+			frame_color = Color(accent.darkened(0.15), 0.9)
 			width = 0.4
 		var lens_tint := Color(1, 1, 1, 0.07) if world_era == 1 else Color(accent, 0.13)
 		var lenses: Array[PackedVector2Array] = []
