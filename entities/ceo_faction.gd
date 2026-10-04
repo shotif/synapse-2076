@@ -46,7 +46,7 @@ const ACTIONS := {
 			"self": {"talent": 60.0, "regulatory_goodwill": -3.0},
 			"metrics": {"alignment_drift": 2.0},
 			"tech": {"growth_mult": 1.2, "growth_turns": 2, "capability_investment": 6.0, "alignment_tax": 0.08},
-			"inject_dilemma": "SAFETY_TEAM_EXODUS",
+			"inject_dilemma": ["SAFETY_TEAM_EXODUS", "EVALS_SKIPPED", "SAFETY_LAB_FOLDS"],
 		},
 		"statement": "We welcome a world-class cohort of researchers to our capabilities division.",
 	},

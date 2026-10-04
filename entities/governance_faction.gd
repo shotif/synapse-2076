@@ -43,7 +43,7 @@ const ACTIONS := {
 			"metrics": {"geopolitical_tension": 12.0, "alignment_drift": -3.0, "algorithmic_autonomy": -3.0, "epistemic_trust": -3.0},
 			"indices": {"enforcement_level": 20.0, "discovery_index": 6.0, "surveillance_saturation": 4.0},
 			"factions": {"CEO": {"regulatory_goodwill": -25.0, "compute_clusters": -1.5, "capital": -40.0}},
-			"inject_dilemma": "NATIONALIZATION_ORDER",
+			"inject_dilemma": ["NATIONALIZATION_ORDER", "STATE_AUDITORS", "WEIGHTS_ESCROW"],
 		},
 		"statement": "Under emergency powers, frontier training infrastructure now operates under direct state command.",
 	},

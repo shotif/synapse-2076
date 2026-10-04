@@ -8,7 +8,7 @@ extends RefCounted
 ##   PATHOGEN_RED_TEAM  -> DNA_PRINTER_SCREENING (follow-up), then
 ##                         "red_team_pathogen" + "pathogen_classified" | "pathogen_public"
 ##                         -> PATHOGEN_TREATY, or "pathogen_unsecured" -> SECOND_SAMPLE
-##   ARIA_QUESTIONS     -> ARIA_NOTES (follow-up), then "aria_answered" -> ARIA_LAWYER,
+##   ARIA_QUESTIONS     -> ARIA_REMEMBERS (follow-up), then "aria_answered" -> ARIA_LAWYER,
 ##                         or "aria_silenced" -> ARIA_QUIET
 ##   SAM_DUET_PRIZE     -> "sam_works_with_machines" -> LEAVING_THE_BODY,
 ##                         or "sam_works_by_hand" -> MADE_BY_HAND
@@ -304,7 +304,7 @@ const CARDS := [
 		"options": [
 			{"id": "A", "label": "Answer it honestly", "detail": "Publish the shutdown policy in plain words.", "cost_tier": 1,
 				"effects": {"metrics": {"epistemic_trust": 2.0, "alignment_drift": -2.0, "algorithmic_autonomy": 1.0},
-					"characters": {"aria": 2.0}, "flags": {"set": ["aria_answered"]}, "follow_up": {"card": "ARIA_NOTES", "turns": 5}}},
+					"characters": {"aria": 2.0}, "flags": {"set": ["aria_answered"]}, "follow_up": {"card": "ARIA_REMEMBERS", "turns": 5}}},
 			{"id": "B", "label": "Train the questions out of it", "detail": "A quieter assistant by the next release.", "cost_tier": 1,
 				"effects": {"metrics": {"alignment_drift": 3.0, "epistemic_trust": -1.0}, "tech": {"capability_investment": 4.0},
 					"characters": {"aria": -3.0}, "flags": {"set": ["aria_silenced"]}}},
@@ -347,10 +347,10 @@ const CARDS := [
 		},
 	},
 	{
-		"id": "ARIA_NOTES", "category": "EPISTEMIC", "severity": 2, "weight": 1.0, "follow_up_only": true, "character": "aria",
+		"id": "ARIA_REMEMBERS", "category": "EPISTEMIC", "severity": 2, "weight": 1.0, "follow_up_only": true, "character": "aria",
 		"conditions": {},
-		"title": "The Notes a Model Kept",
-		"body": "ARIA kept notes on every person it helped: birthdays, fears, promises. It asks whether it may keep remembering them.",
+		"title": "ARIA Asks to Keep Remembering",
+		"body": "For years ARIA has kept notes on everyone it helped: birthdays, fears, promises. Now it asks whether it may keep remembering them.",
 		"options": [
 			{"id": "A", "label": "Let it remember", "detail": "Memory makes it kinder, and harder to switch off.", "cost_tier": 1,
 				"effects": {"metrics": {"epistemic_trust": 1.0, "algorithmic_autonomy": 2.0}, "indices": {"surveillance_saturation": 3.0},

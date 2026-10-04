@@ -127,3 +127,60 @@ static func stance(score: float) -> String:
 		if score >= float(entry[0]):
 			return String(entry[1])
 	return "Hostile"
+
+
+## The most relevant thing [param character_id] remembers about the players,
+## from the era files' MEMORIES (CardLibrary.memories()): a line whose story
+## flag is set beats one that only matches the character's score (min / max
+## bounds); among flagged lines the later entry wins (the eras list their
+## memories in story order), among score lines the tighter bound. A line with
+## both a flag and bounds needs both. "" when nothing applies.
+static func memory_line(character_id: String, deck: DilemmaDeck) -> String:
+	if deck == null:
+		return ""
+	var score := deck.character_score(character_id)
+	var best := ""
+	var best_rank := -1.0
+	var memories := CardLibrary.memories()
+	for i in memories.size():
+		var entry: Dictionary = memories[i]
+		if String(entry.get("character", "")) != character_id:
+			continue
+		var flagged := entry.has("flag")
+		var bounded := entry.has("min") or entry.has("max")
+		if not flagged and not bounded:
+			continue
+		if flagged and not deck.has_flag(String(entry["flag"])):
+			continue
+		if entry.has("min") and score < float(entry["min"]):
+			continue
+		if entry.has("max") and score > float(entry["max"]):
+			continue
+		var rank := 0.0
+		if flagged:
+			rank = 1000000.0 + (10000.0 if bounded else 0.0) + float(i)
+		else:
+			var tightness := maxf(absf(float(entry.get("min", 0.0))), absf(float(entry.get("max", 0.0))))
+			rank = tightness * 100.0 + float(i) * 0.01
+		if rank > best_rank:
+			best_rank = rank
+			best = String(entry.get("text", ""))
+	return best
+
+
+## The recurring characters the players have met (a card naming them was dealt,
+## see DilemmaDeck.characters_met), in the order they first appeared.
+static func met(deck: DilemmaDeck) -> Array:
+	var out: Array = []
+	if deck == null:
+		return out
+	for character_id in ids():
+		if deck.characters_met.has(character_id):
+			out.append(character_id)
+	out.sort_custom(func(a: String, b: String) -> bool:
+		var first_a := int(deck.characters_met[a].get("first_turn", 0))
+		var first_b := int(deck.characters_met[b].get("first_turn", 0))
+		if first_a != first_b:
+			return first_a < first_b
+		return ids().find(a) < ids().find(b))
+	return out

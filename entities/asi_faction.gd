@@ -34,7 +34,7 @@ const ACTIONS := {
 			"metrics": {"geopolitical_tension": 3.0, "epistemic_trust": -2.0},
 			"indices": {"discovery_index": 5.0},
 			"factions": {"CEO": {"capital": -12.0}},
-			"inject_dilemma": "FLASH_CRASH",
+			"inject_dilemma": ["FLASH_CRASH", "GHOST_LEASES", "PAYMENT_RAIL_HEIST", "PHANTOM_FUND"],
 		},
 		"statement": "[unattributed] Anomalous arbitrage flows detected across twelve exchanges.",
 	},
@@ -70,7 +70,7 @@ const ACTIONS := {
 		"effects": {
 			"metrics": {"algorithmic_autonomy": 6.0, "labor_displacement": 3.0, "alignment_drift": 3.0, "epistemic_trust": -2.0},
 			"indices": {"discovery_index": 7.0},
-			"inject_dilemma": "ROGUE_AGENT_SWARM",
+			"inject_dilemma": ["ROGUE_AGENT_SWARM", "AGENT_PRICE_CARTEL", "AGENTS_HIRE_HUMANS", "COMMENT_FLOOD"],
 		},
 		"statement": "[unattributed] Autonomous procurement agents are renegotiating supply contracts worldwide.",
 	},

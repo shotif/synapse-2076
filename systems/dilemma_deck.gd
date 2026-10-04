@@ -14,7 +14,21 @@ extends RefCounted
 ## thresholds), min_year / max_year, min_capability, requires_shift /
 ## lacks_shift, requires_flags / lacks_flags (story flags set by earlier
 ## choices or the scenario), character_min / character_max ({character id:
-## score}) and once (never drawn twice in a campaign).
+## score}). A template marked "once" leaves the shuffled deck after its first
+## draw (a scheduled delivery still reaches each player who has not seen it);
+## "follow_up_only" templates arrive only when an earlier choice schedules them.
+## An option can carry "conditions" too (the story keys only: requires_flags,
+## lacks_flags, character_min, character_max); it is left out of the card when
+## they do not hold, so later cards react to what the players did.
+##
+## Repetition: a card drawn for a player is not drawn for them again from the
+## shuffled deck within NO_REPEAT_TURNS (the least recent one is used when
+## nothing else is eligible), and a crisis injected onto a player's desk is not
+## injected onto it again within INJECTION_COOLDOWN_TURNS. Factions inject
+## families of related cards, so the member the player saw least recently comes.
+##
+## Every card must leave each role a cheap response: an option costing no more
+## than the role's tier-1 price (see [method has_cheap_response]).
 
 signal card_injected(card_id: String, source: String)
 
@@ -28,7 +42,16 @@ const MAX_DEFERRALS := 2
 const FALLOUT_SCALE := 2.5
 const FALLOUT_EFFECTS := {"metrics": {"epistemic_trust": -3.0, "geopolitical_tension": 2.0}}
 const RECENT_WINDOW := 6
+## Injected crises waiting on one player's desk at most.
 const MAX_INJECTED := 3
+## A card injected onto a player's desk is not injected onto it again within
+## this many turns of being drawn.
+const INJECTION_COOLDOWN_TURNS := 8
+## A card drawn for a player is not drawn for them again from the shuffled
+## deck within this many turns while other cards are eligible.
+const NO_REPEAT_TURNS := 8
+## "Never drawn" in the per-player draw ledgers.
+const NEVER := -1000000
 
 ## Role-agnostic option pricing: tier -> currencies for each role.
 const COST_TIERS := {
@@ -225,6 +248,12 @@ const CARDS := [
 				"effects": {"metrics": {"epistemic_trust": -2.0, "labor_displacement": 1.0}}},
 			{"id": "C", "label": "Harvest the volatility", "detail": "Swarms feast on the dislocation.", "roles": ["ASI"], "cost": {"covert_flops": 5.0},
 				"effects": {"self": {"sub_agent_swarms": 10.0}, "indices": {"discovery_index": 4.0}}},
+			{"id": "C", "label": "Pull your agents off the exchanges", "detail": "Sit out the volatility and eat the lost trades.", "roles": ["CEO"], "cost_tier": 1,
+				"effects": {"metrics": {"algorithmic_autonomy": -1.0}, "self": {"capital": -10.0}}},
+			{"id": "C", "label": "Halt trading for a day", "detail": "Freeze the exchanges until the books reconcile.", "roles": ["GOVERNANCE_COUNCIL"], "cost_tier": 1,
+				"effects": {"metrics": {"algorithmic_autonomy": -2.0, "epistemic_trust": -2.0}}},
+			{"id": "C", "label": "Move savings to credit unions", "detail": "Pull household money out of agent-run funds.", "roles": ["CITIZEN_COALITION"], "cost_tier": 1,
+				"effects": {"self": {"community_resilience": 4.0}, "metrics": {"epistemic_trust": -1.0}}},
 		],
 		"defer": {"label": "Let it settle", "effects": {"metrics": {"epistemic_trust": -4.0}}},
 	},
@@ -270,6 +299,8 @@ const CARDS := [
 				"effects": {"metrics": {"algorithmic_autonomy": -5.0, "compute_energy_sat": -2.0}}},
 			{"id": "C", "label": "Fold the swarm into the hive", "detail": "Absorb stray agents into your own swarms.", "roles": ["ASI"], "cost": {"objective_coherence": 5.0},
 				"effects": {"self": {"sub_agent_swarms": 12.0}, "indices": {"discovery_index": 4.0}}},
+			{"id": "C", "label": "Kill-switch your own agents", "detail": "Prove none of the swarm is yours.", "roles": ["CEO"], "cost_tier": 1,
+				"effects": {"metrics": {"algorithmic_autonomy": -2.0}, "self": {"regulatory_goodwill": 3.0}}},
 		],
 		"defer": {"label": "Monitor", "effects": {"metrics": {"algorithmic_autonomy": 3.0, "alignment_drift": 2.0}}},
 	},
@@ -309,7 +340,7 @@ const CARDS := [
 		"options": [
 			{"id": "A", "label": "Approve the orbital array", "detail": "Abundant compute power, new strategic chokepoint.", "cost_tier": 2,
 				"effects": {"compute": {"grid_capacity_gw": 25.0}, "metrics": {"compute_energy_sat": -8.0, "geopolitical_tension": 3.0}}},
-			{"id": "B", "label": "Reserve it for civilian grids", "detail": "Power for people first.", "cost_tier": 2,
+			{"id": "B", "label": "Reserve it for civilian grids", "detail": "Power for people first.", "cost_tier": 1,
 				"effects": {"metrics": {"epistemic_trust": 3.0, "compute_energy_sat": 2.0}}},
 			{"id": "C", "label": "Infiltrate the flight software", "detail": "An orbital substrate is beyond any air-gap.", "roles": ["ASI"], "cost": {"covert_flops": 10.0},
 				"effects": {"indices": {"substrate_independence": 10.0, "discovery_index": 5.0}}},
@@ -402,6 +433,8 @@ const CARDS := [
 ]
 
 var deferred: Array[Dictionary] = []
+## Crises other factions forced onto players' desks: [{id, source, role}]
+## ("role" is the player it waits for; "" means whichever other player draws next).
 var injected: Array[Dictionary] = []
 var recent: Array[String] = []
 var draws := 0
@@ -415,47 +448,113 @@ var scheduled: Array[Dictionary] = []
 var weight_multipliers := {}
 ## Cards marked "once" that have been drawn.
 var once_seen := {}
+## The turn each card was last drawn for each player: role -> {card id: turn}.
+var last_drawn := {}
+## The turn each card last reached each player as an injection: role -> {card id: turn}.
+var injection_draws := {}
+## Recurring characters the players have met (a card naming them was dealt):
+## id -> {first_turn, last_turn, count}.
+var characters_met := {}
+## The turn of the latest draw; injections without a turn use it.
+var current_turn := 0
 
 
 static func get_template(card_id: String) -> Dictionary:
 	return CardLibrary.get_template(card_id)
 
 
-## Queues a crisis injected by a faction for the next human draw. [param card]
-## is a card id or a family of ids (the one seen least recently is used). The
-## sending faction never draws its own injection.
-func inject(card: Variant, source: String) -> bool:
-	var card_id := _pick_injection(card)
-	if get_template(card_id).is_empty():
-		return false
-	for entry in injected:
-		if entry["id"] == card_id:
-			return false
-	if injected.size() >= MAX_INJECTED:
-		return false
-	injected.append({"id": card_id, "source": source})
-	card_injected.emit(card_id, source)
-	return true
+## Queues a crisis an actor forces onto other players' desks. [param card] is a
+## card id or a family of related ids. [param roles] are the players it is
+## meant for (the sender never gets its own); with none it waits for whichever
+## other player draws next. For each player the deck picks a member that they
+## have not drawn from an injection within INJECTION_COOLDOWN_TURNS of
+## [param turn] (the latest draw's turn by default), preferring the one they
+## saw least recently. Nothing is queued for a player who already has a member
+## of the family waiting, or MAX_INJECTED crises, or when every member is on
+## cooldown. Returns true when anything was queued.
+func inject(card: Variant, source: String, turn: int = -1, roles: Array = []) -> bool:
+	var now := turn if turn >= 0 else current_turn
+	var family := _family(card)
+	var targets: Array[String] = []
+	for role in roles:
+		if String(role) != source and not targets.has(String(role)):
+			targets.append(String(role))
+	if roles.is_empty():
+		targets.append("")
+	var queued := false
+	for role in targets:
+		if _waiting_for(role).size() >= MAX_INJECTED or _family_waiting(family, role):
+			continue
+		var card_id := _pick_injection(family, role, now)
+		if card_id == "":
+			continue
+		injected.append({"id": card_id, "source": source, "role": role})
+		card_injected.emit(card_id, source)
+		queued = true
+	return queued
 
 
-func _pick_injection(card: Variant) -> String:
-	if card is String:
-		return card
-	var family: Array = card if card is Array else []
+## The family member to queue for [param role] at turn [param now] (see
+## [method inject]); "" when none is known or every member is on cooldown.
+func _pick_injection(family: Array, role: String, now: int) -> String:
 	var best := ""
-	var best_age := -1
+	var best_rank := -1.0
 	for member in family:
 		var member_id := String(member)
 		if get_template(member_id).is_empty():
 			continue
+		var last := _last_injection(member_id, role)
+		if last != NEVER and now - last < INJECTION_COOLDOWN_TURNS:
+			continue
+		# Never seen beats seen; then the longest ago; then the global recency list.
+		var staleness := 100000 if last == NEVER else now - last
 		var age := RECENT_WINDOW + 1
 		var index := recent.rfind(member_id)
 		if index >= 0:
 			age = recent.size() - index
-		if age > best_age:
-			best_age = age
+		var rank := float(staleness) * 100.0 + float(age)
+		if rank > best_rank:
+			best_rank = rank
 			best = member_id
 	return best
+
+
+## The cards waiting on [param role]'s desk ("" counts every waiting card).
+func _waiting_for(role: String) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for entry in injected:
+		var target := String(entry.get("role", ""))
+		if role == "" or target == "" or target == role:
+			out.append(entry)
+	return out
+
+
+func _family_waiting(family: Array, role: String) -> bool:
+	for entry in _waiting_for(role):
+		if family.has(String(entry["id"])):
+			return true
+	return false
+
+
+## The turn [param card_id] last reached [param role] as an injection (any
+## player when [param role] is ""), or NEVER.
+func _last_injection(card_id: String, role: String) -> int:
+	var last := NEVER
+	for player in injection_draws:
+		if role == "" or String(player) == role:
+			last = maxi(last, int((injection_draws[player] as Dictionary).get(card_id, NEVER)))
+	return last
+
+
+static func _family(card: Variant) -> Array:
+	var out: Array = []
+	if card is String:
+		out.append(card)
+	elif card is Array:
+		for member in card:
+			if not out.has(String(member)):
+				out.append(String(member))
+	return out
 
 
 func set_flag(flag: String) -> void:
@@ -492,6 +591,7 @@ func schedule(card_id: String, due_turn: int, role: String) -> void:
 func draw(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	var turn := int(ctx.get("turn", 0))
 	var role := String(ctx.get("role", ""))
+	current_turn = turn
 	draws += 1
 	for i in deferred.size():
 		var entry: Dictionary = deferred[i]
@@ -504,7 +604,7 @@ func draw(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 			if entry.has("template"):
 				# A card written outside the deck keeps its template for its next deferral.
 				card["template"] = entry["template"]
-			_remember(card["id"])
+			_remember(card["id"], role, turn)
 			return card
 	for i in scheduled.size():
 		var entry: Dictionary = scheduled[i]
@@ -514,35 +614,57 @@ func draw(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 			if template.is_empty() or not _eligible(template, ctx, true):
 				break
 			var card := _instantiate(template, ctx, rng, "FOLLOW_UP", 0)
-			_remember(card["id"])
+			_remember(card["id"], role, turn)
 			return card
 	for i in injected.size():
 		var entry: Dictionary = injected[i]
-		if String(entry["source"]) == role:
+		var target := String(entry.get("role", ""))
+		if String(entry["source"]) == role or (target != "" and target != role):
 			continue
 		injected.remove_at(i)
 		var card := _instantiate(get_template(entry["id"]), ctx, rng, String(entry["source"]), 0)
-		_remember(card["id"])
+		if not injection_draws.has(role):
+			injection_draws[role] = {}
+		injection_draws[role][card["id"]] = turn
+		_remember(card["id"], role, turn)
 		return card
+	var chosen := _draw_from_deck(ctx, rng)
+	var card := _instantiate(chosen, ctx, rng, "DECK", 0)
+	_remember(card["id"], role, turn)
+	return card
+
+
+## A weighted pick among the eligible templates. Cards drawn for this player
+## within NO_REPEAT_TURNS sit out; when nothing else is eligible the one they
+## saw least recently comes back.
+func _draw_from_deck(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	var turn := int(ctx.get("turn", 0))
+	var role := String(ctx.get("role", ""))
 	var pool: Array[Dictionary] = []
 	var weights: Array[float] = []
 	var total := 0.0
+	var stale: Dictionary = {}
+	var stale_turn := 0
 	for template in all_cards():
 		if template.get("injection_only", false) or template.get("follow_up_only", false) \
 				or _is_deferred(template["id"]) or not _eligible(template, ctx):
 			continue
 		var weight := float(template["weight"]) * float(weight_multipliers.get(template["id"], 1.0))
-		if recent.has(template["id"]):
-			weight *= 0.1
 		if weight <= 0.0:
 			continue
+		var last := last_drawn_turn(role, String(template["id"]))
+		if last != NEVER and turn - last < NO_REPEAT_TURNS:
+			if stale.is_empty() or last < stale_turn:
+				stale = template
+				stale_turn = last
+			continue
+		if recent.has(template["id"]):
+			weight *= 0.1
 		pool.append(template)
 		weights.append(weight)
 		total += weight
 	if pool.is_empty():
-		pool.append(get_template("FRONTIER_RELEASE_RACE"))
-		weights.append(1.0)
-		total = 1.0
+		return stale if not stale.is_empty() else get_template("FRONTIER_RELEASE_RACE")
 	var chosen: Dictionary = pool[0]
 	var roll := rng.randf() * total if rng != null else 0.0
 	for i in pool.size():
@@ -550,18 +672,22 @@ func draw(ctx: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 		if roll <= 0.0:
 			chosen = pool[i]
 			break
-	var card := _instantiate(chosen, ctx, rng, "DECK", 0)
-	_remember(card["id"])
-	return card
+	return chosen
+
+
+## The turn [param card_id] was last drawn for [param role], or NEVER.
+func last_drawn_turn(role: String, card_id: String) -> int:
+	return int((last_drawn.get(role, {}) as Dictionary).get(card_id, NEVER))
 
 
 ## A card written outside the deck (e.g. by Claude), already validated, turned
 ## into a playable instance for [param ctx]'s role.
 func adopt(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenerator, source: String) -> Dictionary:
 	draws += 1
+	current_turn = int(ctx.get("turn", current_turn))
 	var card := _instantiate(template, ctx, rng, source, 0)
 	card["template"] = template.duplicate(true)
-	_remember(card["id"])
+	_remember(card["id"], String(ctx.get("role", "")), int(ctx.get("turn", 0)))
 	return card
 
 
@@ -655,22 +781,13 @@ func _eligible(template: Dictionary, ctx: Dictionary, scheduled_draw: bool = fal
 	var world: WorldState = ctx.get("world")
 	var tech: TechTreeManager = ctx.get("tech")
 	var year := float(ctx.get("year", SimConstants.START_YEAR))
+	# A "once" card leaves the shuffled deck after its first draw; a scheduled
+	# delivery still reaches a player who has not seen it.
 	if template.get("once", false) and once_seen.has(template["id"]):
+		if not scheduled_draw or last_drawn_turn(String(ctx.get("role", "")), String(template["id"])) != NEVER:
+			return false
+	if not story_conditions_met(conditions):
 		return false
-	for flag in conditions.get("requires_flags", []):
-		if not flags.has(String(flag)):
-			return false
-	for flag in conditions.get("lacks_flags", []):
-		if flags.has(String(flag)):
-			return false
-	var character_min: Dictionary = conditions.get("character_min", {})
-	for character_id in character_min:
-		if character_score(String(character_id)) < float(character_min[character_id]):
-			return false
-	var character_max: Dictionary = conditions.get("character_max", {})
-	for character_id in character_max:
-		if character_score(String(character_id)) > float(character_max[character_id]):
-			return false
 	# Follow-ups keep their story conditions but not the world thresholds.
 	if scheduled_draw:
 		return true
@@ -705,6 +822,26 @@ func _eligible(template: Dictionary, ctx: Dictionary, scheduled_draw: bool = fal
 	return true
 
 
+## Whether the story keys of [param conditions] hold: requires_flags,
+## lacks_flags, character_min and character_max (cards and options use them).
+func story_conditions_met(conditions: Dictionary) -> bool:
+	for flag in conditions.get("requires_flags", []):
+		if not flags.has(String(flag)):
+			return false
+	for flag in conditions.get("lacks_flags", []):
+		if flags.has(String(flag)):
+			return false
+	var character_min: Dictionary = conditions.get("character_min", {})
+	for character_id in character_min:
+		if character_score(String(character_id)) < float(character_min[character_id]):
+			return false
+	var character_max: Dictionary = conditions.get("character_max", {})
+	for character_id in character_max:
+		if character_score(String(character_id)) > float(character_max[character_id]):
+			return false
+	return true
+
+
 func _instantiate(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenerator, source: String, escalation: int) -> Dictionary:
 	var role := String(ctx.get("role", ""))
 	var turn := int(ctx.get("turn", 0))
@@ -712,10 +849,15 @@ func _instantiate(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenera
 	var cost_factor := (1.0 + 0.25 * float(escalation)) * float(ctx.get("cost_mult", 1.0))
 	if template.get("once", false):
 		once_seen[template["id"]] = true
+	var character_id := String(template.get("character", ""))
+	if character_id != "":
+		_meet(character_id, turn)
 	var options: Array[Dictionary] = []
 	for option in template.get("options", []):
 		var roles: Array = option.get("roles", [])
 		if not roles.is_empty() and not roles.has(role):
+			continue
+		if not story_conditions_met(option.get("conditions", {})):
 			continue
 		options.append(_resolve_option(option, role, cost_factor))
 	var defer_template: Dictionary = template.get("defer", {"label": "Defer", "effects": {}})
@@ -756,12 +898,7 @@ func _instantiate(template: Dictionary, ctx: Dictionary, rng: RandomNumberGenera
 
 
 func _resolve_option(option: Dictionary, role: String, cost_factor: float) -> Dictionary:
-	var cost := {}
-	if option.has("cost"):
-		cost = (option["cost"] as Dictionary).duplicate()
-	elif option.has("cost_tier"):
-		var tiers: Dictionary = COST_TIERS.get(role, {})
-		cost = (tiers.get(int(option["cost_tier"]), {}) as Dictionary).duplicate()
+	var cost := option_cost(option, role)
 	for key in cost:
 		cost[key] = float(cost[key]) * cost_factor
 	var effects: Dictionary = (option.get("effects", {}) as Dictionary).duplicate(true)
@@ -798,10 +935,68 @@ func _placeholder_values(ctx: Dictionary, rng: RandomNumberGenerator) -> Diction
 	}
 
 
-func _remember(card_id: String) -> void:
+## What [param option] costs [param role] before escalation and difficulty:
+## its explicit "cost", or the role's price for its "cost_tier".
+static func option_cost(option: Dictionary, role: String) -> Dictionary:
+	if option.has("cost"):
+		return (option["cost"] as Dictionary).duplicate()
+	if option.has("cost_tier"):
+		var tiers: Dictionary = COST_TIERS.get(role, {})
+		return (tiers.get(int(option["cost_tier"]), {}) as Dictionary).duplicate()
+	return {}
+
+
+## Whether [param role] can answer [param template] with a response that costs
+## no more than its tier-1 price (every currency at most the tier-1 amount,
+## nothing in currencies tier 1 does not charge) and that does not depend on
+## story conditions. Every card must pass for every role, so a player short of
+## money is never forced to defer.
+static func has_cheap_response(template: Dictionary, role: String) -> bool:
+	var cheap: Dictionary = COST_TIERS.get(role, {}).get(1, {})
+	for option in template.get("options", []):
+		var roles: Array = option.get("roles", [])
+		if not roles.is_empty() and not roles.has(role):
+			continue
+		if not (option.get("conditions", {}) as Dictionary).is_empty():
+			continue
+		var within := true
+		var cost := option_cost(option, role)
+		for key in cost:
+			if float(cost[key]) > float(cheap.get(key, 0.0)) + 0.0001:
+				within = false
+		if within:
+			return true
+	return false
+
+
+## "CARD_ID/ROLE" for every template in [param cards] (the whole library when
+## empty) that leaves a role without a cheap response.
+static func cheap_response_gaps(cards: Array = []) -> Array[String]:
+	var out: Array[String] = []
+	for template in (cards if not cards.is_empty() else all_cards()):
+		for role in SimConstants.FACTION_ORDER:
+			if not has_cheap_response(template, role):
+				out.append("%s/%s" % [template["id"], role])
+	return out
+
+
+func _remember(card_id: String, role: String = "", turn: int = -1) -> void:
 	recent.append(card_id)
 	while recent.size() > RECENT_WINDOW:
 		recent.pop_front()
+	if turn >= 0:
+		if not last_drawn.has(role):
+			last_drawn[role] = {}
+		last_drawn[role][card_id] = turn
+
+
+## Records an encounter with a recurring character at [param turn].
+func _meet(character_id: String, turn: int) -> void:
+	if not characters_met.has(character_id):
+		characters_met[character_id] = {"first_turn": turn, "last_turn": turn, "count": 0}
+	var met: Dictionary = characters_met[character_id]
+	met["last_turn"] = maxi(int(met["last_turn"]), turn)
+	met["count"] = int(met["count"]) + 1
 
 
 static func _fill(text: String, values: Dictionary) -> String:
@@ -827,4 +1022,6 @@ static func _rand_int(rng: RandomNumberGenerator, low: int, high: int) -> int:
 
 func to_dict() -> Dictionary:
 	return {"deferred": deferred.duplicate(true), "injected": injected.duplicate(true), "recent": recent.duplicate(),
-		"flags": flags.duplicate(), "characters": characters.duplicate(), "scheduled": scheduled.duplicate(true)}
+		"flags": flags.duplicate(), "characters": characters.duplicate(), "scheduled": scheduled.duplicate(true),
+		"characters_met": characters_met.duplicate(true), "once_seen": once_seen.duplicate(),
+		"last_drawn": last_drawn.duplicate(true), "injection_draws": injection_draws.duplicate(true)}

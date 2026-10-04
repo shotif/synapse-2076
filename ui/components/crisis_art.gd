@@ -121,17 +121,16 @@ static func scene_svg(category: String, p: Dictionary) -> String:
 			return _sovereignty(p)
 		"UNREST":
 			return _unrest(p)
-		# Placeholders until these categories get scenes of their own.
 		"BIOSECURITY":
-			return _security(p)
+			return _biosecurity(p)
 		"ROBOTICS":
-			return _labor(p)
+			return _robotics(p)
 		"CULTURE":
-			return _society(p)
+			return _culture(p)
 		"PERSONHOOD":
-			return _alignment(p)
+			return _personhood(p)
 		"SPACE":
-			return _energy(p)
+			return _space(p)
 	return _crisis(p)
 
 
@@ -504,6 +503,232 @@ static func _unrest(p: Dictionary) -> String:
 		if float(figure[1]) > 0.5:
 			out += _path("M%.1f 132l10-30" % (x + 9.0), _stroke(p["ink2"], 5.0))
 			out += _circle(x + 19.0, 100, 5, _fill(p["ink2"]))
+	return out
+
+
+## Biosecurity: a double helix with one mutated rung, a virus inside a dashed
+## containment ring, and a petri dish under a pipette.
+static func _biosecurity(p: Dictionary) -> String:
+	var out := "<circle cx=\"338\" cy=\"78\" r=\"80\" fill=\"url(#halo)\"/>"
+	var left := 64.0
+	var right := 112.0
+	var strand_a := "M%.1f 18" % left
+	var strand_b := "M%.1f 18" % right
+	var rungs := ""
+	var mutated := ""
+	for i in 4:
+		var y0 := 18.0 + i * 36.0
+		var a0 := left if i % 2 == 0 else right
+		var a1 := right if i % 2 == 0 else left
+		strand_a += "C%.1f %.1f %.1f %.1f %.1f %.1f" % [a0, y0 + 18.0, a1, y0 + 18.0, a1, y0 + 36.0]
+		strand_b += "C%.1f %.1f %.1f %.1f %.1f %.1f" % [left + right - a0, y0 + 18.0, left + right - a1, y0 + 18.0, left + right - a1, y0 + 36.0]
+		for k in 2:
+			var t := 0.25 + 0.5 * k
+			var x := a0 + (a1 - a0) * (3.0 * t * t - 2.0 * t * t * t)
+			var y := y0 + 54.0 * t * (1.0 - t) + 36.0 * t * t * t
+			var rung := "M%.1f %.1fH%.1f" % [x, y, left + right - x]
+			if i == 2 and k == 1:
+				mutated += rung
+			else:
+				rungs += rung
+	out += _path(rungs, _stroke(p["line"], 2.4, 0.8))
+	out += _path(mutated, _stroke(p["hot"], 3.4))
+	out += _path(strand_a, _stroke(p["accent"], 3.2))
+	out += _path(strand_b, _stroke(p["light"], 3.2, 0.85))
+	# The virus, held inside a dashed containment ring.
+	out += _circle(338, 78, 52, _stroke(p["warm"], 1.6, 0.8) + " stroke-dasharray=\"6 6\"")
+	var spikes := ""
+	var knobs := ""
+	var center := Vector2(338, 78)
+	for k in 12:
+		var direction := Vector2.from_angle(TAU * float(k) / 12.0 + 0.2)
+		var inner := center + direction * 26.0
+		var outer := center + direction * 36.0
+		spikes += "M%.1f %.1fL%.1f %.1f" % [inner.x, inner.y, outer.x, outer.y]
+		knobs += _circle(outer.x, outer.y, 3.4, _fill(p["hot"]))
+	out += _path(spikes, _stroke(p["hot"], 2.2)) + knobs
+	out += _circle(338, 78, 26, _fill(p["hot"].lerp(p["deep"], 0.55)) + " " + _paint(p["hot"], 2.0))
+	for dot in [[330, 70, 5.0], [346, 74, 4.0], [336, 88, 4.5], [349, 89, 3.0], [326, 84, 2.5]]:
+		out += _circle(float(dot[0]), float(dot[1]), float(dot[2]), _fill(p["warm"], 0.8))
+	# The petri dish and the pipette over it.
+	out += "<ellipse cx=\"214\" cy=\"140\" rx=\"74\" ry=\"22\" %s/>" % (_fill(p["deep"], 0.7) + " " + _paint(p["line"], 1.6))
+	out += "<ellipse cx=\"214\" cy=\"138\" rx=\"64\" ry=\"16\" %s/>" % _fill(p["tint"], 0.18)
+	for colony in [[184, 136, 6.0, "good"], [204, 142, 4.0, "good"], [222, 133, 5.0, "warm"], [242, 141, 7.0, "hot"],
+			[258, 135, 3.5, "warm"], [168, 142, 3.0, "good"], [230, 146, 3.0, "hot"]]:
+		out += "<ellipse cx=\"%.1f\" cy=\"%.1f\" rx=\"%.1f\" ry=\"%.1f\" %s/>" % [float(colony[0]), float(colony[1]), float(colony[2]),
+			float(colony[2]) * 0.55, _fill(p[String(colony[3])], 0.85)]
+	out += "<g transform=\"rotate(18 236 66)\">" + _rect(230, 22, 12, 64, 5 * float(p["round"]), _fill(p["light"], 0.85) + " " + _paint(p["line"], 1.2))
+	out += _rect(232, 70, 8, 14, 2, _fill(p["hot"], 0.7)) + _path("M236 86v14", _stroke(p["line"], 2.0)) + "</g>"
+	out += _circle(223, 112, 3.4, _fill(p["hot"], 0.9))
+	return out
+
+
+## Robots at work: a humanoid carries a crate past warehouse racks while a
+## robotaxi sweeps the street with its lidar.
+static func _robotics(p: Dictionary) -> String:
+	var out := _rect(0, 156, 440, 24, 0, _fill(p["ink"], 0.7))
+	var rack := ""
+	for x in [296, 350, 404]:
+		rack += "M%d 38V156" % x
+	for y in [70, 104, 138]:
+		rack += "M290 %dH410" % y
+	out += _path(rack, _stroke(p["line"], 2.2))
+	for crate in [[302, 52, 20, 18], [326, 56, 16, 14], [358, 88, 22, 16], [384, 90, 14, 14], [304, 122, 18, 16], [366, 120, 26, 18]]:
+		out += _rect(float(crate[0]), float(crate[1]), float(crate[2]), float(crate[3]), 2,
+			_fill(p["warm"], 0.8) + " " + _paint(p["warm"].lerp(p["deep"], 0.4), 1.0))
+	out += "<g transform=\"translate(256 64) scale(0.72)\" opacity=\"0.6\">" + _humanoid(p, false) + "</g>"
+	out += "<g transform=\"translate(172 28)\">" + _humanoid(p, true) + "</g>"
+	# The robotaxi and its lidar sweep.
+	out += _path("M98 100L166 84A70 70 0 0 0 156 56Z", _fill(p["accent"], 0.12))
+	out += _path("M98 100L166 84", _stroke(p["accent"], 1.4, 0.7))
+	out += _path("M34 150V136C34 128 40 124 48 122L62 108C66 104 70 102 76 102H120C126 102 130 104 134 108L148 122C156 124 162 128 162 136V150Z",
+		_fill(p["ink2"]) + " " + _paint(p["line"], 1.5))
+	out += _path("M66 120L76 110H95V120ZM101 120V110H120L130 120Z", _fill(p["sky_top"], 0.9))
+	out += _rect(92, 94, 12, 8, 3, _fill(p["ink2"]) + " " + _paint(p["accent"], 1.5))
+	out += _circle(98, 98, 2.5, _fill(p["accent"]))
+	for wheel in [62.0, 136.0]:
+		out += _circle(wheel, 150, 10, _fill(p["deep"]) + " " + _paint(p["line"], 2.0))
+		out += _circle(wheel, 150, 3.5, _fill(p["line"]))
+	out += _rect(150, 130, 8, 5, 2, _fill(p["lit"]))
+	return out
+
+
+## A humanoid robot drawn from the origin down (about 58 x 128), carrying a
+## crate when [param carrying].
+static func _humanoid(p: Dictionary, carrying: bool) -> String:
+	var body := _fill(p["ink2"]) + " " + _paint(p["line"], 1.5)
+	var out := _rect(14, 0, 30, 26, 9 * float(p["round"]), body)
+	out += _rect(19, 9, 20, 7, 3, _fill(p["accent"]))
+	out += _rect(25, 26, 8, 6, 0, _fill(p["ink2"]))
+	out += _rect(8, 32, 42, 46, 8 * float(p["round"]), body)
+	out += _circle(29, 46, 3.5, _fill(p["lit"]))
+	out += _rect(12, 78, 14, 50, 4, body) + _rect(32, 78, 14, 50, 4, body)
+	if carrying:
+		out += _path("M10 40L2 62L20 70M48 40L56 62L38 70", _stroke(p["line"], 6.0))
+		out += _rect(12, 56, 34, 26, 2, _fill(p["warm"], 0.9) + " " + _paint(p["warm"].lerp(p["deep"], 0.4), 1.2))
+	else:
+		out += _path("M10 40L4 74M48 40L54 74", _stroke(p["line"], 6.0))
+	return out
+
+
+## Ten million paintings: an easel holding the original, a gallery wall of
+## copies shrinking into the distance (a few of them glitched), and a palette.
+static func _culture(p: Dictionary) -> String:
+	var out := "<circle cx=\"96\" cy=\"76\" r=\"80\" fill=\"url(#lamp)\"/>"
+	out += _path("M96 40L62 162M96 40L130 162M96 40L98 162", _stroke(p["line"], 3.0))
+	out += _rect(52, 46, 88, 66, 3 * float(p["round"]), _fill(p["light"], 0.95) + " " + _paint(p["ink2"], 3.0))
+	out += _painting(56, 50, 80, 58, p, 1.0)
+	out += _path("M48 114H144", _stroke(p["ink2"], 4.0))
+	var rows := [[30.0, 46.0, 34.0, 4], [78.0, 36.0, 27.0, 5], [118.0, 28.0, 21.0, 6]]
+	var glitched := {"0:2": true, "1:3": true, "2:1": true, "2:4": true}
+	for r in rows.size():
+		var row: Array = rows[r]
+		var y := float(row[0])
+		var w := float(row[1])
+		var h := float(row[2])
+		var count := int(row[3])
+		var gap := (214.0 - w * count) / float(count - 1)
+		var fade := 1.0 - 0.18 * float(r)
+		for i in count:
+			var x := 196.0 + i * (w + gap)
+			out += _rect(x - 2.0, y - 2.0, w + 4.0, h + 4.0, 1.5, _fill(p["ink2"], fade))
+			if glitched.has("%d:%d" % [r, i]):
+				out += "<g transform=\"translate(-3 0)\">" + _painting(x, y, w, h, p, 0.55) + "</g>"
+				out += "<g transform=\"translate(3 0)\">" + _rect(x, y, w, h, 0, _fill(p["hot"], 0.35)) + "</g>"
+			else:
+				out += _painting(x, y, w, h, p, fade * 0.85)
+	out += "<ellipse cx=\"176\" cy=\"150\" rx=\"28\" ry=\"12\" %s/>" % (_fill(p["warm"].lerp(p["deep"], 0.45)) + " " + _paint(p["line"], 1.2))
+	for dab in [[162, 148, "accent"], [172, 144, "hot"], [184, 145, "good"], [192, 151, "lit"]]:
+		out += _circle(float(dab[0]), float(dab[1]), 3.4, _fill(p[String(dab[2])]))
+	out += _circle(172, 155, 3.0, _fill(p["deep"]))
+	out += _path("M150 112L166 134", _stroke(p["light"], 2.6)) + _path("M166 134l4 6", _stroke(p["hot"], 4.0))
+	return out
+
+
+## A little landscape (hills under a sun) filling a rectangle, at [param alpha].
+static func _painting(x: float, y: float, w: float, h: float, p: Dictionary, alpha: float) -> String:
+	var out := _rect(x, y, w, h, 0, _fill(p["trust"].lerp(p["light"], 0.55), alpha))
+	out += _circle(x + w * 0.72, y + h * 0.32, h * 0.16, _fill(p["warm"], alpha))
+	out += _path("M%.1f %.1fC%.1f %.1f %.1f %.1f %.1f %.1fC%.1f %.1f %.1f %.1f %.1f %.1fV%.1fH%.1fZ" % [
+		x, y + h * 0.7, x + w * 0.2, y + h * 0.42, x + w * 0.36, y + h * 0.5, x + w * 0.5, y + h * 0.62,
+		x + w * 0.66, y + h * 0.74, x + w * 0.84, y + h * 0.46, x + w, y + h * 0.58, y + h, x], _fill(p["good"].lerp(p["deep"], 0.25), alpha))
+	return out
+
+
+## Is anyone there: a human profile and a machine profile drawn as a lattice
+## face each other across a conversation.
+static func _personhood(p: Dictionary) -> String:
+	var face := "M28 180C30 146 26 136 22 128C14 120 12 102 18 88C26 66 52 56 74 60C94 64 104 80 104 94L112 106L104 110L106 122C106 130 98 132 92 132L90 180Z"
+	var out := "<circle cx=\"350\" cy=\"94\" r=\"92\" fill=\"url(#glowB)\"/>"
+	out += "<g transform=\"translate(22 0)\">" + _path(face, _fill(p["ink2"])) + _circle(86, 88, 3.0, _fill(p["light"], 0.9)) + "</g>"
+	var machine := "<g transform=\"translate(418 0) scale(-1 1)\">"
+	machine += _path(face, _fill(p["deep"], 0.5) + " " + _paint(p["glow"], 2.0))
+	var nodes := [[40, 100], [58, 76], [80, 70], [96, 92], [66, 98], [48, 126], [76, 120], [92, 112], [62, 146], [84, 150]]
+	var edges := [[0, 1], [1, 2], [2, 3], [1, 4], [4, 3], [0, 4], [0, 5], [4, 6], [6, 7], [3, 7], [5, 6], [5, 8], [6, 8], [8, 9], [6, 9]]
+	var lattice := ""
+	for edge in edges:
+		var a: Array = nodes[edge[0]]
+		var b: Array = nodes[edge[1]]
+		lattice += "M%d %dL%d %d" % [a[0], a[1], b[0], b[1]]
+	machine += _path(lattice, _stroke(p["glow"], 1.2, 0.6))
+	for node in nodes:
+		machine += _circle(float(node[0]), float(node[1]), 3.0, _fill(p["glow"]))
+	out += machine + _circle(86, 88, 4.0, _fill(p["light"])) + "</g>"
+	out += _chat(144, 24, 96, 26, p, false)
+	out += _chat(202, 62, 96, 26, p, true)
+	out += _chat(144, 100, 72, 26, p, false)
+	out += _path("M176 146H264", _stroke(p["line"], 1.6, 0.5) + " stroke-dasharray=\"4 6\"")
+	return out
+
+
+## A chat bubble with two lines of "text": the person's in the light tone with
+## its tail on the left, the machine's tinted and outlined with its tail on the right.
+static func _chat(x: float, y: float, width: float, height: float, p: Dictionary, machine: bool) -> String:
+	var tone: Color = p["glow"] if machine else p["light"]
+	var opacity := 0.2 if machine else 0.9
+	var out := _rect(x, y, width, height, 9 * float(p["round"]), _fill(tone, opacity) + ((" " + _paint(p["glow"], 1.4)) if machine else ""))
+	var tail_x := x + width - 16.0 if machine else x + 14.0
+	out += _path("M%.1f %.1fl%.1f 9l%.1f -9z" % [tail_x, y + height - 0.5, 4.0 if machine else -4.0, 10.0 if machine else 14.0], _fill(tone, opacity))
+	out += _path("M%.1f %.1fh%.1fM%.1f %.1fh%.1f" % [x + 10.0, y + 10.0, width * 0.62, x + 10.0, y + 17.0, width * 0.4],
+		_stroke(p["light"] if machine else p["ink2"], 2.0, 0.85))
+	return out
+
+
+## Orbit: a solar satellite beams power down to a datacenter on the horizon, a
+## rocket climbs on its exhaust and a dashed orbit circles the planet.
+static func _space(p: Dictionary) -> String:
+	var out := ""
+	for star in [[44, 24], [70, 58], [120, 18], [168, 40], [214, 14], [252, 30], [330, 20], [372, 54], [404, 26], [150, 80], [396, 92], [36, 96]]:
+		out += _circle(float(star[0]), float(star[1]), 1.3, _fill(p["light"], 0.6))
+	out += _circle(390, 34, 10, _fill(p["light"], 0.8))
+	out += _circle(220, 476, 336, _fill(p["ink"]) + " " + _paint(p["accent"], 4.0, 0.35))
+	out += "<ellipse cx=\"220\" cy=\"104\" rx=\"188\" ry=\"40\" transform=\"rotate(-6 220 104)\" %s stroke-dasharray=\"5 7\"/>" % _stroke(p["line"], 1.4, 0.7)
+	# The power beam and the datacenter it feeds.
+	out += _path("M282 70L300 150H332L292 70Z", _fill(p["warm"], 0.18))
+	out += _path("M287 72L316 150", _stroke(p["warm"], 1.4, 0.8))
+	out += _rect(298, 138, 36, 16, 2, _fill(p["compute"].lerp(p["deep"], 0.7)) + " " + _paint(p["compute"], 1.2))
+	out += _path("M304 144h24M304 149h24", _stroke(p["lit"], 1.4, 0.9))
+	# The satellite.
+	var panel := _fill(p["compute"].lerp(p["deep"], 0.6)) + " " + _paint(p["compute"], 1.4)
+	out += _rect(212, 50, 58, 14, 2, panel) + _rect(306, 50, 58, 14, 2, panel)
+	var cells := "M212 57H270M306 57H364"
+	for x in [226, 240, 254, 320, 334, 348]:
+		cells += "M%d 50V64" % x
+	out += _path(cells, _stroke(p["compute"], 0.9, 0.7))
+	out += _path("M270 57H276M300 57H306", _stroke(p["line"], 2.0))
+	out += _rect(276, 44, 24, 26, 4 * float(p["round"]), _fill(p["ink2"]) + " " + _paint(p["light"], 1.5))
+	out += _path("M288 44V34", _stroke(p["line"], 1.6)) + _circle(288, 32, 3, _fill(p["accent"]))
+	# The rocket and its exhaust.
+	out += "<circle cx=\"78\" cy=\"150\" r=\"40\" fill=\"url(#fire)\"/>"
+	for puff in [[54, 168, 11.0], [63, 156, 8.5], [72, 142, 6.5], [81, 129, 5.0]]:
+		out += _circle(float(puff[0]), float(puff[1]), float(puff[2]), _fill(p["line"], 0.3))
+	out += _path("M60 168C70 150 80 132 92 114", _stroke(p["warm"], 6.0, 0.5))
+	out += _path("M66 168C74 152 84 134 94 118", _stroke(p["light"], 2.0, 0.6))
+	out += "<g transform=\"rotate(28 112 84)\">"
+	out += _path("M104 104V72C104 60 108 52 112 46C116 52 120 60 120 72V104Z", _fill(p["light"], 0.92) + " " + _paint(p["line"], 1.2))
+	out += _path("M104 92L96 106H104ZM120 92L128 106H120Z", _fill(p["hot"]))
+	out += _circle(112, 72, 4, _fill(p["accent"]))
+	out += _path("M106 104L112 116L118 104Z", _fill(p["warm"])) + "</g>"
 	return out
 
 

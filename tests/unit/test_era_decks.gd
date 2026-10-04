@@ -337,7 +337,7 @@ func test_earlier_choices_steer_later_cards() -> void:
 
 
 func test_choices_schedule_their_follow_ups() -> void:
-	var cases := [["PATHOGEN_RED_TEAM", "A", "DNA_PRINTER_SCREENING"], ["ARIA_QUESTIONS", "A", "ARIA_NOTES"],
+	var cases := [["PATHOGEN_RED_TEAM", "A", "DNA_PRINTER_SCREENING"], ["ARIA_QUESTIONS", "A", "ARIA_REMEMBERS"],
 		["AUTONOMOUS_CITY", "A", "SILENCE_SECTOR_7"], ["CURE_FOR_A_PRICE", "B", "VICTOR_UPLOAD"],
 		["LEAVING_THE_BODY", "A", "THE_COPY_WAKES"]]
 	for entry in cases:
