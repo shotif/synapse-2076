@@ -69,6 +69,8 @@ var _backdrop: EraBackdrop
 var _era_upgrade: EraUpgrade
 var _nav: NavBar
 var _vitals_strip: VitalsStrip
+var _world_overlay: WorldOverlay
+var _drift_glitch: DriftGlitch
 var _index_bars := {}
 var _index_values := {}
 var _index_names := {}
@@ -204,6 +206,8 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	_feed.clear()
 	_feed_follow = true
 	_headline.text = ""
+	_world_overlay.set_headline("WIRE", "")
+	_world_overlay.set_focus("")
 	for meter in _meters.values():
 		(meter as MeterBar).history = PackedFloat32Array()
 	engine.start_campaign(role, seed_value, {
@@ -226,20 +230,19 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 		_spectate_timer.start(SPECTATE_INTERVALS[_speed_index])
 
 
+## "globe": the world with its metric layers, chips and news ticker.
+## "lattice": the neural lattice with its legend.
 func show_view(view: String) -> void:
 	var globe := view == "globe"
 	_globe_container.visible = globe
 	_lattice_container.visible = not globe
+	_world_overlay.visible = globe
+	_viewport_caption.visible = not globe
 	_globe_button.button_pressed = globe
 	_lattice_button.button_pressed = not globe
 	var s := EraStyle.for_era(era)
-	var hint := "pinch" if compact else "scroll"
-	if globe:
-		_viewport_caption.text = "[color=%s]%s[/color]  Datacenter heat = compute & energy · red rings = compute embargo · cable pulses = trust · drag to orbit, %s to zoom" % [
-			CyberPalette.hex(s.accent), s.label("Globe"), hint]
-	else:
-		_viewport_caption.text = "[color=%s]%s[/color]  Depth = frontier capability · color and jitter = alignment drift · amber = emergent capabilities · drag to orbit" % [
-			CyberPalette.hex(s.accent), s.label("Neural lattice")]
+	_viewport_caption.text = "[color=%s]%s[/color]  Depth = frontier capability · color and jitter = alignment drift · amber = emergent capabilities · drag to orbit" % [
+		CyberPalette.hex(s.accent), s.label("Neural lattice")]
 
 
 ## Switches the left column (the LENS tab) between the faction lens and the
@@ -260,8 +263,7 @@ func _apply_era(era_number: int) -> void:
 	era = clampi(era_number, 1, 3)
 	theme = EraTheme.get_theme(era)
 	_backdrop.set_era(era)
-	if _globe.has_method("set_era"):
-		_globe.call("set_era", era)
+	_globe.set_era(era)
 	_restyle_chrome()
 	_update_header()
 	show_view("globe" if _globe_container.visible else "lattice")
@@ -428,6 +430,7 @@ func set_screen_mode(mode: String, landscape: bool = true) -> void:
 	_debrief.set_compact(compact)
 	_settings.set_compact(compact)
 	_era_upgrade.set_compact(compact)
+	_world_overlay.set_compact(compact)
 	if _lens != null:
 		_lens.set_compact(compact)
 	_restyle_chrome()
@@ -497,6 +500,19 @@ func _build_chrome() -> void:
 	_vitals_strip.metric_pressed.connect(func(_key: String): show_tab("intel"))
 	_compact_vitals.add_child(_vitals_strip)
 	_build_index_grid()
+
+	# The world is the interface: chips, captions and the news ticker over the globe.
+	_world_overlay = WorldOverlay.new()
+	_world_overlay.name = "WorldOverlay"
+	_world_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_world_stack.add_child(_world_overlay)
+	_world_stack.move_child(_world_overlay, _lattice_container.get_index() + 1)
+	_world_overlay.bind_globe(_globe)
+
+	# Alignment drift tears the interface (not the dialogs above it).
+	_drift_glitch = DriftGlitch.new()
+	add_child(_drift_glitch)
+	move_child(_drift_glitch, _backdrop.scanlines.get_index() + 1)
 
 	_nav = NavBar.new()
 	_nav.name = "NavBar"
@@ -585,6 +601,7 @@ func _toggle_fullscreen() -> void:
 func _apply_effects() -> void:
 	_backdrop.set_motion(effects_enabled)
 	_era_upgrade.set_motion(effects_enabled)
+	_drift_glitch.set_enabled(effects_enabled)
 
 
 func _load_ui_settings() -> void:
@@ -653,6 +670,7 @@ func _on_lens_directive(action_id: String) -> void:
 # --- Engine signal handlers ---------------------------------------------------------
 
 func _on_event_logged(entry: Dictionary) -> void:
+	_world_overlay.show_log_entry(entry)
 	_feed_entries.append(entry)
 	if _feed_entries.size() > FEED_LIMIT:
 		_feed_entries = _feed_entries.slice(_feed_entries.size() - FEED_LIMIT)
@@ -862,6 +880,8 @@ func _refresh_telemetry(snapshot: Dictionary, record: bool) -> void:
 		(_meters[key] as MeterBar).set_value(float(metrics.get(key, 0.0)), record)
 	_vitals_strip.set_values(metrics)
 	_globe.update_from_snapshot(snapshot)
+	_world_overlay.update_snapshot(snapshot)
+	_drift_glitch.set_drift(float(metrics.get("alignment_drift", 0.0)))
 	_lattice.update_from_snapshot(snapshot)
 	_update_indices(snapshot)
 	if engine != null:
