@@ -221,9 +221,11 @@ ui/
                            role_select, endgame_debrief, trajectory_chart, llm_settings_dialog
   theme/                   runtime Theme (JetBrains Mono + Inter)
 viewports_3d/
-  globe_viewport.tscn      wireframe Earth, Natural Earth land dots, datacenter heat, cables, embargo rings
+  globe_viewport.tscn      night-side Earth with one layer per metric: datacenter heat, city lights,
+                           bloc walls and launch arcs, agent swarms, a drift-warped grid, cable pulses
   neural_lattice.tscn      force-directed layered graph, drift-driven glow and jitter, loss landscape
-  shaders/                 wireframe_globe, neural_glow, data_flow, hologram_point, loss_landscape
+  shaders/                 wireframe_globe, globe_* (core, atmosphere, sprite, ring, wall, ribbon, route),
+                           neural_glow, data_flow, hologram_point, loss_landscape
 proxy/                     optional Cloudflare Worker that holds a Claude API key for the web build
 tests/   tools/   docs/
 ```
