@@ -47,11 +47,16 @@ Each of the 100 turns lasts six months (turn *n* is dated 2026 + n/2). The engin
    5. Apply emergence and paradigm effects.
    6. Each active faction applies passive influence, regenerates resources and ticks cooldowns and grievances.
 2. **Actor resolution**: each autonomous faction gets an observation and decides through the LLM, or through `HeuristicFallback` when offline. Decisions are applied in the fixed order CEO, Governance, ASI, Citizens.
-3. **Player phase**: the player resolves or defers a crisis card and issues up to two directives (autoplay uses the heuristic).
+3. **Player phase**: each human player in turn resolves or defers a crisis card and issues up to two directives (autoplay uses the heuristic). Before submitting, a player may strike one deal with an autonomous faction.
 4. **Telemetry**:
-   - Dormancy countdowns, then loss checks. An autonomous faction that hits a loss restructures; the player losing ends the campaign.
+   - Dormancy countdowns, then loss checks. An autonomous faction that hits a loss restructures. A lone player who loses ends the campaign; in pass-and-play the beaten player drops out and their faction carries on unattended.
+   - Era goals are settled and rewarded.
    - Catastrophe checks, history, threshold-breach events.
-   - The endgame is evaluated at turn 100 or on an early termination.
+   - The endgame is evaluated at the campaign's last turn or on an early termination.
+
+**Records and replays.** Everything that shapes a campaign is recorded: the seed and options, each player's crisis answers and directives, every autonomous decision (LLM or heuristic), cards written outside the deck and deals. `SimulationEngine.from_record(record, until_turn)` replays the record to rebuild the campaign, which is how saves, Continue and "What if?" rewinds work. Turns played on autopilot before a late start are not recorded; they replay identically from the seed.
+
+**Why a number changed.** Every change to a metric or index is filed with its cause (`WorldState.change_log`, kept for the last eight turns): a crisis answer, a faction's directive, a coupling term such as "Fear of misaligned AI", a paradigm shift, a deal, an era goal. The coupling terms are scaled so the causes of a turn add up to the net change.
 
 ## Physical compute model (`systems/compute_scaling.gd`)
 
@@ -149,7 +154,45 @@ Each faction ([`entities/`](../entities)) has four currencies, regeneration rule
 
 **Grievances.** Harmful effects create grievances, and the heuristics turn them into retaliatory moves. Grievances decay 10% per turn.
 
-**Crisis injection.** Some autonomous directives queue a matching crisis card for the player, for example a substation strike leads to the "Coordinated Sabotage" card.
+**Crisis injection.** Some autonomous directives queue a crisis for the human players (never for the faction that sent it), for example a substation strike leads to the "Coordinated Sabotage" card. Each such directive draws from a family of three or four related cards, picks the one that player saw least recently, and never repeats a card to the same player within eight turns.
+
+**Deals.** During their turn a player can call the leader of an autonomous faction and strike one deal: what they pay (at most 30% of a currency they hold), the partner's backing in the player's own currencies (paid by the partner from its main currency at the same share of its scale), a joint move on the world (at most ±3 per metric) and a pledge of up to six turns during which the partner does not retaliate against them.
+
+## Crisis deck (`systems/dilemma_deck.gd`, `systems/cards/`)
+
+About 90 templates: the core set, three era decks (each era has 20 or more cards that can come up for every role) and the injection families. A card's conditions can name metric or index thresholds, a year window, paradigm shifts, story flags set by earlier answers, and how a recurring character feels about the players. Each draw for a player takes, in order:
+
+1. a card they deferred that has come due (escalated),
+2. a follow-up their earlier answer scheduled,
+3. a crisis another faction injected,
+4. a weighted draw from the eligible templates, skipping any card that player saw in the last eight turns while others are available.
+
+Rules every card follows (enforced by the tests): every role has at least two answers plus Defer, and at least one answer at tier-1 cost or less. Deferring returns the card two turns later at higher cost and with harsher deferral effects. A card deferred twice cannot be deferred again: its Defer becomes "Let it break", which applies 2.5× the deferral effects plus −3 trust and +2 tension, and the card is gone.
+
+**Recurring characters** (`systems/characters.gd`): six people and one machine appear on cards across the fifty years. Answers raise or lower how each of them feels about the players and set story flags; later cards and the lines they remember depend on both.
+
+## Campaign options
+
+**Lengths** (`core/campaign_modes.gd`): the century (100 turns), a quarter century (2026–2051, 50 turns) or one era (2026–2035, 2036–2045 or 2050–2059). A campaign that starts in a later era plays the years before it on autopilot, with every faction on the heuristic. That prologue cannot end the world: a catastrophe during it is pulled back to the brink (tension or drift set to 88) and logged as a near miss.
+
+**Difficulty** (`core/difficulty.gd`) changes the players' side and how hard the rivals push, never the world model:
+
+| | Story | Standard | Hard |
+|---|---|---|---|
+| Players' starting currencies | ×1.3 | ×1 | ×0.85 |
+| Players' income | ×1.25 | ×1 | ×0.9 |
+| Crisis prices | ×0.75 | ×1 | ×1.25 |
+| Rivals' directive intensity | +0 | +0 | +0.25 |
+| Rival crises skipped | 50% | 0% | 0% |
+| Drift accrual | ×0.85 | ×1 | ×1.15 |
+| Goal rewards | ×1.25 | ×1 | ×0.8 |
+| Verdict bars | −10 | 0 | +3 |
+
+**Scenarios** (`core/scenarios.gd`) change the 2026 starting point: metric and index offsets, grid capacity, a growth modifier, faction currencies, story flags, card weights and an opening card. *The Chip War* starts with rival compute blocs and high tension; *Early Fusion* with cheap power and faster compute growth (opening card: First Light); *Open-Weights World* with every frontier model leaked (opening card: The Weights Are Out); *The Pause* with a global moratorium that halves compute growth for ten turns.
+
+## Era goals (`core/era_goals.gd`)
+
+Each human player gets one goal per era for their role. A goal is a condition on a metric, an index or one of the player's currencies; "hold" goals must stay true through the era, "reach" goals must come true once, "end" goals must be true on the era's last turn. A met goal pays a reward (currencies, scaled by difficulty) and adds 3 points (4 in Era III) to the verdict score. The thresholds sit near what the heuristic reaches about half the time.
 
 ## Early termination
 
@@ -179,7 +222,7 @@ Interpretations of ambiguous PRD wording:
 
 If no signature is fully met, the world settles into the **nearest attractor**: the lowest mean normalized shortfall. A miss is measured relative to how far the threshold sits from 50. For example, missing "> 95" by 9 is 9/45 = 0.2. Only end-states whose regime the world has entered on at least one condition are candidates. Affinity is 100·exp(−shortfall/0.5).
 
-**Role verdict** = the role's value for the end-state (0–60) plus the role's objective score (0–40). VICTORY needs 65 or more and PYRRHIC needs 40 or more. Anything lower, or any instant loss, is DEFEAT.
+**Role verdict** = the role's value for the end-state (0–60) plus the role's objective score (0–40) plus the score of the era goals it met (up to 10). VICTORY needs 70 or more and PYRRHIC needs 45 or more, moved by the difficulty (Story −10, Hard +3). Anything lower, or any instant loss, is DEFEAT.
 
 ## Balance snapshot
 

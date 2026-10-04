@@ -4,9 +4,20 @@
 
 ![The dashboard in Era I: the Frontier Lab's markets lens, the globe with its metric layers, the ACT column and the newswire](docs/screenshots/dashboard.png)
 
-You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Governance Chair, Emergent Superintelligence or Post-Work Citizen Coalition. You then play 100 semi-annual turns while the other three factions act on their own. They are driven by an LLM when an OpenAI-compatible endpoint is reachable, and by a deterministic heuristic engine otherwise. Six coupled macro-metrics evolve every turn. The world drifts, tips and settles into one of eight civilizational end-states.
+You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Governance Chair, Emergent Superintelligence or Post-Work Citizen Coalition. You then play up to 100 semi-annual turns while the other factions act on their own. They are driven by an LLM when an OpenAI-compatible endpoint is reachable, and by a deterministic heuristic engine otherwise. Six coupled macro-metrics evolve every turn. The world drifts, tips and settles into one of eight civilizational end-states.
 
 **Play it in your browser at https://shotif.github.io/synapse-2076/.** It needs a browser with WebGL 2 and nothing to install. Every push to `main` redeploys it.
+
+### What's in a campaign
+
+- **Play it your way.** The whole century, a quarter century or a single era; four alternative worlds (*The Chip War*, *Early Fusion*, *Open-Weights World*, *The Pause*); Story, Standard or Hard; up to four people taking turns on one device; and a daily challenge that deals everyone the same world each day.
+- **Pick up where you left off.** Every decision is saved, and **Continue** rebuilds the game exactly. The history book at the end lists the campaign's turning points with a **What if?** button that takes you back to that decision.
+- **A deck that tells a story.** About 90 crisis cards in three era decks, from *My Kid's Best Friend Is a Chatbot* in 2026 to *A Model Asks for a Lawyer* in the 2050s. Rival factions push crises from families of related cards and never the same one twice in a row. Some answers come back years later as follow-ups. A crisis you put off twice breaks on its own, badly.
+- **People who remember.** Six people and one machine recur across the fifty years. Their portraits age with the campaign, and they remember what you did to them.
+- **Goals and explanations.** Each era sets you a goal with a reward. Tap any number to see why it changed this turn: your moves, your rivals', and the world's own dynamics.
+- **For everyone.** Three coached first turns, a plain-language switch and a glossary, text size, color-blind friendly colors, music and sound for each era, and vibration on phones.
+- **Endings to collect.** Eight end-states for each of the four roles, each with its rarity, and a shareable front page for every ending.
+- **Optional Claude features.** With an LLM configured, Claude can write some of your crises to fit your world, and you can call a faction's leader to negotiate a deal that binds them.
 
 ### What it looks like
 
@@ -38,14 +49,18 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
 
 1. Open `project.godot` in the Godot editor and press **F5**. The main scene is `res://ui/main_dashboard.tscn`.
 2. Pick a perspective and a seed. Tick **Spectate** to watch the AI play your role.
-3. Each turn:
-   - Answer or defer the **crisis card**: swipe it, tap a response, or use ← → C ↓ and 1–4. A deferred card comes back two turns later, escalated.
+3. On the setup screen choose the **length**, the **world** (scenario), the **difficulty** and the **players**: add other factions as human seats to play pass-and-play on one device. **Play today's challenge** starts the daily challenge; **Continue** appears when a campaign is saved.
+4. Each turn:
+   - Answer or defer the **crisis card**: swipe it, tap a response, or use ← → C ↓ and 1–4. A deferred card comes back two turns later, escalated; a card put off twice breaks on its own.
+   - Optionally **call a faction leader** from the ACT column and strike one deal per turn.
    - Select up to **two directives** in the ACT column (or from your lens). Each has an intensity slider from 1.0× to 2.0× of its cost; effects scale as intensity^0.8.
-   - Press **Execute directives**.
-4. Switch the left column between your faction's **lens** and **Intel** (every meter, the secondary indices and the compute picture). Toggle the 3D view between **Globe** and **Lattice**; drag to orbit, and use the wheel (or a pinch) to zoom. Tap a metric chip on the globe to see that layer alone.
-5. The menu (top right) starts a new campaign, opens the AI settings and turns the visual effects (glitches, animated backgrounds, the tearing transition) on or off. The LLM badge also opens the AI settings.
+   - Press **Execute directives**. Your era goal sits at the top of the ACT column.
+5. Tap any number (the vitals, a meter, a lens figure) to see why it changed. Switch the left column between your faction's **lens** and **Intel** (every meter, the secondary indices and the compute picture). Toggle the 3D view between **Globe** and **Lattice**; drag to orbit, and use the wheel (or a pinch) to zoom. Tap a metric chip on the globe to see that layer alone.
+6. The menu (top right) starts a new campaign and opens **Settings** (text size, colors, plain language, effects, sound, vibration, language, the tutorial and the glossary), **People**, **Endings** and the **AI settings**. The LLM badge also opens the AI settings.
 
-On a phone the same turn happens on tabs: the crisis card opens first, **ACT** holds the directives and the Execute button, **WORLD** the globe, the **LENS** tab (named after your lens, such as *Markets*) your faction's view and Intel, and **NEWS** the newswire. Tap a vital in the top strip to jump to Intel. A dot on **ACT** means a decision is waiting.
+In pass-and-play, the screen is covered between players: hand the device over and the next player taps to see their own desk, with the news since their last turn.
+
+On a phone the same turn happens on tabs: the crisis card opens first, **ACT** holds the goal, the directives and the Execute button, **WORLD** the globe, the **LENS** tab (named after your lens, such as *Markets*) your faction's view and Intel, and **NEWS** the newswire. Tap a vital in the top strip to see why it changed. A dot on **ACT** means a decision is waiting.
 
 To run headless from the command line (the first command builds the `class_name` cache on a fresh clone):
 
@@ -190,6 +205,14 @@ GitHub Pages serves a public, static copy of the game. **Never put an API key in
 
 **What it costs.** Each turn sends three requests, one per non-player faction, of about 900 input tokens each. A full 100-turn campaign is about 300 requests. At list prices that is roughly $1.50 per campaign on Claude Sonnet 5.5, about $0.75 on Haiku 4.5 and about $3 on Opus 5.5 (check current pricing). Larger models also take longer per turn. The game waits for all three factions, falling back to the heuristic after the timeout.
 
+### Claude writes crises (optional)
+
+Tick **Write crises with Claude** in the AI settings (off by default; saved with the other AI settings, never with your key unless you ask). After each of your turns, Claude is asked for a crisis card that fits your world: the year, the metrics, your currencies and prices, the recent headlines and how the recurring characters feel about you. The reply is untrusted. `CrisisWriter.validate_card()` keeps it to two or three answers priced in your currencies within the deck's tiers (one of them cheap), metric and index effects of at most ±6 and ±8, plain text of bounded length, and no flags, injections or follow-ups; anything else is dropped. A valid card is dealt at your next draw and recorded, so saves and rewinds replay it. At most one written card comes every three turns per player, so the deck still runs the story. Each request is about 1,700 input tokens and up to 1,400 output tokens.
+
+### Calling a faction leader
+
+**Call a faction leader** in the ACT column opens a call with whoever leads a faction nobody is playing: Nadia Esposito (Governance Council), Victor Hale (Frontier Lab), Maya Okafor (Citizen Coalition) or ARIA (the machine). You get up to six messages per call. With an LLM, Claude plays the leader, knows their faction's interests and grudges against you, and may put an offer on the table. Without one, a scripted negotiator in each leader's voice makes offers from the faction's interests, so the feature works on the public build. Every offer goes through the engine's caps (`preview_deal`): you pay at most 30% of a currency, the partner's backing is charged to its own purse, a joint move on the world is limited to ±3 per metric, and a pledge stops the partner retaliating against you for up to six turns. Accepting makes the deal binding: it is applied, logged on the newswire and recorded. One deal per player per turn. A call with Claude sends up to six requests of 1,000–2,000 tokens each.
+
 ## Architecture
 
 The design is headless-first: everything under `core/`, `entities/` and `systems/` (except the `LLMService` node) extends `RefCounted`. It runs without a scene tree, and the UI and 3D views bind only through signals.
@@ -210,11 +233,14 @@ The design is headless-first: everything under `core/`, `entities/` and `systems
 
 ```
 core/
-  simulation_engine.gd     four-phase turn state machine and signals
-  world_state.gd           six macro metrics, secondary indices, coupled equations, history
+  simulation_engine.gd     four-phase turn state machine and signals; the record and replays,
+                           several human players, deals, cards written outside the deck
+  world_state.gd           six macro metrics, secondary indices, coupled equations, history,
+                           the cause ledger behind every change
   tech_tree_manager.gd     scaling laws, thermal walls, eras, paradigm shifts, emergence, alignment tax
   victory_matrix.gd        eight end-states, nearest attractor, role verdicts
   effect_resolver.gd       applies declarative effect dictionaries (actions, cards, emergences)
+  difficulty.gd  scenarios.gd  era_goals.gd  campaign_modes.gd
   sim_constants.gd         faction IDs, calendar, role descriptions
 entities/
   actor_base.gd            currencies, costs and intensity, cooldowns, grievances, observations
@@ -222,11 +248,17 @@ entities/
   faction_registry.gd
 systems/
   compute_scaling.gd       grid capacity, power demand, efficiency, saturation, throttle
-  dilemma_deck.gd          22 procedural crisis templates, injection, deferral and escalation, autoplay chooser
+  dilemma_deck.gd          the deck: draw order, injection families and cooldowns, deferral cap,
+                           follow-ups, story flags, character scores, autoplay chooser
+  cards/                   the core set plus the Era I, II and III decks and the injection families
+  characters.gd            the recurring cast: roles per era, ages, portraits, memories
+  save_manager.gd  endings_book.gd  turning_points.gd
   llm/llm_service.gd       HTTPRequest client (Claude Messages API or OpenAI-compatible), probe,
                            timeout, circuit breaker, fallback, #llm-key= import on the web
   llm/prompt_templates.gd  personas, request bodies, JSON extraction, strict validation
   llm/heuristic_fallback.gd  deterministic decision trees for all four roles
+  llm/crisis_writer.gd     Claude-written crisis cards, validated into the deck's schema
+  llm/negotiator.gd        calls with faction leaders (Claude or scripted), offers through the deal caps
 ui/
   main_dashboard.tscn/.gd  the dashboard: era theme and system upgrade, desktop / split / phone
                            layouts, header, lens and intel column, world, ACT column, newswire
@@ -236,12 +268,17 @@ ui/
   theme/                   EraStyle (palette, fonts, shapes per era) and EraTheme (one Theme per era)
   components/              world_overlay (chips, captions, sealed ticker), dilemma_dialog + crisis_card
                            + crisis_art + vitals_strip (swipe cards), directive_panel, meter_bar
-                           (cards, rings, cells), nav_bar, era_upgrade, era_backdrop, role_select,
-                           endgame_debrief (history book), trajectory_chart, llm_status_badge,
+                           (cards, rings, cells), nav_bar, era_upgrade, era_backdrop, role_select
+                           (the setup screen), endgame_debrief (history book with turning points),
+                           trajectory_chart, goals_panel + goal_toast, why_popup, coach,
+                           settings_dialog + glossary_dialog, portrait + character_badge + cast_panel,
+                           endings_gallery, negotiation_dialog, pass_device, llm_status_badge,
                            llm_settings_dialog
+  audio/                   AudioDirector: era music with crossfades, effects, cues for log entries
+  game_settings.gd  plain_language.gd  haptics.gd
   lenses/                  CeoLens (markets), GovLens (daily brief), AsiLens (perception),
                            CitizenLens (the Commons), on a shared LensPanel
-  story/                   HeadlineWriter, Newswire, EraChronicle, FrontPage, StoryCopy, InkChart
+  story/                   HeadlineWriter, Newswire, EraChronicle, FrontPage, StoryCopy, InkChart, ShareCard
   effects/                 era backdrop, scanlines, era transition and drift glitch shaders
   fonts/                   Geist, Chakra Petch, Syne, JetBrains Mono, Fragment Mono and the paper faces
 viewports_3d/
@@ -250,6 +287,7 @@ viewports_3d/
   neural_lattice.tscn      force-directed layered graph, drift-driven glow and jitter, loss landscape
   shaders/                 wireframe_globe, globe_* (core, atmosphere, sprite, ring, wall, ribbon, route),
                            neural_glow, data_flow, hologram_point, loss_landscape
+assets/audio/              era music loops and interface sounds, synthesized by tools/make_audio.sh
 proxy/                     optional Cloudflare Worker that holds a Claude API key for the web build
 tests/   tools/   docs/
 ```
@@ -298,3 +336,4 @@ python3 -m http.server 8000 --directory build/web    # browsers won't run it fro
 - Code: MIT ([LICENSE](LICENSE)).
 - Fonts, under the SIL Open Font License 1.1 (see `ui/fonts/*-OFL.txt`): [Geist and Geist Mono](https://github.com/vercel/geist-font) (Era I), [Chakra Petch](https://github.com/m4rc1e/Chakra-Petch) (Era II), [Syne](https://gitlab.com/bonjour-monde/fonderie/syne-typeface) and [Fragment Mono](https://github.com/weiweihuanghuang/fragment-mono) (Era III), [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), and for the papers and lenses [Newsreader](https://github.com/productiontype/Newsreader), [EB Garamond](https://github.com/octaviopardo/EBGaramond12), [Cinzel](https://github.com/NDISCOVER/Cinzel-Typeface), [UnifrakturCook](https://unifraktur.sourceforge.net/) and [Public Sans](https://github.com/uswds/public-sans). [Special Elite](https://fonts.google.com/specimen/Special+Elite) is under the Apache License 2.0 (`ui/fonts/SpecialElite-LICENSE.txt`).
 - Land mask: rasterized from [Natural Earth](https://www.naturalearthdata.com/) 1:110m land polygons (public domain).
+- Music and sound effects: original, synthesized with ffmpeg by `tools/make_audio.sh` (MIT, like the code).

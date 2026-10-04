@@ -12,8 +12,9 @@ extends SceneTree
 ##
 ## Options: --role=CEO --seed=2076 --prefix=NAME_ --touch.
 ## Writes <prefix>role_select, crisis_card, dashboard (Era I), lattice
-## (desktop), world, lens and news (tabbed layouts), front_page,
-## era_upgrade, era2, era3 and debrief.
+## (desktop), world, lens and news (tabbed layouts), why, call, people,
+## settings, front_page, era_upgrade, era2, era3, debrief, epilogue and
+## endings.
 
 var out_dir := "user://screenshots"
 var prefix := ""
@@ -38,6 +39,11 @@ func _initialize() -> void:
 			touch = true
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	ProjectSettings.set_setting("synapse/llm/probe_on_start", false)
+	# No tutorial over the shots, and no captures in the player's own saves.
+	ProjectSettings.set_setting("synapse/onboarding/coach", false)
+	ProjectSettings.set_setting("synapse/storage/save_dir", "user://capture_storage/saves")
+	ProjectSettings.set_setting("synapse/storage/endings_path", "user://capture_storage/endings.cfg")
+	ProjectSettings.set_setting("synapse/storage/settings_path", "user://capture_storage/settings.cfg")
 
 	dashboard = (load("res://ui/main_dashboard.tscn") as PackedScene).instantiate()
 	root.add_child(dashboard)
@@ -65,6 +71,7 @@ func _initialize() -> void:
 		await _frames(90)
 		await _shot("lattice")
 		dashboard.show_view("globe")
+	await _feature_shots()
 
 	await _advance_to_era(2, true)
 	await _settle_turn()
@@ -86,8 +93,46 @@ func _initialize() -> void:
 		engine.advance()
 	await _frames(40)
 	await _shot("debrief")
+	var debrief: EndgameDebrief = dashboard.get_node("%EndgameDebrief")
+	debrief.show_epilogue()
+	await _frames(20)
+	await _shot("epilogue")
+	dashboard._open_endings()
+	await _frames(20)
+	await _shot("endings")
 	print("Screenshots written to %s" % ProjectSettings.globalize_path(out_dir))
 	quit(0)
+
+
+## "Why did this change?", a call to a faction leader, the People page and
+## the settings, each closed again after its shot.
+func _feature_shots() -> void:
+	var engine: SimulationEngine = dashboard.engine
+	if engine.is_ended():
+		return
+	dashboard._explain(WorldState.EPISTEMIC_TRUST)
+	await _frames(20)
+	await _shot("why")
+	dashboard._why.close()
+	if engine.is_awaiting_player():
+		dashboard._open_call()
+		await _frames(10)
+		dashboard._negotiation.get_negotiator().send_quick("calm")
+		await _frames(20)
+		await _shot("call")
+		dashboard._negotiation.hang_up()
+	for character_id in ["maya", "jonas", "lin"]:
+		if not engine.deck.characters_met.has(character_id):
+			engine.deck.characters_met[character_id] = {"first_turn": 1, "last_turn": engine.turn, "count": 1}
+	dashboard._open_people()
+	await _frames(20)
+	await _shot("people")
+	dashboard._people_layer.visible = false
+	dashboard._open_settings()
+	await _frames(20)
+	await _shot("settings")
+	dashboard._settings_dialog.close()
+	await _frames(5)
 
 
 ## Plays [param count] turns through the real widgets and leaves the next
