@@ -89,15 +89,26 @@ func test_players_take_turns_with_their_own_lens() -> void:
 	dashboard.start_campaign(SimConstants.CEO, 12, false, {"human_roles": [SimConstants.CITIZEN]})
 	await tree.process_frame
 	var engine: SimulationEngine = dashboard.engine
+	var cover: PassDevice = dashboard._pass_device
+	var dialog: DilemmaDialog = dashboard.get_node("%DilemmaDialog")
 	assert_eq(engine.player_role, SimConstants.CEO)
+	assert_true(cover.visible, "the device goes to the first player")
+	assert_false(dialog.visible, "nothing shows under the cover")
+	cover.reveal()
+	await tree.process_frame
+	assert_false(cover.visible)
+	assert_true(dialog.visible)
 	assert_eq(dashboard._lens.role, SimConstants.CEO)
 	_answer()
 	await tree.process_frame
 	assert_eq(engine.turn, 1, "same turn")
 	assert_eq(engine.player_role, SimConstants.CITIZEN, "the Coalition decides next")
+	assert_true(cover.visible, "the device is passed on")
 	assert_eq(dashboard._lens.role, SimConstants.CITIZEN, "with the Coalition's lens")
 	assert_eq(dashboard._newswire.player_role, SimConstants.CITIZEN)
-	assert_true(dashboard.get_node("%DilemmaDialog").visible)
+	cover.reveal()
+	await tree.process_frame
+	assert_true(dialog.visible)
 	_answer()
 	await tree.process_frame
 	assert_eq(engine.phase, SimulationEngine.Phase.IDLE)
@@ -105,6 +116,7 @@ func test_players_take_turns_with_their_own_lens() -> void:
 	await tree.process_frame
 	assert_eq(engine.turn, 2)
 	assert_eq(dashboard._lens.role, SimConstants.CEO, "the first player opens every turn")
+	assert_true(cover.visible, "and gets the device back")
 
 
 func test_the_setup_screen_starts_the_campaign_it_describes() -> void:

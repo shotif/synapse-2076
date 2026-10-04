@@ -97,6 +97,13 @@ var _call_button: Button
 var _endings_gallery: EndingsGallery
 var _share_card: ShareCard
 var _coach: Coach
+var _audio: AudioDirector
+## Pass-and-play: the cover between players, whose desk is showing, and how
+## much of the log each player has seen.
+var _pass_device: PassDevice
+var _desk_role := ""
+var _seen := {}
+var _handoff_context := {}
 
 @onready var _margin: MarginContainer = $Margin
 @onready var _layout: VBoxContainer = $Margin/Layout
@@ -171,6 +178,9 @@ func _ready() -> void:
 	add_child(_next_turn_timer)
 
 	_dilemma.option_chosen.connect(_on_dilemma_option_chosen)
+	_dilemma.swiped.connect(func(direction: int): _audio.play_sfx("swipe_left" if direction < 0 else "swipe_right"))
+	_dilemma.option_pressed.connect(func(_option_id: String): _audio.play_sfx("option_select"))
+	_nav.tab_selected.connect(func(_tab: String): _audio.play_sfx("tap"))
 	_directive_panel.execute_requested.connect(_on_execute_requested)
 	_directive_panel.review_crisis_requested.connect(_reopen_crisis)
 	_debrief.new_campaign_requested.connect(_show_role_select)
@@ -260,6 +270,10 @@ func _reset_views(spectate_mode: bool) -> void:
 		_negotiation.hang_up()
 	_why.close()
 	_goal_toast.clear()
+	_pass_device.close()
+	_desk_role = ""
+	_seen = {}
+	_handoff_context = {}
 	_spectate_timer.stop()
 	_next_turn_timer.stop()
 	_era_upgrade.cancel()
@@ -390,6 +404,7 @@ func show_left_view(view: String) -> void:
 func _apply_era(era_number: int) -> void:
 	era = clampi(era_number, 1, 3)
 	theme = EraTheme.get_theme(era)
+	_audio.set_era(era)
 	_backdrop.set_era(era)
 	_globe.set_era(era)
 	_restyle_chrome()
@@ -407,6 +422,7 @@ func _begin_era_change(new_era: int) -> void:
 	_pending_era = new_era
 	if engine != null and new_era > 1:
 		_front_page.set_compact(compact)
+		_audio.play_sfx("page_turn")
 		_front_page.present(EraChronicle.summarize_era(engine.event_log, engine.world.history, new_era - 1, engine.player_role))
 		return
 	_play_era_upgrade()
@@ -416,6 +432,7 @@ func _play_era_upgrade() -> void:
 	if _pending_era <= 0:
 		return
 	_era_upgrade.set_compact(compact)
+	_audio.play_sfx("era_upgrade")
 	_era_upgrade.play(_pending_era, int(floor(engine.get_year())) if engine != null else 0)
 	_pending_era = 0
 
@@ -571,7 +588,7 @@ func set_screen_mode(mode: String, landscape: bool = true) -> void:
 	_world_overlay.set_compact(compact)
 	_newswire.set_compact(compact)
 	_newswire.set_horizontal(not compact)
-	for overlay in [_why, _settings_dialog, _coach, _negotiation, _endings_gallery]:
+	for overlay in [_why, _settings_dialog, _coach, _negotiation, _endings_gallery, _pass_device]:
 		overlay.set_compact(compact)
 	if _lens != null:
 		_lens.set_compact(compact)
@@ -629,6 +646,10 @@ func _place_footer() -> void:
 
 
 func _build_chrome() -> void:
+	# Music follows the era from the title screen on.
+	_audio = AudioDirector.new()
+	_audio.name = "AudioDirector"
+	add_child(_audio)
 	_backdrop = EraBackdrop.new()
 	add_child(_backdrop)
 	move_child(_backdrop, 0)
@@ -741,6 +762,11 @@ func _build_feature_layers() -> void:
 	_coach.name = "Coach"
 	_coach.tab_requested.connect(show_tab)
 	add_child(_coach)
+	# Pass-and-play hand-offs cover everything, the coach included: last child.
+	_pass_device = PassDevice.new()
+	_pass_device.name = "PassDevice"
+	_pass_device.revealed.connect(_on_desk_revealed)
+	add_child(_pass_device)
 
 
 # --- Menu ---------------------------------------------------------------------------
@@ -790,6 +816,7 @@ func _menu_item(text: String, glyph: String, action: Callable) -> Button:
 	button.custom_minimum_size = Vector2(220, 40)
 	button.pressed.connect(func():
 		_menu_layer.visible = false
+		_audio.play_sfx("tap")
 		action.call())
 	return button
 
@@ -985,6 +1012,7 @@ func _on_event_logged(entry: Dictionary) -> void:
 	# A late start's autopilot years arrive at once; the wire gets the latest of them afterwards.
 	if entry.get("prologue", false):
 		return
+	_audio.play_event(entry, engine.player_role if engine != null else "")
 	_world_overlay.show_log_entry(entry)
 	_newswire.add_entry(entry)
 	var category := String(entry.get("category", ""))
@@ -1049,6 +1077,15 @@ func _on_player_input_required(context: Dictionary) -> void:
 
 func _present_crisis(context: Dictionary) -> void:
 	_deferred_context = {}
+	var role := String(context.get("role", engine.player_role))
+	if (context.get("humans", []) as Array).size() > 1 and role != _desk_role:
+		# Pass-and-play: cover the screen until the next player takes the device.
+		_handoff_context = context
+		_pass_device.set_compact(compact)
+		_pass_device.present(role, float(context.get("year", engine.get_year())),
+			PassDevice.headlines_since(engine.event_log, int(_seen.get(role, 0)), role), engine.turn)
+		return
+	_audio.play_sfx("card_appear")
 	if screen_mode != UiLayout.MODE_DESKTOP:
 		show_tab("act")
 	_dilemma.present(context["dilemma"], context["resources"], engine.player_role, engine.world.metrics_dict())
@@ -1102,8 +1139,20 @@ func _on_dilemma_option_chosen(option_id: String) -> void:
 		_queued_directive = ""
 
 
+## The next player took the device: show their crisis.
+func _on_desk_revealed(role: String) -> void:
+	_desk_role = role
+	_seen[role] = engine.event_log.size() if engine != null else 0
+	_audio.play_sfx("tap")
+	if not _handoff_context.is_empty():
+		var context := _handoff_context
+		_handoff_context = {}
+		_present_crisis(context)
+
+
 func _reopen_crisis() -> void:
 	if engine != null and engine.is_awaiting_player():
+		_audio.play_sfx("card_appear")
 		_dilemma.present(engine.current_dilemma, engine.get_player().resources, engine.player_role, engine.world.metrics_dict())
 
 
@@ -1115,6 +1164,7 @@ func _on_execute_requested(directives: Array) -> void:
 		_directive_panel.show_message("\n".join(response["errors"]))
 		return
 	_coach.advance_from("turn_submitted")
+	_audio.play_sfx("execute")
 	if engine.is_awaiting_player():
 		# Pass-and-play: the next player's desk is already set up.
 		return
