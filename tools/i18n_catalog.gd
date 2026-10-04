@@ -8,7 +8,7 @@ extends SceneTree
 ##
 ## Ids come from two places:
 ##   - the game's data: crisis cards (title, body, responses, defer labels,
-##     swipe hints; not the ENGLISH_ONLY_CARDS), character memories, directives, currencies, metrics,
+##     swipe hints; ENGLISH_ONLY_CARDS can exclude cards), character memories, directives, currencies, metrics,
 ##     goals, scenarios, difficulties, lengths, end-states, plain-language
 ##     names, the cast, the tutorial, the negotiator's lines and the interface's
 ##     own name tables (see [method data_msgids]);
@@ -23,7 +23,7 @@ extends SceneTree
 const CODE_DIRS := ["res://ui", "res://core", "res://systems", "res://entities"]
 ## Crisis cards left out of the catalog: their text stays English in every
 ## language (DilemmaDeck falls back to the English fields).
-const ENGLISH_ONLY_CARDS := ["THE_RECIPE", "PATHOGEN_RED_TEAM", "DNA_PRINTER_SCREENING", "PATHOGEN_TREATY", "SECOND_SAMPLE"]
+const ENGLISH_ONLY_CARDS := []
 ## A call whose first argument is a message id.
 const CALL_PATTERN := "(?:(?<![\\w.])tr|(?<![\\w.])atr|\\bI18n\\.t|\\bI18n\\.mark)\\(\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*[,)]"
 ## A text property set from an expression.
