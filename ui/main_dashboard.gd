@@ -61,7 +61,9 @@ var _meters := {}
 var _vitals := {}
 var _feed_entries: Array[Dictionary] = []
 var _feed_follow := true
-var _lens: Control
+var _lens: LensPanel
+## A directive a lens asked for before the crisis was resolved.
+var _queued_directive := ""
 var _spectate_timer: Timer
 var _next_turn_timer: Timer
 var _backdrop: EraBackdrop
@@ -188,6 +190,7 @@ func start_campaign(role: String, seed_value: int, spectate_mode: bool = false) 
 	spectate = spectate_mode
 	_paused = false
 	_pending_option = ""
+	_queued_directive = ""
 	_deferred_context = {}
 	engine = SimulationEngine.new()
 	engine.event_logged.connect(_on_event_logged)
@@ -293,11 +296,10 @@ func _restyle_chrome() -> void:
 	_role_mark.texture = _role_mark_texture(s)
 	_menu_button.icon = Glyphs.texture("menu", 18)
 	_speed_button.icon = Glyphs.texture("speed", 14)
-	_lens_button.icon = Glyphs.texture("lens", 16)
 	_intel_button.icon = Glyphs.texture("intel", 16)
 	_globe_button.icon = Glyphs.texture("world", 16)
 	_lattice_button.icon = Glyphs.texture("lattice", 16)
-	_lens_button.text = s.label("Lens")
+	_label_lens_switch()
 	_intel_button.text = s.label("Intel")
 	_globe_button.text = s.label("Globe")
 	_lattice_button.text = s.label("Lattice")
@@ -428,8 +430,8 @@ func set_screen_mode(mode: String, landscape: bool = true) -> void:
 	_debrief.set_compact(compact)
 	_settings.set_compact(compact)
 	_era_upgrade.set_compact(compact)
-	if _lens != null and _lens.has_method("set_compact"):
-		_lens.call("set_compact", compact)
+	if _lens != null:
+		_lens.set_compact(compact)
 	_restyle_chrome()
 	_update_header()
 	show_view("globe" if _globe_container.visible else "lattice")
@@ -620,13 +622,45 @@ func _update_tab_buttons() -> void:
 
 # --- Lens ---------------------------------------------------------------------------
 
-## Builds the faction lens for the player's role into the left column.
+## Builds the faction lens for the player's role into the left column (the
+## LENS tab on phones) and names the switch and the tab after it.
 func _rebuild_lens() -> void:
 	for child in _lens_host.get_children():
 		_lens_host.remove_child(child)
 		child.queue_free()
-	_lens = null
+	_lens = LensPanel.create(engine.player_role) if engine != null else null
+	if _lens != null:
+		_lens_host.add_child(_lens)
+		_lens.set_compact(compact)
+		engine.event_logged.connect(_lens.record_event)
+		_lens.directive_requested.connect(_on_lens_directive)
+		_lens.update_state(engine.get_snapshot(), engine.get_player().resources)
+		left_view = "lens"
+	_label_lens_switch()
 	show_left_view(left_view)
+
+
+func _label_lens_switch() -> void:
+	var s := EraStyle.for_era(era)
+	var title := _lens.lens_title() if _lens != null else "Lens"
+	var glyph := _lens.lens_glyph() if _lens != null else "lens"
+	_lens_button.text = s.label(title)
+	_lens_button.icon = Glyphs.texture(glyph, 16)
+	_nav.set_tab("lens", title, glyph)
+
+
+## A lens asked for a directive: open ACT with it selected, or queue it until
+## the crisis is resolved.
+func _on_lens_directive(action_id: String) -> void:
+	if spectate or engine == null or not engine.is_awaiting_player():
+		return
+	show_tab("act")
+	if _directive_panel.has_crisis_choice():
+		_directive_panel.select_directive(action_id, 1.0)
+		_directive_panel.focus_directive(action_id)
+		return
+	_queued_directive = action_id
+	_reopen_crisis()
 
 
 # --- Engine signal handlers ---------------------------------------------------------
@@ -681,6 +715,10 @@ func _on_player_input_required(context: Dictionary) -> void:
 	_pending_option = ""
 	_directive_panel.setup(context)
 	_directive_panel.set_interactive(true)
+	if _lens != null:
+		var lens_context := context.duplicate()
+		lens_context["suggested_action"] = HeuristicFallback.evaluate(engine.player_role, engine.build_observation(engine.player_role)).get("action", "")
+		_lens.set_context(lens_context)
 	if _story_busy():
 		_deferred_context = context
 		_update_tab_buttons()
@@ -697,6 +735,8 @@ func _present_crisis(context: Dictionary) -> void:
 
 func _on_telemetry_updated(snapshot: Dictionary) -> void:
 	_refresh_telemetry(snapshot, true)
+	if _lens != null:
+		_lens.update_state(snapshot, engine.get_player().resources)
 
 
 func _on_turn_completed(_turn: int, _snapshot: Dictionary) -> void:
@@ -720,6 +760,10 @@ func _on_dilemma_option_chosen(option_id: String) -> void:
 	_pending_option = option_id
 	_directive_panel.set_crisis_choice(DilemmaDeck.find_option(engine.current_dilemma, option_id))
 	_directive_panel.show_message("")
+	if _queued_directive != "":
+		_directive_panel.select_directive(_queued_directive, 1.0)
+		_directive_panel.focus_directive(_queued_directive)
+		_queued_directive = ""
 
 
 func _reopen_crisis() -> void:

@@ -313,3 +313,27 @@ func test_meters_follow_the_era() -> void:
 		await wait_frames(2)
 		assert_eq(meter.custom_minimum_size, MeterBar.SIZES[era_number], "era %d meter size" % era_number)
 	assert_eq(dashboard.get_node("%MeterGrid").columns, 3, "rings and cells sit three abreast")
+
+
+func test_lens_fills_the_left_column_and_requests_directives() -> void:
+	dashboard.start_campaign("CEO", 2076, false)
+	await tree.process_frame
+	var lens: LensPanel = dashboard._lens
+	assert_not_null(lens, "a lens for the role")
+	assert_true(lens is CeoLens, "the Frontier Lab reads markets")
+	assert_eq(dashboard.left_view, "lens")
+	assert_true(dashboard.get_node("%LensHost").visible)
+	assert_string_contains(dashboard.get_node("%LensButton").text, lens.lens_title())
+	var panel: DirectivePanel = dashboard.get_node("%DirectivePanel")
+	var dialog: DilemmaDialog = dashboard.get_node("%DilemmaDialog")
+	dialog.close()
+	lens.directive_requested.emit("SCALE_FRONTIER_CLUSTERS")
+	assert_true(dialog.visible, "the crisis comes first")
+	dialog.choose(DilemmaDeck.DEFER_ID)
+	var selected: Array = panel.get_selected_directives()
+	assert_eq(selected.size(), 1, "the queued directive is selected once the crisis is answered")
+	if not selected.is_empty():
+		assert_eq(String(selected[0]["action"]), "SCALE_FRONTIER_CLUSTERS")
+	dashboard.show_left_view("intel")
+	assert_true(dashboard.get_node("%IntelScroll").visible)
+	assert_false(dashboard.get_node("%LensHost").visible)

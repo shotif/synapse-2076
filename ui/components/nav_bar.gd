@@ -46,6 +46,15 @@ func set_badge(tab: String, on: bool) -> void:
 		(_dots[tab] as Control).visible = on and tab != active
 
 
+## Renames [param tab] and changes its glyph (the LENS tab takes the lens's name).
+func set_tab(tab: String, label: String, glyph: String) -> void:
+	for entry in _tabs:
+		if String(entry["id"]) == tab:
+			entry["label"] = label
+			entry["glyph"] = glyph
+	_restyle()
+
+
 func set_tab_visible(tab: String, shown: bool) -> void:
 	if _buttons.has(tab):
 		(_buttons[tab] as Button).visible = shown
