@@ -299,6 +299,12 @@ func is_ended() -> bool:
 	return phase == Phase.ENDED
 
 
+## True while the engine rebuilds a campaign from a record or plays a late
+## start's prologue: nothing outside the record may shape those turns.
+func is_replaying() -> bool:
+	return not _replay.is_empty() or _fast_forwarding
+
+
 func is_awaiting_player() -> bool:
 	return phase == Phase.PLAYER_ACTION and _player_submission.is_empty()
 
@@ -740,7 +746,7 @@ func _restore_primary_role() -> void:
 ## [param role]'s next draw. [param card] must already be validated into deck
 ## template form (id, title, body, category, severity, options, defer).
 func offer_external_card(role: String, card: Dictionary) -> bool:
-	if not is_human(role) or not card.has("options") or (card["options"] as Array).size() < 2:
+	if is_replaying() or not is_human(role) or not card.has("options") or (card["options"] as Array).size() < 2:
 		return false
 	_external_cards[role] = card.duplicate(true)
 	return true
@@ -804,7 +810,7 @@ func apply_deal(deal: Dictionary) -> Dictionary:
 		return preview
 	var player := get_player()
 	var partner: ActorBase = factions[preview["partner"]]
-	world.change_cause = "Deal with %s" % partner.display_name
+	world.change_cause = _cause_for(player_role, "Deal with %s" % partner.display_name)
 	for key in preview["give"]:
 		player.add_resource(key, -float(preview["give"][key]))
 	for key in preview["get"]:
@@ -969,7 +975,7 @@ func _resolve_player_turn() -> void:
 		var cost: Dictionary = option.get("cost", {})
 		if player.can_afford(cost):
 			player.spend(cost)
-			world.change_cause = "Crisis: %s (%s)" % [crisis_title, String(option.get("label", ""))]
+			world.change_cause = _cause_for(player_role, "Crisis: %s (%s)" % [crisis_title, String(option.get("label", ""))])
 			dilemma_result["applied"] = _apply_effects(option.get("effects", {}), player_role, 1.0)
 			world.change_cause = ""
 			_log("DILEMMA", "INFO", "Crisis resolved: %s -> %s." % [current_dilemma.get("title", ""), option.get("label", "")], player_role,
@@ -1014,7 +1020,7 @@ func _defer_current(defer_option: Dictionary, crisis_title: String, reason: Stri
 	var fallout := bool(current_dilemma.get("fallout", false))
 	if not fallout:
 		deck.defer(current_dilemma, turn, player_role)
-	world.change_cause = ("Crisis broke: %s" if fallout else "Crisis deferred: %s") % crisis_title
+	world.change_cause = _cause_for(player_role, ("Crisis broke: %s" if fallout else "Crisis deferred: %s") % crisis_title)
 	var applied := _apply_effects(defer_option.get("effects", {}), player_role, 1.0)
 	world.change_cause = ""
 	var text := "Crisis deferred: %s. It will return escalated." % current_dilemma.get("title", "")
@@ -1026,6 +1032,14 @@ func _defer_current(defer_option: Dictionary, crisis_title: String, reason: Stri
 	extra["fallout"] = fallout
 	_log("DILEMMA", "CRITICAL" if fallout else "WARN", text, player_role, extra)
 	return applied
+
+
+## [param text] as a cause in the ledger. With several people playing, a
+## player's own moves carry their faction's name so each can tell whose they were.
+func _cause_for(role: String, text: String) -> String:
+	if human_roles.size() <= 1 or not factions.has(role):
+		return text
+	return "%s — %s" % [text, (factions[role] as ActorBase).display_name]
 
 
 ## A crisis title without the "[ESCALATED xN]" prefix.
@@ -1115,7 +1129,7 @@ func _evaluate_goals() -> void:
 		var met := String(event["status"]) == EraGoals.MET
 		var applied := {}
 		if met:
-			world.change_cause = "Era goal: %s" % String(goal["text"])
+			world.change_cause = _cause_for(role, "Era goal: %s" % String(goal["text"]))
 			applied = _apply_effects(goal.get("reward", {}), role, Difficulty.value(difficulty, "goal_rewards"))
 			world.change_cause = ""
 		_log("GOAL", "INFO" if met else "WARN", "%s goal %s: %s." % [SimConstants.role_title(role), "met" if met else "missed", goal["text"]],
@@ -1289,5 +1303,7 @@ func _log(category: String, severity: String, text: String, faction_id: String =
 		"text": text,
 	}
 	entry.merge(extra)
+	if _fast_forwarding:
+		entry["prologue"] = true
 	event_log.append(entry)
 	event_logged.emit(entry)

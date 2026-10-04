@@ -179,6 +179,11 @@ static func group_changes(changes: Array, player_role: String, display_names: Di
 ## "yours", "rivals" or "world" for a cause string. [param display_names]
 ## maps faction ids to the names the engine files causes under.
 static func group_of(cause: String, player_role: String, display_names: Dictionary) -> String:
+	# Pass-and-play files each player's crisis answers, deals and goals under
+	# their faction's name ("Crisis: … — Citizen Coalition").
+	for faction_id in display_names:
+		if cause.ends_with(" — " + String(display_names[faction_id])):
+			return "yours" if String(faction_id) == player_role else "rivals"
 	for prefix in YOUR_PREFIXES:
 		if cause.begins_with(prefix):
 			return "yours"

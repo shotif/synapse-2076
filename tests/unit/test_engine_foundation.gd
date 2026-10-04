@@ -251,6 +251,40 @@ func test_every_change_has_its_causes() -> void:
 	assert_true(crisis_or_directive, "the player's own moves are named")
 
 
+func test_pass_and_play_names_each_players_moves() -> void:
+	var engine := _engine(SimConstants.CEO, 12, {"human_roles": [SimConstants.CITIZEN]})
+	engine.advance()
+	for _human in 2:
+		engine.submit_player_turn([], _affordable_option(engine))
+	var by_player := {}
+	for key in WorldState.METRIC_KEYS + WorldState.INDEX_KEYS:
+		for cause in engine.get_changes(key, 1):
+			for role in [SimConstants.CEO, SimConstants.CITIZEN]:
+				if String(cause["cause"]).ends_with(" — " + (engine.factions[role] as ActorBase).display_name):
+					by_player[role] = String(cause["cause"])
+	assert_eq(by_player.size(), 2, "both players' answers are filed under their names: %s" % str(by_player))
+	var names := {}
+	for faction_id in engine.factions:
+		names[faction_id] = (engine.factions[faction_id] as ActorBase).display_name
+	assert_eq(WhyPopup.group_of(String(by_player[SimConstants.CEO]), SimConstants.CEO, names), "yours")
+	assert_eq(WhyPopup.group_of(String(by_player[SimConstants.CITIZEN]), SimConstants.CEO, names), "rivals")
+	var solo := _engine(SimConstants.CEO, 12)
+	solo.advance()
+	solo.submit_player_turn([], _affordable_option(solo))
+	for key in WorldState.METRIC_KEYS:
+		for cause in solo.get_changes(key, 1):
+			assert_false(String(cause["cause"]).contains(" — "), "a lone player's causes stay short")
+
+
+func test_written_cards_wait_until_the_replay_is_over() -> void:
+	var engine := _engine(SimConstants.CITIZEN, 52)
+	engine._replay = {"turns": {}}
+	assert_true(engine.is_replaying())
+	assert_false(engine.offer_external_card(SimConstants.CITIZEN, _written_card()))
+	engine._replay = {}
+	assert_true(engine.offer_external_card(SimConstants.CITIZEN, _written_card()))
+
+
 func test_causes_are_sorted_largest_first() -> void:
 	var engine := _engine()
 	engine.advance()
@@ -328,6 +362,10 @@ func test_a_late_start_plays_the_prologue_on_its_own() -> void:
 	assert_true(engine.record["turns"].is_empty(), "the prologue is not recorded: it replays identically")
 	var prologue := engine.event_log.filter(func(e: Dictionary) -> bool: return e.has("prologue_turns"))
 	assert_eq(prologue.size(), 1)
+	for entry in engine.event_log:
+		if int(entry["turn"]) >= 1 and int(entry["turn"]) < 20 and entry["category"] != "SYSTEM":
+			assert_true(entry.get("prologue", false), "prologue entries are tagged: %s" % entry["text"])
+	assert_false(engine.is_replaying())
 	assert_true(engine.get_player().is_player)
 	for row in engine.goals.status_for(SimConstants.CEO):
 		assert_gte(int(row["era"]), 2, "no goals for years already gone")
