@@ -14,7 +14,7 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
 - **Pick up where you left off.** Every decision is saved, and **Continue** rebuilds the game exactly. The history book at the end lists the campaign's turning points with a **What if?** button that takes you back to that decision.
 - **A deck that tells a story.** About 90 crisis cards in three era decks, from *My Kid's Best Friend Is a Chatbot* in 2026 to *A Model Asks for a Lawyer* in the 2050s. Rival factions push crises from families of related cards and never the same one twice in a row. Some answers come back years later as follow-ups. A crisis you put off twice breaks on its own, badly.
 - **People who remember.** Six people and one machine recur across the fifty years. Their portraits age with the campaign, and they remember what you did to them.
-- **Goals and explanations.** Each era sets you a goal with a reward. Tap any number to see why it changed this turn: your moves, your rivals', and the world's own dynamics.
+- **Goals and explanations.** Each era sets you two goals with rewards. Tap any number to see why it changed this turn: your moves, your rivals', and the world's own dynamics.
 - **For everyone.** English, German, Spanish and French; three coached first turns, a plain-language switch and a glossary, text size, color-blind friendly colors, music and sound for each era, and vibration on phones.
 - **Endings to collect.** Eight end-states for each of the four roles, each with its rarity, and a shareable front page for every ending.
 - **Optional Claude features.** With an LLM configured, Claude can write some of your crises to fit your world, and you can call a faction's leader to negotiate a deal that binds them.
@@ -66,13 +66,13 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
    - Answer or defer the **crisis card**: swipe it, tap a response, or use ← → C ↓ and 1–4. A deferred card comes back two turns later, escalated; a card put off twice breaks on its own.
    - Optionally **call a faction leader** from the ACT column and strike one deal per turn.
    - Select up to **two directives** in the ACT column (or from your lens). Each has an intensity slider from 1.0× to 2.0× of its cost; effects scale as intensity^0.8.
-   - Press **Execute directives**. Your era goal sits at the top of the ACT column.
+   - Press **Execute directives**. Your era goals sit at the top of the ACT column.
 5. Tap any number (the vitals, a meter, a lens figure) to see why it changed. Switch the left column between your faction's **lens** and **Intel** (every meter, the secondary indices and the compute picture). Toggle the 3D view between **Globe** and **Lattice**; drag to orbit, and use the wheel (or a pinch) to zoom. Tap a metric chip on the globe to see that layer alone.
 6. The menu (top right) starts a new campaign and opens **Settings** (text size, colors, plain language, effects, sound, vibration, language, the tutorial and the glossary), **People**, **Endings** and the **AI settings**. The LLM badge also opens the AI settings.
 
 In pass-and-play, the screen is covered between players: hand the device over and the next player taps to see their own desk, with the news since their last turn.
 
-On a phone the same turn happens on tabs: the crisis card opens first, **ACT** holds the goal, the directives and the Execute button, **WORLD** the globe, the **LENS** tab (named after your lens, such as *Markets*) your faction's view and Intel, and **NEWS** the newswire. Tap a vital in the top strip to see why it changed. A dot on **ACT** means a decision is waiting.
+On a phone the same turn happens on tabs: the crisis card opens first, **ACT** holds the goals, the directives and the Execute button, **WORLD** the globe, the **LENS** tab (named after your lens, such as *Markets*) your faction's view and Intel, and **NEWS** the newswire. Tap a vital in the top strip to see why it changed. A dot on **ACT** means a decision is waiting.
 
 To run headless from the command line (the first command builds the `class_name` cache on a fresh clone):
 
