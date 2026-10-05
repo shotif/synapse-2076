@@ -87,7 +87,8 @@ func set_service(service: Object) -> void:
 		llm.connect("completion_received", _on_completion_received)
 
 
-## Whether the player switched "Write crises with Claude" on (LLM settings).
+## Whether the build lets the model write crises (synapse/llm/write_crises,
+## on by default). The player's LLM switch decides whether it is online.
 func is_enabled() -> bool:
 	return _flag(llm, "write_crises")
 

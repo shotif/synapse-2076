@@ -12,7 +12,9 @@ extends Node
 ##   "unauthorized"   401 Unauthorized (also applies to GET /v1/models)
 ##   "not_found"      404 with a provider error message (unknown model)
 ##   "hang"           accepts the connection and never answers (timeout path)
-## GET /v1/models answers 200 unless the mode is "unauthorized" or "hang".
+##   "daily_limit"    429 with the proxy's {"error": {"limit": "daily"}} (also GET /v1/models)
+##   "minute_limit"   429 with the proxy's {"error": {"limit": "minute"}} (also GET /v1/models)
+## GET /v1/models answers 200 unless the mode is "unauthorized", "hang" or a limit.
 ## [member reply_text], when set, replaces the decision as the reply text (the
 ## generic completions); [member thinking_block] puts a thinking block before
 ## Claude's text block.
@@ -129,6 +131,10 @@ func _handle(client: Dictionary) -> void:
 	var claude := path.ends_with("/messages")
 	if mode == "unauthorized":
 		_respond(client, 401, _error_body(claude, "authentication_error", "invalid x-api-key"))
+	elif mode == "daily_limit" or mode == "minute_limit":
+		var limit := "daily" if mode == "daily_limit" else "minute"
+		var error := {"type": "rate_limit_error", "message": "limit reached", "limit": limit}
+		_respond(client, 429, {"type": "error", "error": error})
 	elif path.ends_with("/models"):
 		_respond(client, 200, {"object": "list", "data": [{"id": "mock-model", "object": "model"}]})
 	elif mode == "http_500":
@@ -172,7 +178,8 @@ func _content_for_mode() -> String:
 
 
 func _respond(client: Dictionary, status: int, payload: Dictionary) -> void:
-	var reason: String = {200: "OK", 401: "Unauthorized", 404: "Not Found", 500: "Internal Server Error"}.get(status, "OK")
+	var reason: String = {200: "OK", 401: "Unauthorized", 404: "Not Found", 429: "Too Many Requests",
+		500: "Internal Server Error"}.get(status, "OK")
 	var body := JSON.stringify(payload).to_utf8_buffer()
 	var head := "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % [status, reason, body.size()]
 	var peer: StreamPeerTCP = client["peer"]

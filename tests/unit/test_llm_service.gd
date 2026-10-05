@@ -360,6 +360,16 @@ func test_web_build_config_from_repository_variables() -> void:
 	var effort: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
 		"SYNAPSE_LLM_EFFORT": "none"})
 	assert_eq(effort["settings"]["synapse/llm/effort"], "", "none leaves the model's default effort")
+	var proxy: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": "https://synapse-llm-proxy.x.workers.dev/v1/messages"})
+	assert_eq(proxy["errors"], [])
+	assert_eq(proxy["settings"]["synapse/llm/model_name"], "", "the shared backend picks the model")
+	assert_eq(float(proxy["settings"]["synapse/llm/timeout_sec"]), WebBuildConfig.CLAUDE_DEFAULT_TIMEOUT_SEC)
+	var no_cards: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": "https://synapse-llm-proxy.x.workers.dev/v1/messages",
+		"SYNAPSE_LLM_WRITE_CRISES": "Off"})
+	assert_eq(no_cards["settings"]["synapse/llm/write_crises"], false, "a build can leave Claude's crisis cards out")
+	var bad_switch: Dictionary = WebBuildConfig.plan_settings({"SYNAPSE_LLM_ENDPOINT": "https://synapse-llm-proxy.x.workers.dev/v1/messages",
+		"SYNAPSE_LLM_WRITE_CRISES": "sometimes"})
+	assert_eq((bad_switch["errors"] as Array).size(), 1)
 
 
 # --- Generic completions (crisis writer, negotiations) --------------------------------
@@ -504,21 +514,158 @@ func test_completion_can_be_cancelled() -> void:
 	assert_true(service.is_online, "and is not a failure")
 
 
-func test_write_crises_setting_is_saved_with_the_llm_config() -> void:
-	var fresh := LLMService.new()
-	assert_false(fresh.write_crises, "off by default")
-	fresh.free()
+# --- The build's backend, the device's key and the player's switch ----------------------
+
+func test_only_a_key_is_kept_on_the_device() -> void:
 	var path := "user://test_synapse_llm_%d.cfg" % Time.get_ticks_usec()
-	service.config_path = path
-	service.configure({"write_crises": true, "api_key": "sk-never-saved"})
-	assert_eq(service.save_user_configuration(false), OK)
-	var config := ConfigFile.new()
-	assert_eq(config.load(path), OK)
-	assert_eq(config.get_value("llm", "write_crises", false), true)
-	assert_false(config.has_section_key("llm", "api_key"), "the key is only saved when asked")
+	var legacy := ConfigFile.new()
+	for key in ["endpoint_url", "model_name", "enabled", "write_crises", "api_key"]:
+		legacy.set_value("llm", key, {"endpoint_url": "https://old.example/v1/messages", "model_name": "old-model",
+			"enabled": false, "write_crises": false, "api_key": "access-code-1"}[key])
+	legacy.save(path)
 	var loaded := LLMService.new()
 	loaded.config_path = path
 	loaded.load_configuration()
-	assert_true(loaded.write_crises, "read back from the config file")
+	assert_eq(loaded.endpoint_url, String(ProjectSettings.get_setting("synapse/llm/endpoint_url")),
+		"an endpoint an older version saved on the device is ignored: the build decides")
+	assert_eq(loaded.model_name, String(ProjectSettings.get_setting("synapse/llm/model_name")))
+	assert_true(loaded.enabled, "and so is an old off switch")
+	assert_true(loaded.write_crises, "crisis writing follows the build")
+	assert_eq(loaded.api_key, "access-code-1", "the key stays")
+	assert_eq(loaded.store_api_key("access-code-2"), OK)
+	var config := ConfigFile.new()
+	config.load(path)
+	assert_eq(config.get_value("llm", "api_key"), "access-code-2")
+	loaded.store_api_key("")
+	config = ConfigFile.new()
+	config.load(path)
+	assert_false(config.has_section_key("llm", "api_key"), "an empty key forgets the stored one")
 	loaded.free()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_a_claude_key_without_a_backend_means_claude() -> void:
+	var path := "user://test_synapse_llm_%d.cfg" % Time.get_ticks_usec()
+	var fresh := LLMService.new()
+	fresh.config_path = path
+	fresh.store_api_key("not-a-claude-key")
+	assert_eq(fresh.endpoint_url, LLMService.DEFAULT_ENDPOINT, "another key keeps the local endpoint")
+	fresh.store_api_key("sk-ant-player-key")
+	assert_eq(fresh.endpoint_url, LLMService.ANTHROPIC_ENDPOINT)
+	assert_eq(fresh.model_name, LLMService.CLAUDE_DEFAULT_MODEL)
+	assert_gte(fresh.request_timeout_sec, LLMService.CLAUDE_TIMEOUT_SEC)
+	var proxied := LLMService.new()
+	proxied.config_path = path
+	proxied.configure({"endpoint_url": "https://proxy.example.workers.dev/v1/messages", "model_name": ""})
+	proxied.store_api_key("sk-ant-player-key")
+	assert_eq(proxied.endpoint_url, "https://proxy.example.workers.dev/v1/messages", "a build's backend is kept")
+	fresh.free()
+	proxied.free()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_which_backends_a_platform_may_use() -> void:
+	assert_true(LLMService.backend_usable(LLMService.DEFAULT_ENDPOINT, "", false), "desktop: a local model")
+	assert_false(LLMService.backend_usable(LLMService.DEFAULT_ENDPOINT, "", true), "the web never reaches into the visitor's machine")
+	assert_false(LLMService.backend_usable(LLMService.ANTHROPIC_ENDPOINT, "", true), "nor Anthropic without a key")
+	assert_true(LLMService.backend_usable(LLMService.ANTHROPIC_ENDPOINT, "sk-ant-x", true))
+	assert_true(LLMService.backend_usable("https://synapse-llm-proxy.x.workers.dev/v1/messages", "", true), "the shared backend")
+	assert_false(LLMService.backend_usable(" ", "", false))
+	assert_true(service.has_backend())
+	service.configure({"enabled": false})
+	assert_false(service.has_backend(), "a build can switch the LLM off entirely")
+	assert_eq(service.get_state(), LLMService.STATE_NONE)
+
+
+func test_the_player_switch() -> void:
+	assert_eq(service.get_state(), LLMService.STATE_OFFLINE)
+	service.set_online(true)
+	assert_eq(service.get_state(), LLMService.STATE_ONLINE)
+	statuses.clear()
+	service.set_switched_on(false)
+	assert_false(service.is_online)
+	assert_eq(service.get_state(), LLMService.STATE_OFF)
+	assert_false(statuses.is_empty(), "listeners hear about it")
+	assert_false(service.should_auto_probe(), "nothing leaves the game while it is off")
+	service.query_actor_decision("ASI", _state("ASI"))
+	assert_eq(received[0]["payload"]["source"], "HEURISTIC")
+	service.request_completion("negotiation", "x", [{"role": "user", "content": "hello"}])
+	assert_true(await _wait_for_completions(1, 1.0))
+	assert_eq(completions[0]["error"], "disabled")
+	service.set_online(true)
+	assert_false(service.is_online, "cannot go online while switched off")
+	service.probe_connection()
+	assert_eq(server.requests.size(), 0, "no traffic at all")
+	service.set_switched_on(true)
+	assert_true(service.is_probing, "switching on probes the backend again")
+	var probes := service.find_children("*", "HTTPRequest", false, false).size()
+	service.set_switched_on(false)
+	assert_false(service.is_probing, "switching off mid-probe drops the probe")
+	await tree.process_frame
+	assert_lt(service.find_children("*", "HTTPRequest", false, false).size(), probes, "and frees its request")
+	service.set_switched_on(true)
+	var deadline := Time.get_ticks_msec() + 3000
+	while service.is_probing and Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	assert_eq(service.get_state(), LLMService.STATE_ONLINE)
+
+
+func test_a_daily_limit_takes_the_llm_offline_until_it_lifts() -> void:
+	service.configure({"endpoint_url": server.claude_url(), "model_name": ""})
+	service.set_online(true)
+	server.mode = "daily_limit"
+	service.query_actor_decision("ASI", _state("ASI"))
+	assert_true(await _wait_for_decisions(1, 3.0))
+	assert_eq(received[0]["payload"]["source"], "HEURISTIC_FALLBACK")
+	assert_false(service.is_online, "offline at the first refusal: the backend says no for the rest of the day")
+	assert_eq(service.limited, "daily")
+	assert_eq(service.get_state(), LLMService.STATE_LIMITED)
+	service.probe_connection()
+	var deadline := Time.get_ticks_msec() + 3000
+	while service.is_probing and Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	assert_false(service.is_online)
+	assert_string_contains(service.last_error, "daily limit reached")
+	assert_eq(service.get_state(), LLMService.STATE_LIMITED)
+	server.mode = "ok"
+	service.probe_connection()
+	deadline = Time.get_ticks_msec() + 3000
+	while service.is_probing and Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	assert_true(service.is_online, "a probe that gets through lifts it")
+	assert_eq(service.limited, "")
+	assert_eq(LLMService.limit_in(429, "{\"type\": \"error\", \"error\": {\"limit\": \"player\"}}"), "player")
+	assert_eq(LLMService.limit_in(429, "{\"type\": \"error\", \"error\": {\"limit\": \"minute\"}}"), "",
+		"the per-minute limit is an ordinary failure")
+	assert_eq(LLMService.limit_in(500, "{\"error\": {\"limit\": \"daily\"}}"), "")
+	assert_eq(LLMService.limit_in(429, "not json"), "")
+
+
+func test_a_minute_limit_counts_as_an_ordinary_failure() -> void:
+	service.configure({"endpoint_url": server.claude_url(), "model_name": ""})
+	service.set_online(true)
+	server.mode = "minute_limit"
+	service.query_actor_decision("ASI", _state("ASI"))
+	assert_true(await _wait_for_decisions(1, 3.0))
+	assert_true(service.is_online, "one refusal is not enough to go offline")
+	assert_eq(service.limited, "")
+
+
+func test_the_backend_picks_the_model() -> void:
+	service.configure({"endpoint_url": server.claude_url(), "model_name": ""})
+	assert_eq(service.get_provider_name(), "LOCAL-ENDPOINT", "no model named yet")
+	service.probe_connection()
+	var deadline := Time.get_ticks_msec() + 3000
+	while service.is_probing and Time.get_ticks_msec() < deadline:
+		await tree.process_frame
+	assert_true(service.is_online)
+	assert_eq(service.served_model, "mock-model", "the model listing names it")
+	assert_eq(service.get_provider_name(), "MOCK-MODEL / LOCAL-ENDPOINT")
+	service.query_actor_decision("ASI", _state("ASI"))
+	assert_true(await _wait_for_decisions(1, 3.0))
+	var body: Dictionary = server.requests[-1]["body"]
+	assert_false(body.has("model"), "the request leaves the model to the backend")
+	assert_eq(body["output_config"], {"effort": "low"}, "the backend drops the effort if its model takes none")
+	service.request_completion("negotiation", "x", [{"role": "user", "content": "hello"}])
+	assert_true(await _wait_for_completions(1, 3.0))
+	assert_false((server.requests[-1]["body"] as Dictionary).has("model"))

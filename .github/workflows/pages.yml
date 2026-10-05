@@ -4,14 +4,17 @@ name: Deploy to GitHub Pages
 # https://<owner>.github.io/<repo>/. One-time setup: Settings -> Pages ->
 # Build and deployment -> Source: "GitHub Actions".
 #
-# Optional LLM endpoint for the web build, from repository *variables*
+# The web build's LLM backend, from repository *variables*
 # (Settings -> Secrets and variables -> Actions -> Variables):
-#   SYNAPSE_LLM_ENDPOINT    e.g. https://api.anthropic.com/v1/messages or a proxy URL
-#   SYNAPSE_LLM_MODEL       e.g. claude-sonnet-5-5 (the default for Claude endpoints)
-#   SYNAPSE_LLM_TIMEOUT     seconds before a faction falls back to the heuristic
-#   SYNAPSE_LLM_API_FORMAT  auto (default), anthropic or openai
-#   SYNAPSE_LLM_EFFORT      Claude thinking effort: low (default), medium, high or none
-# Never put an API key here: the build is public. See README, "Claude on the web build".
+#   SYNAPSE_LLM_ENDPOINT     the shared backend, https://synapse-llm-proxy.<you>.workers.dev/v1/messages
+#                            (the "LLM proxy" workflow deploys it; see proxy/README.md)
+#   SYNAPSE_LLM_MODEL        empty: the backend picks (Anthropic directly: claude-sonnet-5-5)
+#   SYNAPSE_LLM_TIMEOUT      seconds before a faction falls back to the heuristic
+#   SYNAPSE_LLM_API_FORMAT   auto (default), anthropic or openai
+#   SYNAPSE_LLM_EFFORT       Claude thinking effort: low (default), medium, high or none
+#   SYNAPSE_LLM_WRITE_CRISES on (default) or off: Claude writes some of the players' crisis cards
+# Players only switch the LLM on or off. Never put an API key here: the build is public.
+# See README, "Claude on the web build".
 
 on:
   push:
@@ -86,6 +89,7 @@ jobs:
           SYNAPSE_LLM_TIMEOUT: ${{ vars.SYNAPSE_LLM_TIMEOUT }}
           SYNAPSE_LLM_API_FORMAT: ${{ vars.SYNAPSE_LLM_API_FORMAT }}
           SYNAPSE_LLM_EFFORT: ${{ vars.SYNAPSE_LLM_EFFORT }}
+          SYNAPSE_LLM_WRITE_CRISES: ${{ vars.SYNAPSE_LLM_WRITE_CRISES }}
         run: '"$GODOT_BIN" --headless --path . --script res://tools/configure_web_build.gd'
 
       - name: Export the Web build

@@ -1,12 +1,15 @@
 name: LLM proxy
 
-# Tests the Claude API proxy in proxy/ and deploys it to Cloudflare Workers.
+# Tests the Claude API proxy in proxy/ and deploys it to Cloudflare Workers, where it
+# serves as the shared LLM backend of the web build: it holds the Anthropic API key,
+# picks the model and keeps a daily request budget.
 # Manual only: Actions -> LLM proxy -> Run workflow. Setup: proxy/README.md.
 #
 # Repository secrets:   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, ANTHROPIC_API_KEY (required)
 #                       SYNAPSE_PROXY_ACCESS_CODE (optional)
 # Repository variables: SYNAPSE_PROXY_ALLOWED_ORIGINS, SYNAPSE_PROXY_ALLOWED_MODELS,
-#                       SYNAPSE_PROXY_MAX_TOKENS (optional, defaults below)
+#                       SYNAPSE_PROXY_MAX_TOKENS, SYNAPSE_PROXY_DAILY_REQUESTS,
+#                       SYNAPSE_PROXY_DAILY_REQUESTS_PER_PLAYER (optional, defaults below)
 
 on:
   workflow_dispatch:
@@ -76,6 +79,8 @@ jobs:
           ALLOWED_ORIGINS: ${{ vars.SYNAPSE_PROXY_ALLOWED_ORIGINS }}
           ALLOWED_MODELS: ${{ vars.SYNAPSE_PROXY_ALLOWED_MODELS || vars.SYNAPSE_LLM_MODEL || 'claude-sonnet-5-5' }}
           MAX_TOKENS: ${{ vars.SYNAPSE_PROXY_MAX_TOKENS || '2048' }}
+          DAILY_REQUESTS: ${{ vars.SYNAPSE_PROXY_DAILY_REQUESTS || '1000' }}
+          DAILY_REQUESTS_PER_PLAYER: ${{ vars.SYNAPSE_PROXY_DAILY_REQUESTS_PER_PLAYER || '400' }}
         run: |
           # Lists become one comma-separated line; the Worker splits on commas and whitespace.
           one_line() { printf '%s' "$1" | tr -s '\r\n\t ' ',' | sed 's/^,*//; s/,*$//'; }
@@ -94,6 +99,17 @@ jobs:
             echo "::error::SYNAPSE_PROXY_MAX_TOKENS must be a positive whole number, not '${token_cap}'."
             exit 1
           fi
+          daily="$(one_line "$DAILY_REQUESTS")"
+          per_player="$(one_line "$DAILY_REQUESTS_PER_PLAYER")"
+          for pair in "SYNAPSE_PROXY_DAILY_REQUESTS=${daily}" "SYNAPSE_PROXY_DAILY_REQUESTS_PER_PLAYER=${per_player}"; do
+            if ! [[ "${pair#*=}" =~ ^(0|[1-9][0-9]{0,8})$ ]]; then
+              echo "::error::${pair%%=*} must be a whole number of requests per day (0 switches the limit off), not '${pair#*=}'."
+              exit 1
+            fi
+          done
+          if [ "$daily" = "0" ] && [ "$per_player" = "0" ]; then
+            echo "::warning::Both daily limits are off: only the per-minute rate limit and your Anthropic Console spend limit cap what players can spend."
+          fi
           if [ -n "$ACCESS_CODE" ] && [ -z "${ACCESS_CODE//[[:space:]]/}" ]; then
             echo "::error::SYNAPSE_PROXY_ACCESS_CODE is only whitespace. Set a real code or delete the secret."
             exit 1
@@ -106,6 +122,8 @@ jobs:
             echo "allowed_origins=${origins}"
             echo "allowed_models=${models}"
             echo "max_tokens=${token_cap}"
+            echo "daily_requests=${daily}"
+            echo "daily_requests_per_player=${per_player}"
             # wrangler-action fails the deploy when a listed secret's env var is empty,
             # so ACCESS_CODE is only listed when the repository secret is set.
             if [ -n "$ACCESS_CODE" ]; then
@@ -129,6 +147,8 @@ jobs:
           ALLOWED_ORIGINS: ${{ steps.settings.outputs.allowed_origins }}
           ALLOWED_MODELS: ${{ steps.settings.outputs.allowed_models }}
           MAX_TOKENS_CAP: ${{ steps.settings.outputs.max_tokens }}
+          DAILY_REQUESTS: ${{ steps.settings.outputs.daily_requests }}
+          DAILY_REQUESTS_PER_PLAYER: ${{ steps.settings.outputs.daily_requests_per_player }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -141,6 +161,8 @@ jobs:
             ALLOWED_ORIGINS
             ALLOWED_MODELS
             MAX_TOKENS_CAP
+            DAILY_REQUESTS
+            DAILY_REQUESTS_PER_PLAYER
           command: deploy
 
       # Deploys never delete secrets, so a code from an earlier run would keep the proxy locked.
@@ -166,6 +188,8 @@ jobs:
           ALLOWED_ORIGINS: ${{ steps.settings.outputs.allowed_origins }}
           ALLOWED_MODELS: ${{ steps.settings.outputs.allowed_models }}
           MAX_TOKENS_CAP: ${{ steps.settings.outputs.max_tokens }}
+          DAILY_REQUESTS: ${{ steps.settings.outputs.daily_requests }}
+          DAILY_REQUESTS_PER_PLAYER: ${{ steps.settings.outputs.daily_requests_per_player }}
           ACCESS_CODE_STATE: ${{ steps.settings.outputs.access_code }}
         run: |
           url="${WORKER_URL%/}"
@@ -192,7 +216,7 @@ jobs:
             echo "## Claude API proxy deployed"
             echo
             if [ -n "$url" ]; then
-              echo "Set the repository variable \`SYNAPSE_LLM_ENDPOINT\` to:"
+              echo "Set the repository variable \`SYNAPSE_LLM_ENDPOINT\` to the address below, then run **Deploy to GitHub Pages** again. Every copy of the web build then uses this backend; players only switch the LLM on or off."
               echo
               echo '```'
               echo "${url}/v1/messages"
@@ -208,8 +232,10 @@ jobs:
               echo "|---|---|"
             fi
             echo "| Allowed origins | ${ALLOWED_ORIGINS} |"
-            echo "| Allowed models | ${ALLOWED_MODELS} |"
+            echo "| Allowed models (the first one serves the game) | ${ALLOWED_MODELS} |"
             echo "| max_tokens cap | ${MAX_TOKENS_CAP} |"
+            echo "| Requests per UTC day, everyone (0 = no limit) | ${DAILY_REQUESTS} |"
+            echo "| Requests per UTC day, per player (0 = no limit) | ${DAILY_REQUESTS_PER_PLAYER} |"
             echo "| Access code required | ${expected} |"
             if [ -n "$health" ]; then
               echo

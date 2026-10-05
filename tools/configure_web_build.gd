@@ -1,26 +1,28 @@
 extends SceneTree
-## Points a web export at an LLM endpoint before `--export-release "Web"`.
+## Points a web export at its LLM backend before `--export-release "Web"`.
 ## Reads environment variables (in CI: the GitHub repository variables wired up
 ## in .github/workflows/pages.yml) and writes the matching synapse/llm/*
 ## project settings into project.godot.
 ##
-##   SYNAPSE_LLM_ENDPOINT=https://api.anthropic.com/v1/messages \
+##   SYNAPSE_LLM_ENDPOINT=https://synapse-llm-proxy.<you>.workers.dev/v1/messages \
 ##       godot --headless --path . --script res://tools/configure_web_build.gd
 ##
-## Nothing here is secret. A static web build is public, so an API key baked
-## into it would be public too: SYNAPSE_LLM_API_KEY is refused. Players supply
-## keys on their own devices (settings dialog or the page URL, #llm-key=...),
-## or the endpoint is a proxy that holds the key server-side (proxy/).
+## The backend is usually the shared proxy in proxy/: it holds the key, picks
+## the model (the build sends none unless SYNAPSE_LLM_MODEL names one) and
+## keeps a daily budget, and players only switch the LLM on or off. Nothing
+## here is secret. A static web build is public, so an API key baked into it
+## would be public too: SYNAPSE_LLM_API_KEY is refused.
 
-const CLAUDE_DEFAULT_MODEL := "claude-sonnet-5-5"
+const CLAUDE_DEFAULT_MODEL := LLMService.CLAUDE_DEFAULT_MODEL
 ## Claude answers over the internet in seconds, not the 5 s budget the PRD
 ## sets for a local model, so Claude builds wait longer before falling back.
-const CLAUDE_DEFAULT_TIMEOUT_SEC := 20.0
+const CLAUDE_DEFAULT_TIMEOUT_SEC := LLMService.CLAUDE_TIMEOUT_SEC
 const API_FORMATS := ["auto", "openai", "anthropic"]
 ## Claude thinking effort; "none" leaves the model default.
 const EFFORT_LEVELS := ["low", "medium", "high", "none"]
+const SWITCH_WORDS := {"on": true, "true": true, "yes": true, "1": true, "off": false, "false": false, "no": false, "0": false}
 const VARIABLES := ["SYNAPSE_LLM_ENDPOINT", "SYNAPSE_LLM_MODEL", "SYNAPSE_LLM_TIMEOUT",
-	"SYNAPSE_LLM_API_FORMAT", "SYNAPSE_LLM_EFFORT", "SYNAPSE_LLM_API_KEY"]
+	"SYNAPSE_LLM_API_FORMAT", "SYNAPSE_LLM_EFFORT", "SYNAPSE_LLM_WRITE_CRISES", "SYNAPSE_LLM_API_KEY"]
 
 
 func _initialize() -> void:
@@ -37,7 +39,7 @@ func _initialize() -> void:
 		return
 	var settings: Dictionary = plan["settings"]
 	if settings.is_empty():
-		print("No LLM endpoint configured: the web build keeps its defaults and runs the heuristic engine.")
+		print("No LLM endpoint configured: the web build has no LLM and its factions run on the heuristic engine.")
 		quit(0)
 		return
 	print("Web build LLM settings:")
@@ -71,10 +73,13 @@ static func plan_settings(env: Dictionary) -> Dictionary:
 	var claude := api_format == "anthropic" or (api_format in ["", "auto"] and endpoint.trim_suffix("/").ends_with("/messages"))
 
 	var model := String(env.get("SYNAPSE_LLM_MODEL", "")).strip_edges()
-	if model == "" and claude:
-		model = CLAUDE_DEFAULT_MODEL
 	if model != "":
 		settings["synapse/llm/model_name"] = model
+	elif claude and LLMService.host_for_endpoint(endpoint) == LLMService.ANTHROPIC_HOST:
+		settings["synapse/llm/model_name"] = CLAUDE_DEFAULT_MODEL
+	elif claude:
+		# A proxy: the backend's first allowed model answers.
+		settings["synapse/llm/model_name"] = ""
 	else:
 		warnings.append("SYNAPSE_LLM_MODEL is empty: the build keeps the default local model name.")
 
@@ -93,4 +98,11 @@ static func plan_settings(env: Dictionary) -> Dictionary:
 			settings["synapse/llm/effort"] = "" if effort == "none" else effort
 		else:
 			errors.append("SYNAPSE_LLM_EFFORT must be one of %s." % ", ".join(EFFORT_LEVELS))
+
+	var write_crises := String(env.get("SYNAPSE_LLM_WRITE_CRISES", "")).strip_edges().to_lower()
+	if write_crises != "":
+		if SWITCH_WORDS.has(write_crises):
+			settings["synapse/llm/write_crises"] = bool(SWITCH_WORDS[write_crises])
+		else:
+			errors.append("SYNAPSE_LLM_WRITE_CRISES must be on or off.")
 	return {"settings": settings, "errors": errors, "warnings": warnings}

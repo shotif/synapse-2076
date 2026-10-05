@@ -1,13 +1,50 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
-import worker from "../src/worker.js";
+import worker, { UsageMeter } from "../src/worker.js";
 
 const PROXY = "https://synapse-llm-proxy.example.workers.dev";
 const ORIGIN = "https://shotif.github.io";
 const UPSTREAM_KEY = "sk-ant-test-upstream-key";
 const MODEL = "test-model-a";
 const ACCESS_CODE = "correct-horse-battery-staple";
+
+// An in-memory stand-in for the USAGE Durable Object namespace: one UsageMeter
+// over a Map, reached the way the Worker reaches the real one.
+function makeUsage() {
+  const store = new Map();
+  const storage = {
+    async get(key) {
+      return store.get(key);
+    },
+    async put(keyOrEntries, value) {
+      if (typeof keyOrEntries === "string") {
+        store.set(keyOrEntries, value);
+      } else {
+        for (const [key, entry] of Object.entries(keyOrEntries)) {
+          store.set(key, entry);
+        }
+      }
+    },
+    async deleteAll() {
+      store.clear();
+    },
+  };
+  const meter = new UsageMeter({ storage }, {});
+  const names = [];
+  return {
+    store,
+    names,
+    meter,
+    idFromName(name) {
+      names.push(name);
+      return { name };
+    },
+    get(_id) {
+      return { fetch: (input, init) => meter.fetch(new Request(input, init)) };
+    },
+  };
+}
 
 function makeEnv(overrides = {}) {
   return {
@@ -16,6 +53,7 @@ function makeEnv(overrides = {}) {
     ALLOWED_ORIGINS: ORIGIN,
     ALLOWED_MODELS: `${MODEL},test-model-b`,
     MAX_TOKENS_CAP: "2048",
+    USAGE: makeUsage(),
     ...overrides,
   };
 }
@@ -309,9 +347,42 @@ describe("POST /v1/messages", () => {
       "invalid_request_error",
     );
     assert.match(payload.error.message, /not allowed/);
-    await assertError(await postMessage(messageBody({ model: undefined })), 400, "invalid_request_error");
     await assertError(await postMessage(messageBody({ model: 42 })), 400, "invalid_request_error");
+    await assertError(await postMessage(messageBody({ model: ["x"] })), 400, "invalid_request_error");
     assert.equal(upstreamCalls.length, 0);
+  });
+
+  test("gives a request that names no model the first allowed one", async () => {
+    for (const model of [undefined, null, ""]) {
+      upstreamCalls = [];
+      const body = messageBody({ model });
+      if (model === undefined) {
+        delete body.model;
+      }
+      const response = await postMessage(body, { env: makeEnv({ ALLOWED_MODELS: "test-model-b, test-model-a" }) });
+      assert.equal(response.status, 200, `model ${model}`);
+      assert.equal(JSON.parse(upstreamCalls[0].init.body).model, "test-model-b", `model ${model}`);
+    }
+  });
+
+  test("drops the effort for a model that cannot take one", async () => {
+    const env = makeEnv({ ALLOWED_MODELS: "claude-haiku-4-5,claude-sonnet-5-5,claude-sonnet-4-5-20250929,claude-opus-4-5" });
+    const cases = [
+      ["claude-haiku-4-5", false],
+      ["claude-sonnet-4-5-20250929", false],
+      ["claude-sonnet-5-5", true],
+      ["claude-opus-4-5", true],
+      [undefined, false],
+    ];
+    for (const [model, kept] of cases) {
+      upstreamCalls = [];
+      const body = messageBody({ model, output_config: { effort: "low" } });
+      const response = await postMessage(body, { env });
+      assert.equal(response.status, 200, `model ${model}`);
+      const forwarded = JSON.parse(upstreamCalls[0].init.body);
+      assert.equal(forwarded.model, model ?? "claude-haiku-4-5");
+      assert.deepEqual(forwarded.output_config, kept ? { effort: "low" } : undefined, `model ${model}`);
+    }
   });
 
   test("accepts every model in ALLOWED_MODELS", async () => {
@@ -573,19 +644,21 @@ describe("access code", () => {
 });
 
 describe("GET /v1/models", () => {
-  test("forwards to the Models API with the real key", async () => {
-    const list = { data: [{ id: MODEL, type: "model" }], has_more: false };
-    upstreamReply = () => jsonReply(200, list);
+  test("looks up the proxy's model with the real key and lists only it", async () => {
+    const info = { id: MODEL, type: "model", display_name: "Test Model A" };
+    upstreamReply = () => jsonReply(200, info, { "request-id": "req_1" });
     const response = await send("/v1/models", {
       headers: { "anthropic-version": "2023-06-01", "x-api-key": "player-typed-something" },
     });
     assert.equal(response.status, 200);
     assertCors(response);
-    assert.deepEqual(await response.json(), list);
+    assert.match(response.headers.get("content-type"), /^application\/json/);
+    assert.equal(response.headers.get("request-id"), "req_1");
+    assert.deepEqual(await response.json(), { data: [info], has_more: false, first_id: MODEL, last_id: MODEL });
 
     assert.equal(upstreamCalls.length, 1);
     const [{ url, init }] = upstreamCalls;
-    assert.equal(url, "https://api.anthropic.com/v1/models");
+    assert.equal(url, `https://api.anthropic.com/v1/models/${MODEL}`);
     assert.equal(init.method, "GET");
     const headers = new Headers(init.headers);
     assert.deepEqual([...headers.keys()].sort(), ["anthropic-version", "x-api-key"]);
@@ -593,12 +666,39 @@ describe("GET /v1/models", () => {
     assert.equal(headers.get("anthropic-version"), "2023-06-01");
   });
 
-  test("forwards only the pagination query parameters", async () => {
-    await send("/v1/models?limit=100&after_id=cursor-1&evil=1&before_id=bad%20value");
-    assert.equal(upstreamCalls[0].url, "https://api.anthropic.com/v1/models?limit=100&after_id=cursor-1");
+  test("ignores query parameters", async () => {
+    upstreamReply = () => jsonReply(200, { id: MODEL, type: "model" });
+    await send("/v1/models?limit=100&after_id=cursor-1&evil=1");
+    assert.equal(upstreamCalls[0].url, `https://api.anthropic.com/v1/models/${MODEL}`);
+  });
+
+  test("names the first allowed model", async () => {
+    upstreamReply = (input) => jsonReply(200, { id: String(input).split("/").pop(), type: "model" });
+    const response = await send("/v1/models", { env: makeEnv({ ALLOWED_MODELS: "test-model-b test-model-a" }) });
+    assert.equal((await response.json()).first_id, "test-model-b");
+  });
+
+  test("a model the key cannot use is the operator's error (500), so the game stays offline", async () => {
+    upstreamReply = () => jsonReply(404, { type: "error", error: { type: "not_found_error", message: "model: x" } });
+    const payload = await assertError(await send("/v1/models"), 500, "api_error");
+    assert.match(payload.error.message, /ALLOWED_MODELS/);
+  });
+
+  test("passes a rejected key through", async () => {
+    upstreamReply = () =>
+      jsonReply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
+    const payload = await assertError(await send("/v1/models"), 401, "authentication_error");
+    assert.equal(payload.error.message, "invalid x-api-key");
+  });
+
+  test("answers 500 without a lookup when ALLOWED_MODELS is empty", async () => {
+    const payload = await assertError(await send("/v1/models", { env: makeEnv({ ALLOWED_MODELS: "" }) }), 500, "api_error");
+    assert.match(payload.error.message, /no allowed models/);
+    assert.equal(upstreamCalls.length, 0);
   });
 
   test("needs the access code when one is configured", async () => {
+    upstreamReply = () => jsonReply(200, { id: MODEL, type: "model" });
     const env = makeEnv({ ACCESS_CODE });
     await assertError(await send("/v1/models", { env }), 401, "authentication_error");
     assert.equal((await send("/v1/models", { env, headers: { "x-api-key": ACCESS_CODE } })).status, 200);
@@ -616,6 +716,9 @@ describe("routing and configuration", () => {
       assert.match(response.headers.get("content-type"), /^text\/plain/);
       const text = await response.text();
       assert.match(text, new RegExp(`Access code required: ${required}`));
+      assert.match(text, /Model: test-model-a \(for requests that name none; allowed: test-model-a, test-model-b\)/);
+      assert.match(text, /Daily limits \(UTC\): 1000 requests for everyone, 400 per player\./);
+      assert.match(text, /Used today: 0 requests\./);
       assert.ok(!text.includes(UPSTREAM_KEY));
       assert.ok(!text.includes(ACCESS_CODE));
     }
@@ -667,10 +770,17 @@ describe("rate limiting", () => {
       env: makeEnv({ RATE_LIMITER: binding }),
       headers: { "cf-connecting-ip": "203.0.113.7" },
     });
-    await assertError(response, 429, "rate_limit_error");
+    const payload = await assertError(response, 429, "rate_limit_error");
+    assert.equal(payload.error.limit, "minute");
+    assert.equal(response.headers.get("retry-after"), "60");
     assertCors(response);
     assert.deepEqual(keys, ["203.0.113.7"]);
     assert.equal(upstreamCalls.length, 0);
+  });
+
+  test("throttles the health line too", async () => {
+    const { binding } = limiter(false);
+    await assertError(await send("/", { origin: null, env: makeEnv({ RATE_LIMITER: binding }) }), 429, "rate_limit_error");
   });
 
   test("throttles before checking the access code", async () => {
@@ -692,5 +802,149 @@ describe("rate limiting", () => {
   test("works without the binding", async () => {
     const response = await postMessage(messageBody(), { env: makeEnv({ RATE_LIMITER: undefined }) });
     assert.equal(response.status, 200);
+  });
+});
+
+describe("daily limits", () => {
+  function limitedEnv(overrides = {}) {
+    return makeEnv({ DAILY_REQUESTS: "3", DAILY_REQUESTS_PER_PLAYER: "2", ...overrides });
+  }
+
+  function fromIp(ip) {
+    return { headers: { "cf-connecting-ip": ip } };
+  }
+
+  async function assertLimited(response, limit) {
+    const payload = await assertError(response, 429, "rate_limit_error");
+    assert.equal(payload.error.limit, limit);
+    assert.match(payload.error.message, /00:00 UTC/);
+    const retryAfter = Number(response.headers.get("retry-after"));
+    assert.ok(Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 86_400, `retry-after ${retryAfter}`);
+    assertCors(response);
+  }
+
+  test("caps each player and then everyone, counting only forwarded requests", async () => {
+    const env = limitedEnv();
+    await assertError(await postMessage("{not json", { env, ...fromIp("203.0.113.7") }), 400, "invalid_request_error");
+    await assertError(
+      await postMessage(messageBody({ model: "nope" }), { env, ...fromIp("203.0.113.7") }),
+      400,
+      "invalid_request_error",
+    );
+    for (let i = 0; i < 2; i++) {
+      assert.equal((await postMessage(messageBody(), { env, ...fromIp("203.0.113.7") })).status, 200);
+    }
+    await assertLimited(await postMessage(messageBody(), { env, ...fromIp("203.0.113.7") }), "player");
+    assert.equal((await postMessage(messageBody(), { env, ...fromIp("198.51.100.4") })).status, 200);
+    await assertLimited(await postMessage(messageBody(), { env, ...fromIp("198.51.100.4") }), "daily");
+    await assertLimited(await postMessage(messageBody(), { env, ...fromIp("192.0.2.1") }), "daily");
+    assert.equal(upstreamCalls.length, 3);
+    assert.equal(env.USAGE.store.get("total"), 3);
+    assert.deepEqual(new Set(env.USAGE.names), new Set(["global"]), "one meter for everyone");
+  });
+
+  test("GET /v1/models reports a spent budget without counting itself", async () => {
+    upstreamReply = () => jsonReply(200, { id: MODEL, type: "model" });
+    const env = limitedEnv({ DAILY_REQUESTS: "1" });
+    assert.equal((await send("/v1/models", { env })).status, 200);
+    assert.equal((await send("/v1/models", { env })).status, 200);
+    assert.equal(env.USAGE.store.get("total") ?? 0, 0, "probes are free");
+    assert.equal((await postMessage(messageBody(), { env })).status, 200);
+    upstreamCalls = [];
+    await assertLimited(await send("/v1/models", { env }), "daily");
+    assert.equal(upstreamCalls.length, 0);
+  });
+
+  test("players are hashed per day, never stored as addresses", async () => {
+    const env = limitedEnv();
+    await postMessage(messageBody(), { env, ...fromIp("203.0.113.7") });
+    await postMessage(messageBody(), { env });
+    const keys = [...env.USAGE.store.keys()].filter((key) => key.startsWith("p:"));
+    assert.equal(keys.length, 2);
+    assert.ok(keys.includes("p:anon"), "no IP: one shared 'anon' player");
+    const hashed = keys.find((key) => key !== "p:anon");
+    assert.match(hashed, /^p:[0-9a-f]{24}$/);
+    for (const value of [...env.USAGE.store.keys(), ...env.USAGE.store.values()]) {
+      assert.ok(!String(value).includes("203.0.113.7"));
+    }
+  });
+
+  test("the meter starts every UTC day from zero", async () => {
+    const { meter, store } = makeUsage();
+    const ask = (day, player, count = true) => meter.check({ day, player, dailyLimit: 2, playerLimit: 5, count });
+    assert.deepEqual(await ask("2026-10-04", "a"), { allowed: true, limit: null, total: 1, player: 1 });
+    assert.deepEqual(await ask("2026-10-04", "b"), { allowed: true, limit: null, total: 2, player: 1 });
+    assert.deepEqual(await ask("2026-10-04", "c"), { allowed: false, limit: "daily", total: 2, player: 0 });
+    assert.deepEqual(await ask("2026-10-05", "c", false), { allowed: true, limit: null, total: 0, player: 0 });
+    assert.deepEqual(await ask("2026-10-05", "c"), { allowed: true, limit: null, total: 1, player: 1 });
+    assert.deepEqual([...store.keys()].sort(), ["day", "p:c", "total"], "yesterday's players are gone");
+    assert.equal(store.get("day"), "2026-10-05");
+  });
+
+  test("the meter refuses a malformed question", async () => {
+    const { meter } = makeUsage();
+    const post = (body) => meter.fetch(new Request("https://usage-meter.internal/check", { method: "POST", body }));
+    assert.equal((await post("{not json")).status, 400);
+    assert.equal((await post(JSON.stringify({ player: "a" }))).status, 400);
+    assert.equal((await post(JSON.stringify([1]))).status, 400);
+    const ok = await post(JSON.stringify({ day: "2026-10-05", player: "a" }));
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { allowed: true, limit: null, total: 0, player: 0 });
+  });
+
+  test("0 switches a limit off, and with both off no USAGE binding is needed", async () => {
+    const env = makeEnv({ DAILY_REQUESTS: "0", DAILY_REQUESTS_PER_PLAYER: "0", USAGE: undefined });
+    for (let i = 0; i < 3; i++) {
+      assert.equal((await postMessage(messageBody(), { env })).status, 200);
+    }
+    const text = await (await send("/", { origin: null, env })).text();
+    assert.match(text, /Daily limits: none\./);
+    const playerOnly = limitedEnv({ DAILY_REQUESTS: "0", DAILY_REQUESTS_PER_PLAYER: "1" });
+    assert.equal((await postMessage(messageBody(), { env: playerOnly })).status, 200);
+    await assertLimited(await postMessage(messageBody(), { env: playerOnly }), "player");
+    assert.match(await (await send("/", { origin: null, env: playerOnly })).text(), /no limit requests for everyone, 1 per player/);
+  });
+
+  test("unreadable limits keep the defaults instead of lifting them", async () => {
+    const env = makeEnv({ DAILY_REQUESTS: "lots", DAILY_REQUESTS_PER_PLAYER: "-1" });
+    const text = await (await send("/", { origin: null, env })).text();
+    assert.match(text, /1000 requests for everyone, 400 per player/);
+  });
+
+  test("limits without the USAGE binding fail closed with a message for the operator", async () => {
+    const response = await postMessage(messageBody(), { env: makeEnv({ USAGE: undefined }) });
+    const payload = await assertError(response, 500, "api_error");
+    assert.match(payload.error.message, /USAGE Durable Object binding/);
+    assertCors(response);
+    assert.equal(upstreamCalls.length, 0);
+  });
+
+  test("a failing meter fails closed with 503", async () => {
+    const broken = [
+      { idFromName: () => ({}), get: () => ({ fetch: async () => { throw new Error("down"); } }) },
+      { idFromName: () => ({}), get: () => ({ fetch: async () => new Response("no", { status: 500 }) }) },
+      { idFromName: () => ({}), get: () => ({ fetch: async () => new Response("{}", { status: 200 }) }) },
+    ];
+    const saved = console.error;
+    console.error = () => {};
+    try {
+      for (const usage of broken) {
+        const response = await postMessage(messageBody(), { env: makeEnv({ USAGE: usage }) });
+        await assertError(response, 503, "api_error");
+        assert.equal(response.headers.get("retry-after"), "60");
+        const text = await (await send("/", { origin: null, env: makeEnv({ USAGE: usage }) })).text();
+        assert.match(text, /Used today: unknown/);
+      }
+    } finally {
+      console.error = saved;
+    }
+    assert.equal(upstreamCalls.length, 0);
+  });
+
+  test("the health line shows today's count", async () => {
+    const env = limitedEnv();
+    await postMessage(messageBody(), { env });
+    await postMessage(messageBody(), { env, ...fromIp("203.0.113.7") });
+    assert.match(await (await send("/", { origin: null, env })).text(), /Used today: 2 requests\./);
   });
 });

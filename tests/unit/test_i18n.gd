@@ -398,9 +398,11 @@ func _check_phone(code: String) -> void:
 		_assert_fits(dashboard, width, code + " call with an offer")
 	negotiation.hang_up()
 	negotiation.visible = false
-	dashboard._open_llm_settings()
-	await wait_frames(3)
-	_assert_fits(dashboard, width, code + " AI settings")
+	settings.set_value("llm", false, false)
+	await wait_frames(2)
+	assert_eq(dashboard._badge.get_state(), LLMService.STATE_OFF, code + ": the badge shows the switch")
+	_assert_fits(dashboard, width, code + " LLM switched off")
+	settings.set_value("llm", true, false)
 
 
 func test_german_fits_a_phone() -> void:

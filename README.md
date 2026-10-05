@@ -4,7 +4,7 @@
 
 ![The dashboard in Era I: the Frontier Lab's markets lens, the globe with its metric layers, the ACT column and the newswire](docs/screenshots/dashboard.png)
 
-You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Governance Chair, Emergent Superintelligence or Post-Work Citizen Coalition. You then play up to 100 semi-annual turns while the other factions act on their own. They are driven by an LLM when an OpenAI-compatible endpoint is reachable, and by a deterministic heuristic engine otherwise. Six coupled macro-metrics evolve every turn. The world drifts, tips and settles into one of eight civilizational end-states.
+You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Governance Chair, Emergent Superintelligence or Post-Work Citizen Coalition. You then play up to 100 semi-annual turns while the other factions act on their own. They are driven by an LLM while it is switched on and reachable (the web build shares one Claude backend), and by a deterministic heuristic engine otherwise. Six coupled macro-metrics evolve every turn. The world drifts, tips and settles into one of eight civilizational end-states.
 
 **Play it in your browser at https://shotif.github.io/synapse-2076/.** It needs a browser with WebGL 2 and nothing to install. Every push to `main` redeploys it.
 
@@ -17,7 +17,7 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
 - **Goals and explanations.** Each era sets you two goals with rewards. Tap any number to see why it changed this turn: your moves, your rivals', and the world's own dynamics.
 - **For everyone.** English, German, Spanish and French; three coached first turns, a plain-language switch and a glossary, text size, color-blind friendly colors, music and sound for each era, and vibration on phones.
 - **Endings to collect.** Eight end-states for each of the four roles, each with its rarity, and a shareable front page for every ending.
-- **Optional Claude features.** With an LLM configured, Claude can write some of your crises to fit your world, and you can call a faction's leader to negotiate a deal that binds them.
+- **Claude in the game.** With the LLM on, Claude plays the other factions, writes some of your crises to fit your world, and plays the leaders you call to negotiate a deal that binds them. One switch turns it on or off.
 
 ### What it looks like
 
@@ -68,7 +68,7 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
    - Select up to **two directives** in the ACT column (or from your lens). Each has an intensity slider from 1.0× to 2.0× of its cost; effects scale as intensity^0.8.
    - Press **Execute directives**. Your era goals sit at the top of the ACT column.
 5. Tap any number (the vitals, a meter, a lens figure) to see why it changed. Switch the left column between your faction's **lens** and **Intel** (every meter, the secondary indices and the compute picture). Toggle the 3D view between **Globe** and **Lattice**; drag to orbit, and use the wheel (or a pinch) to zoom. Tap a metric chip on the globe to see that layer alone.
-6. The menu (top right) starts a new campaign and opens **Settings** (text size, colors, plain language, effects, sound, vibration, language, the tutorial and the glossary), **People**, **Endings** and the **AI settings**. The LLM badge also opens the AI settings.
+6. The menu (top right) starts a new campaign and opens **Settings** (the LLM switch, text size, colors, plain language, effects, sound, vibration, language, the tutorial and the glossary), **People** and **Endings**. Tapping the LLM badge in the header switches the LLM on or off; the setup screen has the same switch.
 
 In pass-and-play, the screen is covered between players: hand the device over and the next player taps to see their own desk, with the news since their last turn.
 
@@ -157,21 +157,23 @@ It must answer with:
 
 **Fallback.** One `HeuristicFallback` decision replaces the reply when:
 
-- the service is offline,
+- the player has switched the LLM off, or the service is offline,
 - the request exceeds the timeout (5,000 ms by default; 20 s for Claude web builds),
 - the server returns an HTTP error, or
 - the reply fails validation.
 
-**Circuit breaker.** Two consecutive transport failures flip the badge to `▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]`, and the service re-probes every 60 s. A rejected key (HTTP 401/403) stops the automatic probes until the endpoint or key changes.
+**Circuit breaker.** Two consecutive transport failures flip the badge to `▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]`, and the service re-probes every 60 s. A rejected key (HTTP 401/403) stops the automatic probes until the endpoint or key changes. When the shared backend's daily limit is reached (HTTP 429 with `"limit": "daily"` or `"player"`), the service goes offline at once, the badge reads `▲ [LLM RESTING - DAILY LIMIT REACHED]` and it checks again every 15 minutes.
 
 **Determinism.** Decisions that arrive asynchronously are applied in a fixed faction order, so a seed replays identically regardless of latency.
 
-**Configuration.** Each source overrides the ones above it:
+**Configuration.** The build chooses the backend; players only switch the LLM **On** or **Off** (GameSettings `llm`, on by default: the header badge, **Settings → LLM** and the setup screen all flip it). Each source overrides the ones above it:
 
-1. Project settings `synapse/llm/*`: enabled, endpoint_url, model_name, timeout_sec, json_mode, api_format, effort, probe_on_start
-2. `user://synapse_llm.cfg`: written by the in-game settings dialog. The API key is only saved if you tick the box.
-3. Environment variables: `SYNAPSE_LLM_ENDPOINT`, `SYNAPSE_LLM_MODEL`, `SYNAPSE_LLM_API_KEY`, `SYNAPSE_LLM_ENABLED`, `SYNAPSE_LLM_TIMEOUT`, `SYNAPSE_LLM_JSON_MODE`, `SYNAPSE_LLM_API_FORMAT`, `SYNAPSE_LLM_EFFORT`
-4. Web builds only: `#llm-key=...` or `#llm=on|off` at the end of the page URL (see below).
+1. Project settings `synapse/llm/*`: enabled, endpoint_url, model_name (empty lets the backend choose), timeout_sec, json_mode, api_format, effort, write_crises, probe_on_start. The web build's come from repository variables (`tools/configure_web_build.gd`).
+2. `user://synapse_llm.cfg`: only an API key or access code for this device. Older versions also saved the endpoint and model there; they are ignored now.
+3. Environment variables: `SYNAPSE_LLM_ENDPOINT`, `SYNAPSE_LLM_MODEL`, `SYNAPSE_LLM_API_KEY`, `SYNAPSE_LLM_ENABLED`, `SYNAPSE_LLM_TIMEOUT`, `SYNAPSE_LLM_JSON_MODE`, `SYNAPSE_LLM_API_FORMAT`, `SYNAPSE_LLM_EFFORT`, `SYNAPSE_LLM_WRITE_CRISES`
+4. Web builds only: `#llm-key=...` (stored as in 2) or `#llm=on|off` (the switch) at the end of the page URL (see below).
+
+A Claude key (`sk-ant-...`) on a build without a backend talks to Claude directly with `claude-sonnet-5-5`.
 
 ```bash
 # Claude (desktop build): the key comes from your environment, never from project files
@@ -185,51 +187,33 @@ ollama pull llama3:8b && ollama serve
 SYNAPSE_LLM_ENDPOINT=http://127.0.0.1:8000/v1/chat/completions SYNAPSE_LLM_MODEL=meta-llama/Llama-3.1-8B-Instruct godot --path .
 ```
 
-**Claude requests** go to `POST /v1/messages` with the key in `x-api-key` and `anthropic-version: 2023-06-01`. They omit `temperature` (current Claude models reject non-default sampling settings) and ask for `output_config: {effort: "low"}`, which keeps Claude's thinking short for a small, latency-bound decision. Models that reject `effort`, such as Haiku 4.5, don't get it. Thinking counts toward `max_tokens`, so Claude requests allow 2,048. The game reads only the reply's text blocks. `SYNAPSE_LLM_API_FORMAT` (`auto`, `anthropic`, `openai`) overrides the detection from the URL.
+**Claude requests** go to `POST /v1/messages` with the key in `x-api-key` and `anthropic-version: 2023-06-01`. They omit `temperature` (current Claude models reject non-default sampling settings) and ask for `output_config: {effort: "low"}`, which keeps Claude's thinking short for a small, latency-bound decision. Models that reject `effort`, such as Haiku 4.5, don't get it. Thinking counts toward `max_tokens`, so Claude requests allow 2,048. The game reads only the reply's text blocks. Requests to the shared backend name no model: the proxy answers with its first allowed model (its model listing, the game's connection check, names it for the badge) and drops `effort` for a model that rejects it. `SYNAPSE_LLM_API_FORMAT` (`auto`, `anthropic`, `openai`) overrides the detection from the URL.
 
 **OpenAI-compatible requests** send the key as `Authorization: Bearer`. If an endpoint rejects `response_format`, set JSON mode off; the prompt still demands JSON-only output and the parser copes with prose.
 
-> **Local models from the web build:** the browser build never contacts the default localhost endpoint on its own, because a public page reaching into your machine triggers browser permission prompts. To use one, click the LLM badge and press **TEST CONNECTION** or **SAVE & CLOSE**. Your browser may ask you to allow access to local services, and the endpoint must allow the page's origin through CORS, for example `OLLAMA_ORIGINS=https://shotif.github.io ollama serve`.
+> **Local models** work with the desktop build. The browser build never contacts a model on your machine, because a public page reaching into it triggers browser permission prompts.
 
 ### Claude on the web build
 
-GitHub Pages serves a public, static copy of the game. **Never put an API key in a GitHub secret or variable for the Pages build:** anything baked into the build ships to every visitor. The Pages workflow refuses `SYNAPSE_LLM_API_KEY` for that reason. There are two safe setups. Both start with an API key from the [Claude Console](https://platform.claude.com/settings/keys). Create it in a workspace with a monthly spend limit (Console settings, Limits), so a leak or a long session can only cost what you allow.
+GitHub Pages serves a public, static copy of the game. **Never put an API key in a GitHub secret or variable for the Pages build:** anything baked into the build ships to every visitor. The Pages workflow refuses `SYNAPSE_LLM_API_KEY` for that reason.
 
-**Option A: direct (simplest; your own devices).** The browser calls Anthropic directly with a key that lives only on your device.
+**The shared backend (recommended).** A small Cloudflare Worker in [`proxy/`](proxy/) is the LLM for every copy of the web build. It holds your Anthropic API key as a Cloudflare secret, picks the model, and keeps a daily request budget: 1,000 requests a day for everyone together and 400 per player (one full campaign) by default. Players set nothing up; they only switch the LLM on or off. Set it up once:
 
-1. In GitHub, open **Settings → Secrets and variables → Actions → Variables** and add the repository variable `SYNAPSE_LLM_ENDPOINT` = `https://api.anthropic.com/v1/messages`.
-2. Optionally add more variables. Each has a default:
-   - `SYNAPSE_LLM_MODEL` (default `claude-sonnet-5-5`)
-   - `SYNAPSE_LLM_TIMEOUT` in seconds (default `20`)
-   - `SYNAPSE_LLM_EFFORT`: `low` (default), `medium`, `high` or `none`
-3. Redeploy: open **Actions → Deploy to GitHub Pages → Run workflow**, or push to `main`.
-4. On each phone or computer, open the game once with your key after `#llm-key=`:
-   `https://shotif.github.io/synapse-2076/#llm-key=sk-ant-...`
-   The game stores the key in that browser, removes it from the address bar and history, and the badge turns **● LLM ON**. Visitors without a key never contact Anthropic and play against the heuristic engine.
-   - `#llm-key=` (empty) forgets the key on that device.
-   - `#llm=off` switches the LLM off on that device.
+1. In the [Claude Console](https://platform.claude.com/settings/keys), create an API key in a workspace with a monthly spend limit (Console settings, Limits), so even a misused backend can only cost what you allow.
+2. Create a free Cloudflare account and open Workers & Pages once to pick a workers.dev subdomain. Make an API token from the "Edit Cloudflare Workers" template, and note your account ID.
+3. In GitHub, open **Settings → Secrets and variables → Actions → Secrets** and add `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `ANTHROPIC_API_KEY`.
+4. Run **Actions → LLM proxy → Run workflow**. The run's summary shows the backend's address.
+5. Under **Variables**, add `SYNAPSE_LLM_ENDPOINT` = that address (`https://synapse-llm-proxy.<your subdomain>.workers.dev/v1/messages`), then run **Actions → Deploy to GitHub Pages** or push to `main`.
 
-   Anyone who can use that browser profile can read the key. Never share the link with the key in it. Revoke the key in the Console if it leaks.
+To change the model or the limits, set `SYNAPSE_PROXY_ALLOWED_MODELS` (the first one serves the game), `SYNAPSE_PROXY_DAILY_REQUESTS` or `SYNAPSE_PROXY_DAILY_REQUESTS_PER_PLAYER` and run the **LLM proxy** workflow again; the game needs no new build. `SYNAPSE_LLM_WRITE_CRISES=off` (then redeploy Pages) leaves Claude's crisis cards out. To keep the backend to friends, add the secret `SYNAPSE_PROXY_ACCESS_CODE` and share a link with the code after `#llm-key=`; each browser keeps it. [`proxy/README.md`](proxy/README.md) covers the security model, the limits and manual deployment.
 
-**Option B: proxy (the key never reaches a device; share access with friends).** A small Cloudflare Worker in [`proxy/`](proxy/) holds the key server-side. The game sends it a separate access code instead of the key.
+**Without a backend**, the web build runs on the heuristic engine and its LLM switch is greyed out. You can still use Claude on your own devices: open the game once with your key after `#llm-key=`, for example `https://shotif.github.io/synapse-2076/#llm-key=sk-ant-...`. The game keeps the key in that browser, removes it from the address bar and history, and calls Anthropic directly. `#llm-key=` (empty) forgets it and `#llm=off` switches the LLM off. Anyone who can use that browser profile can read the key, so never share such a link, and revoke the key in the Console if it leaks.
 
-1. Create a free Cloudflare account. Make an API token from the "Edit Cloudflare Workers" template, and note your account ID.
-2. In GitHub, open **Settings → Secrets and variables → Actions → Secrets** and add:
-   - `CLOUDFLARE_API_TOKEN`
-   - `CLOUDFLARE_ACCOUNT_ID`
-   - `ANTHROPIC_API_KEY`
-   - `SYNAPSE_PROXY_ACCESS_CODE`, a long random passphrase. It's optional but strongly recommended: without it, anyone who finds the proxy URL in the public build can spend your credits, within the proxy's model and token caps.
-3. Run **Actions → LLM proxy → Run workflow**. The run's summary shows the Worker URL and the exact endpoint value.
-4. Add the repository variable `SYNAPSE_LLM_ENDPOINT` = `https://<your worker>.workers.dev/v1/messages` (plus the optional variables from Option A), then redeploy Pages.
-5. On each device, open the game once with the access code after `#llm-key=`. Share the code to give someone access; change the secret and rerun the workflow to revoke it.
+**What it costs.** Each turn sends three requests, one per non-player faction, of about 1,000 input tokens each, and Claude writes a crisis card about every third turn. A full 100-turn campaign is about 330 requests: roughly $1.50 for the factions plus $0.60 for the crisis cards on Claude Sonnet 5.5 (check current pricing), and more when you call leaders. Larger models also take longer per turn. The game waits for all three factions, falling back to the heuristic after the timeout.
 
-[`proxy/README.md`](proxy/README.md) covers the proxy's security model, limits and manual deployment.
+### Claude writes crises
 
-**What it costs.** Each turn sends three requests, one per non-player faction, of about 900 input tokens each. A full 100-turn campaign is about 300 requests. At list prices that is roughly $1.50 per campaign on Claude Sonnet 5.5, about $0.75 on Haiku 4.5 and about $3 on Opus 5.5 (check current pricing). Larger models also take longer per turn. The game waits for all three factions, falling back to the heuristic after the timeout.
-
-### Claude writes crises (optional)
-
-Tick **Write crises with Claude** in the AI settings (off by default; saved with the other AI settings, never with your key unless you ask). After each of your turns, Claude is asked for a crisis card that fits your world: the year, the metrics, your currencies and prices, the recent headlines and how the recurring characters feel about you. The reply is untrusted. `CrisisWriter.validate_card()` keeps it to two or three answers priced in your currencies within the deck's tiers (one of them cheap), metric and index effects of at most ±6 and ±8, plain text of bounded length, and no flags, injections or follow-ups; anything else is dropped. A valid card is dealt at your next draw and recorded, so saves and rewinds replay it. At most one written card comes every three turns per player, so the deck still runs the story. Each request is about 1,700 input tokens and up to 1,400 output tokens.
+While the LLM is on, Claude writes some of your crises. After each of your turns, Claude is asked for a crisis card that fits your world: the year, the metrics, your currencies and prices, the recent headlines and how the recurring characters feel about you. The reply is untrusted. `CrisisWriter.validate_card()` keeps it to two or three answers priced in your currencies within the deck's tiers (one of them cheap), metric and index effects of at most ±6 and ±8, plain text of bounded length, and no flags, injections or follow-ups; anything else is dropped. A valid card is dealt at your next draw and recorded, so saves and rewinds replay it. At most one written card comes every three turns per player, so the deck still runs the story. Each request is about 1,700 input tokens and up to 1,400 output tokens. A build leaves this out with `synapse/llm/write_crises` off (the `SYNAPSE_LLM_WRITE_CRISES` repository variable).
 
 ### Calling a faction leader
 
@@ -276,7 +260,8 @@ systems/
   characters.gd            the recurring cast: roles per era, ages, portraits, memories
   save_manager.gd  endings_book.gd  turning_points.gd
   llm/llm_service.gd       HTTPRequest client (Claude Messages API or OpenAI-compatible), probe,
-                           timeout, circuit breaker, fallback, #llm-key= import on the web
+                           timeout, circuit breaker, fallback, the player's on/off switch,
+                           daily limits, #llm-key= import on the web
   llm/prompt_templates.gd  personas, request bodies, JSON extraction, strict validation
   llm/heuristic_fallback.gd  deterministic decision trees for all four roles
   llm/crisis_writer.gd     Claude-written crisis cards, validated into the deck's schema
@@ -295,7 +280,7 @@ ui/
                            trajectory_chart, goals_panel + goal_toast, why_popup, coach,
                            settings_dialog + glossary_dialog, portrait + character_badge + cast_panel,
                            endings_gallery, negotiation_dialog, pass_device, llm_status_badge,
-                           llm_settings_dialog
+                           llm_switch
   audio/                   AudioDirector: era music with crossfades, effects, cues for log entries
   game_settings.gd  plain_language.gd  haptics.gd  i18n.gd (languages; strings in locale/)
   lenses/                  CeoLens (markets), GovLens (daily brief), AsiLens (perception),
@@ -311,7 +296,8 @@ viewports_3d/
                            neural_glow, data_flow, hologram_point, loss_landscape
 assets/audio/              era music loops and interface sounds, synthesized by tools/make_audio.sh
 locale/                    German, Spanish and French strings (English is the message id)
-proxy/                     optional Cloudflare Worker that holds a Claude API key for the web build
+proxy/                     Cloudflare Worker: the web build's shared LLM backend (holds the Claude key,
+                           picks the model, keeps a daily request budget)
 tests/   tools/   docs/
 ```
 

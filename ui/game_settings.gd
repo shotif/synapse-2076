@@ -1,9 +1,10 @@
 class_name GameSettings
 extends RefCounted
-## Player preferences shared by the whole interface (accessibility, sound,
-## language, onboarding), saved in user://synapse_ui.cfg next to the display
-## options. One instance per run: [method instance]. Components read values
-## with [method value] and listen to [signal changed] to restyle.
+## Player preferences shared by the whole interface (the LLM switch,
+## accessibility, sound, language, onboarding), saved in user://synapse_ui.cfg
+## next to the display options. One instance per run: [method instance].
+## Components read values with [method value] and listen to [signal changed]
+## to restyle.
 
 signal changed(key: String, value: Variant)
 
@@ -24,6 +25,9 @@ const DEFAULTS := {
 	"music_volume": 0.6,
 	## Short vibrations on swipes and alerts (phones).
 	"vibration": true,
+	## The language model plays the other factions, writes some crises and
+	## answers calls (when the build has a backend; LLMService.set_switched_on).
+	"llm": true,
 	## Interface language ("" = follow the system when translated).
 	"language": "",
 	## The guided first campaign has been played or skipped.

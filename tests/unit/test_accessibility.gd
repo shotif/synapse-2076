@@ -199,6 +199,27 @@ func test_settings_dialog_reads_and_writes_game_settings() -> void:
 	(dialog.find_child("GlossaryButton", true, false) as Button).pressed.emit()
 	assert_true(dialog.get_glossary().visible, "the glossary opens over the settings")
 	dialog.get_glossary().close()
+	var llm_switch := dialog.get_llm_switch()
+	assert_false(llm_switch.is_on(), "without a service the LLM switch shows Off, greyed out")
+	assert_true((llm_switch.find_child("LLMOff", true, false) as Button).disabled)
+	var service := LLMService.new()
+	service.configure({"endpoint_url": "https://synapse-llm-proxy.example.workers.dev/v1/messages", "model_name": ""})
+	dialog.bind_llm(service)
+	assert_true(llm_switch.is_on(), "on by default")
+	var status := dialog.find_child("LLMStatus", true, false) as Label
+	assert_eq(status.text, "Unavailable right now: the built-in rules play until it is back.")
+	(llm_switch.find_child("LLMOff", true, false) as Button).pressed.emit()
+	assert_false(bool(settings.get_value("llm")), "the switch writes GameSettings")
+	service.set_switched_on(false)
+	assert_eq(status.text, "Off: the built-in rules play the other factions.", "and the line follows the service")
+	settings.set_value("llm", true)
+	assert_true(llm_switch.is_on(), "follows changes made elsewhere (the header badge)")
+	service.served_model = "claude-sonnet-5-5"
+	service.set_switched_on(true)
+	service.set_online(true)
+	assert_eq(status.text, "Online: claude-sonnet-5-5")
+	dialog.bind_llm(null)
+	service.free()
 	var replay := [false]
 	dialog.tutorial_requested.connect(func() -> void: replay[0] = true)
 	var closed := [false]

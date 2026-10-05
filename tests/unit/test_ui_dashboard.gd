@@ -122,6 +122,53 @@ func test_badge_reflects_llm_status() -> void:
 	assert_eq(badge.get_text(), "▲ [LLM OFFLINE - RUNNING HEURISTIC FALLBACK ENGINE]")
 
 
+func test_the_player_switches_the_llm_on_and_off() -> void:
+	var badge: LLMStatusBadge = dashboard.get_node("%LLMStatusBadge")
+	var llm: LLMService = dashboard.llm
+	var select: RoleSelect = dashboard.get_node("%RoleSelect")
+	var settings := GameSettings.instance()
+	var saved := bool(settings.get_value("llm"))
+	settings.set_value("llm", true)
+	llm.configure({"enabled": true, "model_name": "", "endpoint_url": "https://synapse-llm-proxy.example.workers.dev/v1/messages"})
+	llm.served_model = "claude-sonnet-5-5"
+	llm.set_online(true)
+	assert_eq(badge.get_text(), "● [LLM ONLINE: CLAUDE-SONNET-5-5 / SYNAPSE-LLM-PROXY]", "the backend named its model")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	badge._gui_input(click)
+	assert_false(bool(settings.get_value("llm")), "a click on the badge switches the LLM off")
+	assert_false(llm.is_online)
+	assert_eq(badge.get_state(), LLMService.STATE_OFF)
+	assert_eq(badge.get_text(), "○ [LLM OFF - RUNNING HEURISTIC ENGINE]")
+	var status := select.find_child("LLMStatus", true, false) as Label
+	assert_eq(status.text, "Off: the built-in rules play the other factions.")
+	var setup_switch := select.find_child("LLMSwitch", true, false) as LLMSwitch
+	assert_false(setup_switch.is_on(), "the setup screen follows")
+	# Keep any probe on this machine: nothing listens on port 9.
+	llm.configure({"endpoint_url": "http://127.0.0.1:9/v1/messages"})
+	dashboard._open_settings()
+	await wait_frames(2)
+	var settings_switch: LLMSwitch = dashboard._settings_dialog.get_llm_switch()
+	assert_false(settings_switch.is_on(), "so do the settings")
+	(settings_switch.find_child("LLMOn", true, false) as Button).pressed.emit()
+	assert_true(bool(settings.get_value("llm")), "the settings switch it back on")
+	assert_true(llm.switched_on)
+	assert_true(setup_switch.is_on())
+	assert_ne(badge.get_state(), LLMService.STATE_OFF)
+	dashboard._settings_dialog.close()
+	llm.configure({"enabled": false})
+	badge.refresh()
+	dashboard._update_llm_hint()
+	assert_eq(badge.get_text(), "○ [NO LLM - RUNNING HEURISTIC ENGINE]", "a build without a backend")
+	assert_eq(status.text, "This version has no LLM: the built-in rules play the other factions.")
+	assert_false(setup_switch.is_on(), "the switch shows Off and waits")
+	assert_true((setup_switch.find_child("LLMOn", true, false) as Button).disabled)
+	badge._gui_input(click)
+	assert_true(bool(settings.get_value("llm")), "clicking a badge with no backend changes nothing")
+	settings.set_value("llm", saved)
+
+
 func test_event_text_is_bbcode_escaped() -> void:
 	dashboard.start_campaign("CITIZEN_COALITION", 1, false)
 	dashboard._on_event_logged({"turn": 1, "year": 2026.5, "category": "ACTION", "severity": "INFO",
@@ -245,9 +292,9 @@ func test_phone_debrief_and_settings_fit() -> void:
 	assert_true(dashboard.get_node("%EndgameDebrief").visible)
 	_assert_fits(screen.x, "debrief")
 	dashboard.get_node("%EndgameDebrief").visible = false
-	dashboard._open_llm_settings()
+	dashboard._open_settings()
 	await wait_frames(3)
-	_assert_fits(screen.x, "LLM settings")
+	_assert_fits(screen.x, "settings with the LLM switch")
 
 
 const TABLET_PX := Vector2i(2360, 1640)  # 1180 x 820 CSS px (iPad Air, landscape) at ratio 2

@@ -1,10 +1,12 @@
 // Claude API proxy for the SYNAPSE-2076 web build, deployed as a Cloudflare Worker.
 //
-// GitHub Pages is public static hosting, so the web build can never carry an
-// Anthropic API key. This Worker keeps the key as a secret and forwards a narrow
-// slice of the Messages API. Anyone who reads the web build can find this URL,
-// so the Worker defends itself with an origin allowlist, an optional access
-// code, a model allowlist, a max_tokens cap and request-shape limits.
+// It is the game's shared LLM backend: every copy of the web build sends its
+// requests here, and the Worker adds the Anthropic API key (a secret), picks the
+// model and keeps a daily request budget. GitHub Pages is public static hosting,
+// so the web build can never carry the key itself. Anyone who reads the web
+// build can find this URL, so the Worker defends itself with an origin
+// allowlist, an optional access code, a model allowlist, a max_tokens cap,
+// request-shape limits, a per-minute rate limit and daily request limits.
 // See ../README.md for the security model and deployment.
 //
 // It never logs request bodies, API keys or access codes.
@@ -23,6 +25,16 @@ const MAX_JSON_DEPTH = 32;
 const DEFAULT_MAX_TOKENS_CAP = 2048;
 // output_config may only carry a thinking effort, and not the expensive levels.
 const ALLOWED_EFFORTS = new Set(["low", "medium", "high"]);
+// Models that answer output_config.effort with a 400; the proxy drops the field for them.
+const NO_EFFORT_PREFIXES = ["claude-haiku", "claude-3", "claude-instant", "claude-2"];
+const NO_EFFORT_MODELS = ["claude-sonnet-4", "claude-sonnet-4-5", "claude-opus-4", "claude-opus-4-1"];
+// Requests per UTC day. A full 100-turn campaign sends about 330 (three faction
+// decisions a turn plus the crisis writer). "0" switches a limit off.
+const DEFAULT_DAILY_REQUESTS = 1000;
+const DEFAULT_DAILY_REQUESTS_PER_PLAYER = 400;
+// The one UsageMeter instance that counts every request.
+const METER_NAME = "global";
+const METER_URL = "https://usage-meter.internal/check";
 
 // Top-level Messages API fields that reach Anthropic. Everything else (tools,
 // stream, thinking, mcp_servers, container, ...) is dropped.
@@ -89,13 +101,15 @@ async function route(request, config, origin, corsOrigin) {
       allow: `${spec.method}, OPTIONS`,
     });
   }
+  // Rate limiting runs before the access-code check so that guessing codes is throttled too.
+  const throttled = await rateLimit(request, config, corsOrigin);
+  if (throttled) {
+    return throttled;
+  }
   if (!spec.api) {
     return health(config, corsOrigin);
   }
-
-  // Rate limiting runs before the access-code check so that guessing codes is throttled too.
-  const denied =
-    (await rateLimit(request, config, corsOrigin)) ?? (await authenticate(request, config, origin, corsOrigin));
+  const denied = await authenticate(request, config, origin, corsOrigin);
   if (denied) {
     return denied;
   }
@@ -111,6 +125,149 @@ async function route(request, config, origin, corsOrigin) {
     : createMessage(request, config, corsOrigin);
 }
 
+// The UTC day ("2026-10-05") that the daily limits count, and the seconds until the next one.
+function utcDay(now) {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+function secondsUntilNextDay(now) {
+  const date = new Date(now);
+  const midnight = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
+  return Math.max(1, Math.ceil((midnight - now) / 1000));
+}
+
+// A player is a client IP address, hashed with the day so that the meter never
+// stores an address and yesterday's entries cannot be linked to today's.
+async function playerKey(request, day) {
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (!ip) {
+    return "anon";
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${day}|${ip}`));
+  return [...new Uint8Array(digest).slice(0, 12)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function limitsOn(config) {
+  return config.dailyRequests > 0 || config.dailyRequestsPerPlayer > 0;
+}
+
+// Asks the UsageMeter whether today's limits leave room for one more request
+// and, when `count` is true, counts it. Returns null when the request may go
+// ahead, otherwise the response to send instead (429 once a limit is reached).
+async function checkUsage(request, config, corsOrigin, count) {
+  if (!limitsOn(config)) {
+    return null;
+  }
+  const now = Date.now();
+  const day = utcDay(now);
+  const answer = await askMeter(config, {
+    day,
+    player: await playerKey(request, day),
+    dailyLimit: config.dailyRequests,
+    playerLimit: config.dailyRequestsPerPlayer,
+    count,
+  });
+  if (answer.error) {
+    return answer.error(corsOrigin);
+  }
+  if (answer.allowed) {
+    return null;
+  }
+  const message =
+    answer.limit === "daily"
+      ? "The game's shared LLM has used today's request budget. It starts again at 00:00 UTC."
+      : "This player has used today's share of the game's shared LLM. It starts again at 00:00 UTC.";
+  return errorResponse(429, message, corsOrigin, { "retry-after": String(secondsUntilNextDay(now)) }, {
+    limit: answer.limit,
+  });
+}
+
+// Returns the meter's answer ({allowed, limit, total, player}) or {error: (corsOrigin) => Response}.
+async function askMeter(config, question) {
+  const namespace = config.usage;
+  if (!namespace || typeof namespace.idFromName !== "function") {
+    return {
+      error: (corsOrigin) =>
+        errorResponse(
+          500,
+          "Daily limits are set (DAILY_REQUESTS, DAILY_REQUESTS_PER_PLAYER) but the USAGE Durable Object binding is missing. Deploy with proxy/wrangler.toml, or set both limits to 0.",
+          corsOrigin,
+        ),
+    };
+  }
+  try {
+    const meter = namespace.get(namespace.idFromName(METER_NAME));
+    const response = await meter.fetch(METER_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(question),
+    });
+    if (!response.ok) {
+      throw new Error(`meter answered HTTP ${response.status}`);
+    }
+    const answer = await response.json();
+    if (typeof answer?.allowed !== "boolean") {
+      throw new Error("meter answer without allowed");
+    }
+    return answer;
+  } catch (err) {
+    console.error(`synapse-llm-proxy: usage meter failed (${err?.name ?? "error"})`);
+    // Fails closed: without the count, the budget cannot be kept.
+    return {
+      error: (corsOrigin) =>
+        errorResponse(503, "The proxy could not check today's usage. Try again shortly.", corsOrigin, {
+          "retry-after": "60",
+        }),
+    };
+  }
+}
+
+// Counts the requests of one UTC day for the whole proxy: one instance
+// (idFromName("global")) holds "day", "total" and a "p:<player>" count per
+// player, and drops them all when the day changes. A Durable Object handles one
+// event at a time and holds new ones while it waits on storage, so reading and
+// writing a count cannot interleave with another request.
+export class UsageMeter {
+  constructor(state, _env) {
+    this.storage = state.storage;
+  }
+
+  async fetch(request) {
+    let question;
+    try {
+      question = await request.json();
+    } catch {
+      return new Response(JSON.stringify({ error: "the body must be JSON" }), { status: 400 });
+    }
+    if (!isPlainObject(question) || typeof question.day !== "string" || typeof question.player !== "string") {
+      return new Response(JSON.stringify({ error: "day and player are required" }), { status: 400 });
+    }
+    const answer = await this.check(question);
+    return new Response(JSON.stringify(answer), { headers: { "content-type": "application/json" } });
+  }
+
+  async check({ day, player, dailyLimit = 0, playerLimit = 0, count = false }) {
+    if ((await this.storage.get("day")) !== day) {
+      await this.storage.deleteAll();
+      await this.storage.put("day", day);
+    }
+    const key = `p:${player}`;
+    const total = (await this.storage.get("total")) ?? 0;
+    const mine = (await this.storage.get(key)) ?? 0;
+    let limit = null;
+    if (dailyLimit > 0 && total >= dailyLimit) {
+      limit = "daily";
+    } else if (playerLimit > 0 && mine >= playerLimit) {
+      limit = "player";
+    }
+    if (limit === null && count) {
+      await this.storage.put({ total: total + 1, [key]: mine + 1 });
+      return { allowed: true, limit, total: total + 1, player: mine + 1 };
+    }
+    return { allowed: limit === null, limit, total, player: mine };
+  }
+}
+
 function preflight(origin, corsOrigin) {
   if (corsOrigin) {
     return new Response(null, { status: 204, headers: baseHeaders(corsOrigin) });
@@ -124,16 +281,29 @@ function preflight(origin, corsOrigin) {
   return new Response(null, { status: 204, headers });
 }
 
-function health(config, corsOrigin) {
-  const text = [
+async function health(config, corsOrigin) {
+  const lines = [
     "synapse-llm-proxy is running.",
     `Access code required: ${config.accessCode === null ? "no" : "yes"}.`,
     `Anthropic API key configured: ${config.apiKey ? "yes" : "no"}.`,
-    "Endpoints: GET /v1/models, POST /v1/messages.",
-  ].join("\n");
+    config.defaultModel
+      ? `Model: ${config.defaultModel} (for requests that name none; allowed: ${[...config.allowedModels].join(", ")}).`
+      : "Model: none (ALLOWED_MODELS is empty).",
+  ];
+  if (limitsOn(config)) {
+    const shown = (limit) => (limit > 0 ? String(limit) : "no limit");
+    lines.push(
+      `Daily limits (UTC): ${shown(config.dailyRequests)} requests for everyone, ${shown(config.dailyRequestsPerPlayer)} per player.`,
+    );
+    const answer = await askMeter(config, { day: utcDay(Date.now()), player: "health", count: false });
+    lines.push(answer.error ? "Used today: unknown (the usage meter is unavailable)." : `Used today: ${answer.total} requests.`);
+  } else {
+    lines.push("Daily limits: none.");
+  }
+  lines.push("Endpoints: GET /v1/models, POST /v1/messages.");
   const headers = baseHeaders(corsOrigin);
   headers.set("content-type", "text/plain; charset=utf-8");
-  return new Response(`${text}\n`, { status: 200, headers });
+  return new Response(`${lines.join("\n")}\n`, { status: 200, headers });
 }
 
 async function rateLimit(request, config, corsOrigin) {
@@ -143,7 +313,11 @@ async function rateLimit(request, config, corsOrigin) {
   }
   const key = request.headers.get("CF-Connecting-IP") || "anon";
   const { success } = await limiter.limit({ key });
-  return success ? null : errorResponse(429, "Too many requests. Wait a minute and try again.", corsOrigin);
+  return success
+    ? null
+    : errorResponse(429, "Too many requests. Wait a minute and try again.", corsOrigin, { "retry-after": "60" }, {
+        limit: "minute",
+      });
 }
 
 async function authenticate(request, config, origin, corsOrigin) {
@@ -200,16 +374,48 @@ async function sameText(a, b) {
   return diff === 0;
 }
 
-function listModels(request, config, corsOrigin) {
-  const target = new URL("/v1/models", UPSTREAM);
-  const query = new URL(request.url).searchParams;
-  for (const name of ["limit", "after_id", "before_id"]) {
-    const value = query.get(name);
-    if (value && /^[A-Za-z0-9._:-]{1,128}$/.test(value)) {
-      target.searchParams.set(name, value);
-    }
+// The model list a client sees: the one model the proxy uses for requests that
+// name none, looked up with the real key, so this doubles as the game's
+// connection check (a bad key, a retired model or a spent budget fail it).
+async function listModels(request, config, corsOrigin) {
+  const model = config.defaultModel;
+  if (!model) {
+    return errorResponse(
+      500,
+      "This proxy has no allowed models configured (ALLOWED_MODELS is empty), so it rejects every request.",
+      corsOrigin,
+    );
   }
-  return forward(target, { method: "GET", headers: upstreamHeaders(config, false) }, corsOrigin);
+  const spent = await checkUsage(request, config, corsOrigin, false);
+  if (spent) {
+    return spent;
+  }
+  const target = new URL(`/v1/models/${encodeURIComponent(model)}`, UPSTREAM);
+  const response = await forward(target, { method: "GET", headers: upstreamHeaders(config, false) }, corsOrigin);
+  if (response.status === 404) {
+    await response.body?.cancel().catch(() => {});
+    return errorResponse(
+      500,
+      `The proxy's model ${model} is not available to its API key. The operator must fix ALLOWED_MODELS.`,
+      corsOrigin,
+    );
+  }
+  if (response.status !== 200) {
+    return response;
+  }
+  let info;
+  try {
+    info = await response.json();
+  } catch {
+    return errorResponse(502, "The Anthropic API answered the model lookup with invalid JSON.", corsOrigin);
+  }
+  const id = isPlainObject(info) && typeof info.id === "string" ? info.id : model;
+  const entry = isPlainObject(info) ? { ...info, id } : { id, type: "model" };
+  const headers = new Headers(response.headers);
+  return new Response(JSON.stringify({ data: [entry], has_more: false, first_id: id, last_id: id }), {
+    status: 200,
+    headers,
+  });
 }
 
 async function createMessage(request, config, corsOrigin) {
@@ -237,8 +443,10 @@ async function createMessage(request, config, corsOrigin) {
       corsOrigin,
     );
   }
-  if (typeof body.model !== "string" || !config.allowedModels.has(body.model)) {
-    const shown = typeof body.model === "string" ? JSON.stringify(body.model.slice(0, 100)) : "missing";
+  // The backend picks the model: a request that names none gets the first allowed one.
+  const model = body.model === undefined || body.model === null || body.model === "" ? config.defaultModel : body.model;
+  if (typeof model !== "string" || !config.allowedModels.has(model)) {
+    const shown = typeof model === "string" ? JSON.stringify(model.slice(0, 100)) : typeof model;
     return errorResponse(
       400,
       `model: ${shown} is not allowed by this proxy. Allowed: ${[...config.allowedModels].join(", ")}.`,
@@ -279,6 +487,11 @@ async function createMessage(request, config, corsOrigin) {
   }
 
   const forwarded = pickFields(body, config.maxTokensCap);
+  forwarded.model = model;
+  // The client may not know which model it gets, so an effort the model cannot take is dropped here.
+  if (forwarded.output_config !== undefined && !supportsEffort(model)) {
+    delete forwarded.output_config;
+  }
   if (nestedTooDeep(forwarded)) {
     return errorResponse(400, "The request JSON is nested too deeply.", corsOrigin);
   }
@@ -289,6 +502,12 @@ async function createMessage(request, config, corsOrigin) {
       `system and messages hold ${chars} characters; the proxy allows ${MAX_PROMPT_CHARS}.`,
       corsOrigin,
     );
+  }
+
+  // Counted last, so that a request the proxy turns away never uses up the budget.
+  const spent = await checkUsage(request, config, corsOrigin, true);
+  if (spent) {
+    return spent;
   }
 
   return forward(
@@ -431,14 +650,15 @@ function baseHeaders(corsOrigin) {
 }
 
 // Every error the proxy itself produces uses Anthropic's error shape, so the
-// game handles proxy and API errors the same way.
-function errorResponse(status, message, corsOrigin, extraHeaders = {}) {
+// game handles proxy and API errors the same way. A 429 from the proxy adds
+// error.limit: "minute", "daily" (everyone) or "player".
+function errorResponse(status, message, corsOrigin, extraHeaders = {}, extraFields = {}) {
   const headers = baseHeaders(corsOrigin);
   for (const [name, value] of Object.entries(extraHeaders)) {
     headers.set(name, value);
   }
   headers.set("content-type", "application/json");
-  const body = { type: "error", error: { type: errorType(status), message } };
+  const body = { type: "error", error: { type: errorType(status), message, ...extraFields } };
   return new Response(JSON.stringify(body), { status, headers });
 }
 
@@ -467,14 +687,20 @@ function errorType(status) {
 
 function readConfig(env) {
   const rawAccessCode = typeof env.ACCESS_CODE === "string" ? env.ACCESS_CODE : "";
+  const allowedModels = new Set(splitList(env.ALLOWED_MODELS));
   return {
     apiKey: typeof env.ANTHROPIC_API_KEY === "string" ? env.ANTHROPIC_API_KEY.trim() : "",
     // Empty means no access code. A whitespace-only code stays required and matches nothing (fails closed).
     accessCode: rawAccessCode === "" ? null : rawAccessCode.trim(),
     allowedOrigins: new Set(splitList(env.ALLOWED_ORIGINS).map(canonicalOrigin).filter(Boolean)),
-    allowedModels: new Set(splitList(env.ALLOWED_MODELS)),
+    allowedModels,
+    // The first allowed model serves the requests that name none.
+    defaultModel: allowedModels.size > 0 ? [...allowedModels][0] : null,
     maxTokensCap: parseMaxTokensCap(env.MAX_TOKENS_CAP),
+    dailyRequests: parseDailyLimit(env.DAILY_REQUESTS, DEFAULT_DAILY_REQUESTS),
+    dailyRequestsPerPlayer: parseDailyLimit(env.DAILY_REQUESTS_PER_PLAYER, DEFAULT_DAILY_REQUESTS_PER_PLAYER),
     rateLimiter: env.RATE_LIMITER,
+    usage: env.USAGE,
   };
 }
 
@@ -500,6 +726,25 @@ function canonicalOrigin(entry) {
 function parseMaxTokensCap(value) {
   const text = value === undefined || value === null ? "" : String(value).trim();
   return /^[1-9][0-9]{0,6}$/.test(text) ? Number(text) : DEFAULT_MAX_TOKENS_CAP;
+}
+
+// A whole number of requests; "0" switches the limit off. Anything unreadable
+// keeps the default rather than lifting the limit.
+function parseDailyLimit(value, fallback) {
+  const text = value === undefined || value === null ? "" : String(value).trim();
+  return /^(0|[1-9][0-9]{0,8})$/.test(text) ? Number(text) : fallback;
+}
+
+// Whether `model` accepts output_config.effort. Haiku 4.5 and the Claude 3 /
+// early Claude 4 models answer it with a 400 (LLMService.supports_effort in the
+// game holds the same list).
+function supportsEffort(model) {
+  const id = model.trim().toLowerCase();
+  if (NO_EFFORT_PREFIXES.some((prefix) => id.startsWith(prefix))) {
+    return false;
+  }
+  // Exact ids, or the id plus an 8-digit snapshot date ("claude-sonnet-4-5-20250929").
+  return !NO_EFFORT_MODELS.some((older) => id === older || (id.startsWith(`${older}-`) && /^\d{8}$/.test(id.slice(older.length + 1))));
 }
 
 function isPlainObject(value) {

@@ -1,6 +1,8 @@
 class_name SettingsDialog
 extends Control
 ## The player's settings, saved through GameSettings:
+##   LLM       the language model On or Off (LLMSwitch), with what it is doing
+##             now (bind_llm(); without a service the switch is greyed out)
 ##   Display   text size (three "A" buttons: 100%, 115%, 130%), color-blind
 ##             friendly colors, plain language, visual effects
 ##   Sound     effects and music volume, vibration
@@ -10,6 +12,7 @@ extends Control
 ##
 ##   settings.tutorial_requested.connect(_replay_tutorial)
 ##   settings.set_languages([{"code": "en", "name": "English"}, ...])
+##   settings.bind_llm(llm)
 ##   settings.open()
 ##
 ## Every control writes its GameSettings key at once (GameSettings.changed
@@ -43,6 +46,9 @@ var _sound_value: Label
 var _music: HSlider
 var _music_value: Label
 var _vibration: CheckBox
+var _llm: LLMService
+var _llm_switch: LLMSwitch
+var _llm_status: Label
 var _language: OptionButton
 var _language_note: Label
 var _tutorial_button: Button
@@ -84,6 +90,7 @@ func _ready() -> void:
 	head.add_child(close_icon)
 	_box.add_child(head)
 
+	_build_llm()
 	_build_display()
 	_build_sound()
 	_build_language()
@@ -132,6 +139,19 @@ func set_compact(compact: bool) -> void:
 	_apply_layout()
 
 
+## Shows [param llm]'s state under the LLM switch and greys the switch out on
+## a build without a backend.
+func bind_llm(llm: LLMService) -> void:
+	_llm = llm
+	if _llm != null and not _llm.llm_status_changed.is_connected(_on_llm_status_changed):
+		_llm.llm_status_changed.connect(_on_llm_status_changed)
+	_sync_llm()
+
+
+func get_llm_switch() -> LLMSwitch:
+	return _llm_switch
+
+
 ## The languages the interface offers: [{code, name}] (code "" can stand for
 ## "follow the system"). Defaults to English only.
 func set_languages(entries: Array) -> void:
@@ -169,6 +189,33 @@ func get_glossary() -> GlossaryDialog:
 
 
 # --- Building -------------------------------------------------------------------------
+
+func _build_llm() -> void:
+	var section := _section(I18n.mark("LLM"), "spark")
+	var row := HBoxContainer.new()
+	row.name = "LLMRow"
+	row.add_theme_constant_override("separation", 8)
+	row.add_child(_row_label(I18n.mark("Language model")))
+	_llm_switch = LLMSwitch.new()
+	_llm_switch.name = "LLMSwitch"
+	_llm_switch.caption = ""
+	row.add_child(_llm_switch)
+	section.add_child(row)
+	var note := Label.new()
+	note.name = "LLMNote"
+	note.text = "On: a language model plays the other factions, writes some of your crises and answers when you call a leader. Off: the built-in rules play them."
+	note.theme_type_variation = "Caption"
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	section.add_child(note)
+	_llm_status = Label.new()
+	_llm_status.name = "LLMStatus"
+	# LLMStatusBadge.status_line() is already translated (gotcha 20).
+	_llm_status.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	_llm_status.theme_type_variation = "DimLabel"
+	_llm_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	section.add_child(_llm_status)
+	_sync_llm()
+
 
 func _build_display() -> void:
 	var section := _section(I18n.mark("Display"), "layers")
@@ -369,6 +416,17 @@ func _on_setting_changed(_key: String, _value: Variant) -> void:
 		_sync()
 
 
+func _on_llm_status_changed(_online: bool, _provider: String) -> void:
+	_sync_llm()
+
+
+func _sync_llm() -> void:
+	if _llm_switch == null:
+		return
+	_llm_switch.set_available(_llm != null and _llm.has_backend())
+	_llm_status.text = LLMStatusBadge.status_line(_llm)
+
+
 ## Puts every control in step with GameSettings without emitting changes.
 func _sync() -> void:
 	var settings := GameSettings.instance()
@@ -384,6 +442,7 @@ func _sync() -> void:
 	_music.set_value_no_signal(float(settings.get_value("music_volume")))
 	_music_value.text = "%d%%" % roundi(_music.value * 100.0)
 	_sync_language()
+	_sync_llm()
 
 
 func _sync_language() -> void:
@@ -422,6 +481,7 @@ func _relabel() -> void:
 	_relabel_queued = false
 	for i in _size_buttons.size():
 		_size_buttons[i].tooltip_text = _size_tip(i)
+	_sync_llm()
 	_restyle()
 
 
@@ -436,5 +496,6 @@ func _apply_layout() -> void:
 		DESKTOP_WIDTH, _compact), 0)
 	UiLayout.set_overlay_margin(_frame, _compact)
 	_done.size_flags_horizontal = Control.SIZE_EXPAND_FILL if _compact else Control.SIZE_SHRINK_END
+	_llm_switch.set_compact(_compact)
 	for button in [_tutorial_button, _glossary_button, _done]:
 		(button as Control).custom_minimum_size.y = 46 if _compact else 42

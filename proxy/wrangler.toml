@@ -1,4 +1,5 @@
-# Cloudflare Worker that holds the Anthropic API key for the SYNAPSE-2076 web build.
+# Cloudflare Worker that serves as the shared LLM backend of the SYNAPSE-2076 web build:
+# it holds the Anthropic API key, picks the model and keeps a daily request budget.
 # Secrets are not in this file. Set them with `npx wrangler@4 secret put <NAME>`:
 #   ANTHROPIC_API_KEY  required
 #   ACCESS_CODE        optional; when set, every API request must send it
@@ -10,10 +11,14 @@ compatibility_date = "2026-09-01"
 workers_dev = true
 
 # Defaults. The GitHub Actions deploy overrides these from repository variables.
+# The first allowed model answers the requests that name none (the web build sends none).
+# Daily limits count requests per UTC day ("0" switches one off); a full campaign sends about 330.
 [vars]
 ALLOWED_ORIGINS = "https://shotif.github.io"
 ALLOWED_MODELS = "claude-sonnet-5-5"
 MAX_TOKENS_CAP = "2048"
+DAILY_REQUESTS = "1000"
+DAILY_REQUESTS_PER_PLAYER = "400"
 
 # 60 requests per 60 seconds per client IP (a game turn sends three). Counters are kept per Cloudflare
 # location and are approximate. namespace_id is any positive integer that is
@@ -22,3 +27,13 @@ MAX_TOKENS_CAP = "2048"
 name = "RATE_LIMITER"
 namespace_id = "2076"
 simple = { limit = 60, period = 60 }
+
+# The daily limits' counter: one Durable Object (SQLite storage, available on the free plan)
+# that every request passes through, so the counts are exact across Cloudflare locations.
+[[durable_objects.bindings]]
+name = "USAGE"
+class_name = "UsageMeter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UsageMeter"]

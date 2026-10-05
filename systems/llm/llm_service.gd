@@ -13,14 +13,19 @@ extends Node
 ## After [member max_consecutive_failures] transport failures the service
 ## marks itself offline and re-probes periodically.
 ##
-## Configuration precedence (lowest to highest): defaults, project settings
-## (synapse/llm/*), user://synapse_llm.cfg [llm] section, environment variables
-## SYNAPSE_LLM_ENDPOINT / SYNAPSE_LLM_MODEL / SYNAPSE_LLM_API_KEY /
-## SYNAPSE_LLM_ENABLED / SYNAPSE_LLM_TIMEOUT / SYNAPSE_LLM_JSON_MODE /
-## SYNAPSE_LLM_API_FORMAT / SYNAPSE_LLM_EFFORT. API keys are never read from project settings, so
-## they cannot end up in version control or in an exported build. Web builds
-## can also take a key from the page URL (#llm-key=...), see
-## [method import_page_url_settings].
+## The backend comes from the build, never from the player: project settings
+## (synapse/llm/*; the web build's are written by tools/configure_web_build.gd
+## from repository variables, usually the shared backend in proxy/), then an
+## API key or access code kept on this device in user://synapse_llm.cfg (the
+## page URL's #llm-key=..., see [method import_page_url_settings]), then the
+## environment variables SYNAPSE_LLM_ENDPOINT / SYNAPSE_LLM_MODEL /
+## SYNAPSE_LLM_API_KEY / SYNAPSE_LLM_ENABLED / SYNAPSE_LLM_TIMEOUT /
+## SYNAPSE_LLM_JSON_MODE / SYNAPSE_LLM_API_FORMAT / SYNAPSE_LLM_EFFORT /
+## SYNAPSE_LLM_WRITE_CRISES. API keys are never read from project settings, so
+## they cannot end up in version control or in an exported build. The player
+## only switches the LLM on or off ([method set_switched_on], GameSettings
+## "llm"). An empty model name leaves the choice to the backend (the proxy's
+## first allowed model).
 ##
 ## Besides the faction decisions, [method request_completion] sends any
 ## system prompt and conversation over the same transport (Claude's crisis
@@ -38,6 +43,12 @@ signal completion_received(request_id: int, ok: bool, text: String, error: Strin
 const DEFAULT_ENDPOINT := "http://127.0.0.1:11434/v1/chat/completions"
 const DEFAULT_MODEL := "llama3:8b"
 const DEFAULT_TIMEOUT_SEC := 5.0
+## Claude directly (a player's own key on a build without a backend).
+const ANTHROPIC_ENDPOINT := "https://api.anthropic.com/v1/messages"
+const CLAUDE_DEFAULT_MODEL := "claude-sonnet-5-5"
+## Claude answers over the internet in seconds, not the 5 s budget the PRD
+## sets for a local model.
+const CLAUDE_TIMEOUT_SEC := 20.0
 const USER_CONFIG_PATH := "user://synapse_llm.cfg"
 const API_FORMATS := ["auto", "openai", "anthropic"]
 const ANTHROPIC_VERSION := "2023-06-01"
@@ -46,12 +57,31 @@ const ANTHROPIC_HOST := "api.anthropic.com"
 ## more room than the 400 tokens a local model needs for the decision JSON.
 const CLAUDE_MAX_TOKENS := 2048
 const EFFORT_LEVELS := ["low", "medium", "high"]
+## [method get_state]: what the player's LLM is doing.
+const STATE_ONLINE := "online"
+const STATE_CONNECTING := "connecting"
+const STATE_OFFLINE := "offline"
+## The backend's daily limit is reached (for everyone or for this player).
+const STATE_LIMITED := "limited"
+## The player switched the LLM off.
+const STATE_OFF := "off"
+## This build has no backend this platform may contact.
+const STATE_NONE := "none"
+## The proxy's 429 bodies name the limit; these two last until the next UTC day.
+const DAILY_LIMITS := ["daily", "player"]
+## Seconds between re-probes while a daily limit holds.
+const LIMITED_REPROBE_SEC := 900.0
 
 var is_online: bool = false
 var endpoint_url: String = DEFAULT_ENDPOINT
 var api_key: String = ""
+## "" leaves the model to the backend; [member served_model] then names it.
 var model_name: String = DEFAULT_MODEL
+## Whether this build or environment may use an LLM at all (synapse/llm/enabled).
 var enabled := true
+## The player's switch (GameSettings "llm"). The service only contacts the
+## backend while [member enabled] and [member switched_on] are both true.
+var switched_on := true
 var request_timeout_sec := DEFAULT_TIMEOUT_SEC
 var json_mode := true
 ## "anthropic" (Claude Messages API), "openai" (chat completions) or "auto",
@@ -67,13 +97,17 @@ var max_consecutive_failures := 2
 ## Seconds between automatic re-probes while offline (0 disables).
 var reprobe_interval_sec := 60.0
 ## Lets the model write a crisis card for the human players every few turns
-## (CrisisWriter). Off by default; saved in user://synapse_llm.cfg.
-var write_crises := false
-## Where [method load_configuration] and [method save_user_configuration] keep
-## the player's settings (tests point it elsewhere).
+## (CrisisWriter) while the LLM is on. A build setting (synapse/llm/write_crises).
+var write_crises := true
+## Where [method load_configuration] and [method store_api_key] keep this
+## device's key (tests point it elsewhere).
 var config_path := USER_CONFIG_PATH
 var is_probing := false
 var last_error := ""
+## The model the backend reported (its model listing or a reply's "model").
+var served_model := ""
+## "daily" or "player" while the backend's daily limit holds, else "".
+var limited := ""
 var stats := {"requests": 0, "llm_decisions": 0, "fallbacks": 0, "timeouts": 0, "invalid": 0,
 	"completions": 0, "completion_failures": 0}
 
@@ -113,7 +147,9 @@ func configure(settings: Dictionary) -> void:
 	write_crises = bool(settings.get("write_crises", write_crises))
 	if previous != [endpoint_url, api_key, api_format]:
 		_auth_failed = false
-	if not enabled and is_online:
+		limited = ""
+		served_model = ""
+	if not is_active() and is_online:
 		set_online(false, "disabled")
 	_update_reprobe_timer()
 
@@ -127,15 +163,13 @@ func load_configuration() -> void:
 		"json_mode": ProjectSettings.get_setting("synapse/llm/json_mode", true),
 		"api_format": ProjectSettings.get_setting("synapse/llm/api_format", "auto"),
 		"effort": ProjectSettings.get_setting("synapse/llm/effort", "low"),
+		"write_crises": ProjectSettings.get_setting("synapse/llm/write_crises", true),
 	})
+	# Only the key lives on the device. Older versions also saved the endpoint
+	# and model there; the build decides those now, so they are ignored.
 	var config := ConfigFile.new()
-	if config.load(config_path) == OK:
-		var from_file := {}
-		for key in ["endpoint_url", "model_name", "api_key", "enabled", "request_timeout_sec", "json_mode", "api_format", "effort",
-				"write_crises"]:
-			if config.has_section_key("llm", key):
-				from_file[key] = config.get_value("llm", key)
-		configure(from_file)
+	if config.load(config_path) == OK and config.has_section_key("llm", "api_key"):
+		configure({"api_key": config.get_value("llm", "api_key")})
 	var from_env := {}
 	if OS.has_environment("SYNAPSE_LLM_ENDPOINT"):
 		from_env["endpoint_url"] = OS.get_environment("SYNAPSE_LLM_ENDPOINT")
@@ -153,28 +187,37 @@ func load_configuration() -> void:
 		from_env["api_format"] = OS.get_environment("SYNAPSE_LLM_API_FORMAT")
 	if OS.has_environment("SYNAPSE_LLM_EFFORT"):
 		from_env["effort"] = OS.get_environment("SYNAPSE_LLM_EFFORT")
+	if OS.has_environment("SYNAPSE_LLM_WRITE_CRISES"):
+		from_env["write_crises"] = OS.get_environment("SYNAPSE_LLM_WRITE_CRISES").to_lower() in ["1", "true", "yes", "on"]
 	configure(from_env)
+	_use_claude_for_a_claude_key()
 
 
-## Persists endpoint settings to user:// (in a browser: the site's storage).
-## The API key is only written when [param include_api_key] is true; an empty
-## key then removes a stored one.
-func save_user_configuration(include_api_key: bool = false) -> Error:
+## Keeps [param key] (an Anthropic key or the backend's access code) on this
+## device, in user:// (in a browser: the site's storage), and applies it. An
+## empty key forgets the stored one.
+func store_api_key(key: String) -> Error:
+	configure({"api_key": key})
+	_use_claude_for_a_claude_key()
 	var config := ConfigFile.new()
 	config.load(config_path)
-	config.set_value("llm", "endpoint_url", endpoint_url)
-	config.set_value("llm", "model_name", model_name)
-	config.set_value("llm", "enabled", enabled)
-	config.set_value("llm", "request_timeout_sec", request_timeout_sec)
-	config.set_value("llm", "api_format", api_format)
-	config.set_value("llm", "effort", effort)
-	config.set_value("llm", "write_crises", write_crises)
-	if include_api_key:
-		if api_key != "":
-			config.set_value("llm", "api_key", api_key)
-		elif config.has_section_key("llm", "api_key"):
-			config.erase_section_key("llm", "api_key")
+	if api_key != "":
+		config.set_value("llm", "api_key", api_key)
+	elif config.has_section_key("llm", "api_key"):
+		config.erase_section_key("llm", "api_key")
 	return config.save(config_path)
+
+
+## A build without a backend still points at the local default endpoint. A
+## Claude key there means Claude itself: the player brought their own key.
+func _use_claude_for_a_claude_key() -> void:
+	if endpoint_url != DEFAULT_ENDPOINT or not api_key.begins_with("sk-ant-"):
+		return
+	configure({
+		"endpoint_url": ANTHROPIC_ENDPOINT,
+		"model_name": CLAUDE_DEFAULT_MODEL if model_name in ["", DEFAULT_MODEL] else model_name,
+		"request_timeout_sec": maxf(request_timeout_sec, CLAUDE_TIMEOUT_SEC),
+	})
 
 
 ## Reads settings from a URL fragment such as "#llm-key=sk-ant-...&llm=on", so
@@ -194,30 +237,22 @@ static func parse_url_fragment(fragment: String) -> Dictionary:
 	return out
 
 
-## Web builds: applies #llm-key=... / #llm=on|off from the page URL, stores the
-## key on this device, then strips the fragment from the address bar and
-## history. Returns true when something was applied.
-func import_page_url_settings() -> bool:
+## Web builds: reads #llm-key=... / #llm=on|off from the page URL, then
+## strips the fragment from the address bar and history. A key (or the
+## backend's access code) is kept on this device ([method store_api_key]); the
+## on/off choice is returned as "enabled" for the player's switch (GameSettings
+## "llm"). Returns what the link carried ({} when nothing).
+func import_page_url_settings() -> Dictionary:
 	if not OS.has_feature("web"):
-		return false
+		return {}
 	var fragment := str(JavaScriptBridge.eval("window.location.hash", true))
 	var settings := parse_url_fragment(fragment)
 	if settings.is_empty():
-		return false
-	configure(settings)
-	# Store only what the link carried: the endpoint and model keep following the
-	# build, so a redeploy with a new endpoint reaches devices that imported a key.
-	var config := ConfigFile.new()
-	config.load(config_path)
-	for key in settings:
-		if key == "api_key" and String(settings[key]) == "":
-			if config.has_section_key("llm", key):
-				config.erase_section_key("llm", key)
-		else:
-			config.set_value("llm", key, settings[key])
-	config.save(config_path)
+		return {}
+	if settings.has("api_key"):
+		store_api_key(String(settings["api_key"]))
 	JavaScriptBridge.eval("history.replaceState(null, '', window.location.pathname + window.location.search)", true)
-	return true
+	return settings
 
 
 ## Whether [param model] accepts output_config.effort. Haiku 4.5 and the
@@ -244,26 +279,85 @@ func uses_anthropic_format() -> bool:
 	return endpoint_url.trim_suffix("/").ends_with("/messages")
 
 
-## Whether to contact the endpoint without an explicit user action (startup
-## probe, periodic re-probe). Web builds never auto-probe the default localhost
-## endpoint (a public page reaching into the visitor's machine triggers
-## permission prompts and CORS failures), nor Anthropic directly without a key
-## (visitors without one never contact Anthropic). After an authentication
-## failure only a settings change or the dialog's TEST button probes again.
-func should_auto_probe() -> bool:
-	if not enabled or _auth_failed:
+## Whether the build allows the LLM and the player has it switched on.
+func is_active() -> bool:
+	return enabled and switched_on
+
+
+## The player's LLM switch (GameSettings "llm"). Off: nothing leaves the game
+## and every decision comes from the heuristics. On: the backend is probed
+## again (inside the scene tree).
+func set_switched_on(on: bool) -> void:
+	if switched_on == on:
+		return
+	switched_on = on
+	if not on:
+		if is_probing:
+			# Drops the probe's request too.
+			_finish_probe(false, "switched off")
+		else:
+			set_online(false, "switched off")
+	_update_reprobe_timer()
+	llm_status_changed.emit(is_online, get_provider_name())
+	if on and should_auto_probe() and is_inside_tree():
+		probe_connection()
+
+
+## Whether this build or environment points at a backend this platform may
+## contact ([method backend_usable]).
+func has_backend() -> bool:
+	return enabled and backend_usable(endpoint_url, api_key, OS.has_feature("web"))
+
+
+## Web builds never contact the default localhost endpoint (a public page
+## reaching into the visitor's machine triggers permission prompts and CORS
+## failures), nor Anthropic directly without a key (visitors without one never
+## contact Anthropic). Desktop builds use whatever is configured.
+static func backend_usable(url: String, key: String, is_web: bool) -> bool:
+	if url.strip_edges() == "":
 		return false
-	if OS.has_feature("web"):
-		if endpoint_url == DEFAULT_ENDPOINT:
+	if is_web:
+		if url == DEFAULT_ENDPOINT:
 			return false
-		if api_key == "" and host_for_endpoint(endpoint_url) == ANTHROPIC_HOST:
+		if key == "" and host_for_endpoint(url) == ANTHROPIC_HOST:
 			return false
 	return true
 
 
-## Human-readable "MODEL / PROVIDER" label, e.g. "LLAMA3:8B / LOCAL-OLLAMA".
+## Whether to contact the endpoint without an explicit request (startup probe,
+## periodic re-probe): the LLM is switched on and has a backend, and the
+## backend has not rejected the credentials (only a new key or endpoint
+## retries then).
+func should_auto_probe() -> bool:
+	return is_active() and not _auth_failed and has_backend()
+
+
+## What the player's LLM is doing: one of the STATE_* constants.
+func get_state() -> String:
+	if not has_backend():
+		return STATE_NONE
+	if not switched_on:
+		return STATE_OFF
+	if is_online:
+		return STATE_ONLINE
+	if is_probing:
+		return STATE_CONNECTING
+	if limited != "":
+		return STATE_LIMITED
+	return STATE_OFFLINE
+
+
+## The model in use: the configured one, else the one the backend reported.
+func display_model() -> String:
+	return model_name if model_name != "" else served_model
+
+
+## Human-readable "MODEL / PROVIDER" label, e.g. "LLAMA3:8B / LOCAL-OLLAMA"
+## (just the provider while a backend that picks the model has not named it).
 func get_provider_name() -> String:
-	return "%s / %s" % [model_name.to_upper(), provider_for_endpoint(endpoint_url)]
+	var model := display_model()
+	var provider := provider_for_endpoint(endpoint_url)
+	return provider if model == "" else "%s / %s" % [model.to_upper(), provider]
 
 
 static func host_for_endpoint(url: String) -> String:
@@ -311,7 +405,7 @@ func get_status_text() -> String:
 
 func set_online(online: bool, reason: String = "") -> void:
 	var previous := is_online
-	is_online = online and enabled
+	is_online = online and is_active()
 	if reason != "":
 		last_error = reason if not is_online else ""
 	if is_online:
@@ -324,9 +418,9 @@ func set_online(online: bool, reason: String = "") -> void:
 ## Checks connectivity with GET {base}/models. Reachable servers that do not
 ## implement the listing (404/405) count as online; auth failures do not.
 func probe_connection() -> void:
-	if not enabled:
+	if not is_active():
 		set_online(false, "disabled")
-		probe_finished.emit(false, "LLM disabled in settings")
+		probe_finished.emit(false, "LLM switched off" if enabled else "LLM disabled in this build")
 		return
 	if not is_inside_tree() or is_probing:
 		return
@@ -354,7 +448,7 @@ func models_url() -> String:
 
 ## PRD 7.1 entry point: resolve one autonomous actor's decision.
 func query_actor_decision(faction_name: String, world_state: Dictionary) -> void:
-	if not is_online or not enabled:
+	if not is_online or not is_active():
 		_emit_fallback(faction_name, world_state, "offline")
 		return
 	if not is_inside_tree():
@@ -386,7 +480,7 @@ func request_completion(purpose: String, system: String, messages: Array, max_re
 	_next_request_id += 1
 	var turns := PromptTemplates.normalize_turns(messages)
 	var refusal := ""
-	if not enabled:
+	if not is_active():
 		refusal = "disabled"
 	elif not is_online:
 		refusal = "offline"
@@ -452,11 +546,12 @@ func _on_completion_completed(result: int, response_code: int, _headers_in: Pack
 		return
 	if response_code < 200 or response_code >= 300:
 		var reason := describe_http_error(response_code, body.get_string_from_utf8())
-		_register_failure(reason)
+		_register_failure(reason, limit_in(response_code, body.get_string_from_utf8()))
 		_finish_completion(request_id, false, "", reason)
 		return
 	# The endpoint answered: transport is healthy even if the content is bad.
 	_consecutive_failures = 0
+	_note_served_model(body.get_string_from_utf8())
 	var reply := PromptTemplates.parse_completion_text(body.get_string_from_utf8())
 	if not reply["ok"]:
 		_finish_completion(request_id, false, "", "invalid response: " + String(reply["error"]))
@@ -528,11 +623,12 @@ func _on_request_completed(result: int, response_code: int, _headers_in: PackedS
 		return
 	if response_code < 200 or response_code >= 300:
 		var reason := describe_http_error(response_code, body.get_string_from_utf8())
-		_register_failure(reason)
+		_register_failure(reason, limit_in(response_code, body.get_string_from_utf8()))
 		_emit_fallback(faction_name, state, reason)
 		return
 	# The endpoint answered: transport is healthy even if the content is bad.
 	_consecutive_failures = 0
+	_note_served_model(body.get_string_from_utf8())
 	var parsed := PromptTemplates.parse_completion(body.get_string_from_utf8())
 	if not parsed["ok"]:
 		stats["invalid"] += 1
@@ -572,11 +668,53 @@ func _emit_fallback(faction_name: String, world_state: Dictionary, reason: Strin
 	actor_decision_received.emit(faction_name, decision)
 
 
-func _register_failure(reason: String) -> void:
+## Counts a failed request; [param limit] ("daily" | "player") takes the
+## service offline at once, since the backend refuses the rest of the day.
+func _register_failure(reason: String, limit: String = "") -> void:
 	last_error = reason
 	_consecutive_failures += 1
-	if _consecutive_failures >= max_consecutive_failures and is_online:
+	if limit != "":
+		limited = limit
+		if is_online:
+			set_online(false, reason)
+		else:
+			_update_reprobe_timer()
+	elif _consecutive_failures >= max_consecutive_failures and is_online:
 		set_online(false, reason)
+
+
+## The daily limit a proxy's 429 names ("daily" for everyone, "player"), else "".
+static func limit_in(response_code: int, body_text: String) -> String:
+	if response_code != 429:
+		return ""
+	var parsed: Variant = _parse_json(body_text)
+	if parsed is Dictionary and (parsed as Dictionary).get("error") is Dictionary:
+		var limit := String(((parsed as Dictionary)["error"] as Dictionary).get("limit", ""))
+		if limit in DAILY_LIMITS:
+			return limit
+	return ""
+
+
+## [param text] parsed as JSON, or null. Quiet, unlike JSON.parse_string(),
+## which logs an error for every body that is not JSON.
+static func _parse_json(text: String) -> Variant:
+	var json := JSON.new()
+	return json.data if json.parse(text) == OK else null
+
+
+## Remembers the model a reply or a model listing names, for the badge when
+## the backend picks the model.
+func _note_served_model(body_text: String) -> void:
+	var parsed: Variant = _parse_json(body_text)
+	if not (parsed is Dictionary):
+		return
+	var data: Dictionary = parsed
+	var model: Variant = data.get("model")
+	if not (model is String) and data.get("data") is Array and not (data["data"] as Array).is_empty() \
+			and (data["data"] as Array)[0] is Dictionary:
+		model = ((data["data"] as Array)[0] as Dictionary).get("id")
+	if model is String and (model as String).length() <= 100:
+		served_model = (model as String).strip_edges()
 
 
 ## "HTTP 404: model: claude-x" style summary of an error response (the
@@ -590,14 +728,21 @@ static func describe_http_error(response_code: int, body_text: String) -> String
 
 
 func _on_probe_completed(result: int, response_code: int, _headers_in: PackedStringArray, body: PackedByteArray) -> void:
+	var text := body.get_string_from_utf8()
 	if result != HTTPRequest.RESULT_SUCCESS:
 		_finish_probe(false, "unreachable (result %d)" % result)
 	elif response_code == 401 or response_code == 403:
 		_auth_failed = true
-		_finish_probe(false, "authentication failed (%s)" % describe_http_error(response_code, body.get_string_from_utf8()))
+		_finish_probe(false, "authentication failed (%s)" % describe_http_error(response_code, text))
+	elif response_code == 429:
+		limited = limit_in(response_code, text)
+		_finish_probe(false, ("daily limit reached (%s)" if limited != "" else "busy (%s)") % describe_http_error(response_code, text))
 	elif response_code >= 500:
 		_finish_probe(false, "server error (HTTP %d)" % response_code)
 	else:
+		limited = ""
+		if response_code == 200 and model_name == "":
+			_note_served_model(text)
 		_finish_probe(true, "HTTP %d" % response_code)
 
 
@@ -623,7 +768,7 @@ func _finish_probe(online: bool, detail: String) -> void:
 
 
 func _on_reprobe_timer() -> void:
-	if enabled and not is_online and not is_probing:
+	if is_active() and not is_online and not is_probing:
 		probe_connection()
 
 
@@ -631,8 +776,10 @@ func _update_reprobe_timer() -> void:
 	if _reprobe_timer == null:
 		return
 	if should_auto_probe() and not is_online and reprobe_interval_sec > 0.0:
-		if _reprobe_timer.is_stopped():
-			_reprobe_timer.start(reprobe_interval_sec)
+		# A daily limit lasts until the next UTC day: check far less often.
+		var interval := maxf(reprobe_interval_sec, LIMITED_REPROBE_SEC) if limited != "" else reprobe_interval_sec
+		if _reprobe_timer.is_stopped() or not is_equal_approx(_reprobe_timer.wait_time, interval):
+			_reprobe_timer.start(interval)
 	else:
 		_reprobe_timer.stop()
 

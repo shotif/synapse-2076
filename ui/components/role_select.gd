@@ -5,7 +5,10 @@ extends Control
 ## (Scenarios), the difficulty, who else plays on this device (pass-and-play
 ## seats), a seed, and whether to spectate (the AI plays your role). Above it
 ## sit a Continue card when an autosave exists ([method set_continue]), the
-## daily challenge and the endings collection. Campaigns open in Era I, so this
+## daily challenge and the endings collection. Under the options sits the LLM
+## On/Off switch (LLMSwitch, GameSettings "llm") with a line saying what the
+## LLM is doing ([method set_llm_status], [method set_llm_available]).
+## Campaigns open in Era I, so this
 ## screen wears the Era I look. On phones everything stacks in one scrolling
 ## column, only the selected role shows its details and the start button stays
 ## pinned to the bottom; tablets get the same column at a readable width.
@@ -21,13 +24,11 @@ extends Control
 ##       dashboard keeps working and a newer one never starts twice.
 ##   continue_requested   the Continue card.
 ##   endings_requested    the Endings button.
-##   llm_settings_requested
 
 signal campaign_requested(config: Dictionary)
 signal start_requested(role: String, seed_value: int, spectate: bool)
 signal continue_requested
 signal endings_requested
-signal llm_settings_requested
 
 const CARD_WIDTH := 430.0
 const SETTINGS_WIDTH := 430.0
@@ -76,6 +77,7 @@ var _title: Label
 var _subtitle: Label
 var _seed_edit: LineEdit
 var _spectate_check: CheckBox
+var _llm_switch: LLMSwitch
 var _llm_label: Label
 var _fullscreen_button: Button
 var _endings_button: Button
@@ -198,13 +200,9 @@ func _ready() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	options.add_child(spacer)
-	_llm_label = Label.new()
-	_llm_label.theme_type_variation = "DimLabel"
-	options.add_child(_llm_label)
-	var llm_button := Button.new()
-	llm_button.text = "AI settings"
-	llm_button.pressed.connect(func(): llm_settings_requested.emit())
-	options.add_child(llm_button)
+	_llm_switch = LLMSwitch.new()
+	_llm_switch.name = "LLMSwitch"
+	options.add_child(_llm_switch)
 	# Browsers on phones lose a sixth of the screen to their own toolbars.
 	_fullscreen_button = Button.new()
 	_fullscreen_button.text = "Full screen"
@@ -212,6 +210,15 @@ func _ready() -> void:
 	_fullscreen_button.pressed.connect(_toggle_fullscreen)
 	options.add_child(_fullscreen_button)
 	box.add_child(options)
+	# What the LLM is doing, on its own line so a long sentence wraps on phones.
+	_llm_label = Label.new()
+	_llm_label.name = "LLMStatus"
+	# The dashboard passes LLMStatusBadge.status_line(), already translated (gotcha 20).
+	_llm_label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	_llm_label.theme_type_variation = "DimLabel"
+	_llm_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_llm_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	box.add_child(_llm_label)
 
 	_start = Button.new()
 	_start.name = "StartButton"
@@ -354,10 +361,16 @@ func is_spectating() -> bool:
 	return _spectate_check != null and _spectate_check.button_pressed
 
 
+## What the LLM is doing (LLMStatusBadge.status_line), shown under the switch.
 func set_llm_status(text: String) -> void:
 	if _llm_label != null:
 		_llm_label.text = text
-		_fit_options_row()
+
+
+## False on a build without a backend: the switch is greyed out and shows Off.
+func set_llm_available(available: bool) -> void:
+	if _llm_switch != null:
+		_llm_switch.set_available(available)
 
 
 func set_seed(seed_value: int) -> void:
@@ -431,6 +444,8 @@ func _apply_layout() -> void:
 			(chips[key] as Control).custom_minimum_size = Vector2(0, 44 if _compact else 34)
 	for button in [_continue_button, _daily_button, _endings_button]:
 		(button as Control).custom_minimum_size = Vector2(0, 44 if _compact else 36)
+	_llm_switch.set_compact(_compact)
+	_llm_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if _compact else HORIZONTAL_ALIGNMENT_RIGHT
 	_place_daily_card()
 	var start_parent: Node = _sticky if _compact else _box
 	if _start.get_parent() != start_parent:

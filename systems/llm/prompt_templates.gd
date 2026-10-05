@@ -115,7 +115,8 @@ static func build_request_body(model: String, faction: String, observation: Dict
 ## ("low" by default in LLMService) keeps adaptive thinking short; thinking
 ## counts toward max_tokens, so the budget leaves room for it. The prompt
 ## demands JSON-only output, and [method parse_completion] reads text blocks
-## only, skipping thinking blocks, and copes with prose or fences.
+## only, skipping thinking blocks, and copes with prose or fences. An empty
+## [param model] is left out: the shared backend (proxy/) picks the model.
 static func build_anthropic_body(model: String, faction: String, observation: Dictionary,
 		max_tokens: int = 2048, effort: String = "") -> Dictionary:
 	var body := {
@@ -124,6 +125,8 @@ static func build_anthropic_body(model: String, faction: String, observation: Di
 		"system": build_system_prompt(faction),
 		"messages": [{"role": "user", "content": build_user_prompt(faction, observation)}],
 	}
+	if model == "":
+		body.erase("model")
 	if effort != "":
 		body["output_config"] = {"effort": effort}
 	return body
@@ -183,7 +186,7 @@ static func build_completion_body(model: String, system: String, turns: Array, j
 ## Claude Messages API body for a generic completion: the system prompt as the
 ## top-level field, [param turns] ([method normalize_turns]) as messages, no
 ## sampling parameters and output_config.effort only when [param effort] is set
-## (see [method build_anthropic_body]).
+## (see [method build_anthropic_body], which also leaves out an empty model).
 static func build_anthropic_completion_body(model: String, system: String, turns: Array,
 		max_tokens: int = 2048, effort: String = "") -> Dictionary:
 	var body := {
@@ -191,6 +194,8 @@ static func build_anthropic_completion_body(model: String, system: String, turns
 		"max_tokens": max_tokens,
 		"messages": turns.duplicate(true),
 	}
+	if model == "":
+		body.erase("model")
 	if system.strip_edges() != "":
 		body["system"] = system
 	if effort != "":

@@ -335,6 +335,28 @@ func test_endings_button() -> void:
 	assert_eq(asked[0], 1)
 
 
+func test_the_llm_switch_and_its_status_line() -> void:
+	var select := _setup()
+	await wait_frames(1)
+	var llm_switch := select.find_child("LLMSwitch", true, false) as LLMSwitch
+	assert_not_null(llm_switch, "the setup screen offers the LLM On/Off switch")
+	for button in select.find_children("*", "Button", true, false):
+		assert_ne((button as Button).text, "AI settings", "and no endpoint settings")
+	var settings := GameSettings.instance()
+	var saved := bool(settings.get_value("llm"))
+	settings.set_value("llm", true)
+	assert_true(llm_switch.is_on())
+	(llm_switch.find_child("LLMOff", true, false) as Button).pressed.emit()
+	assert_false(bool(settings.get_value("llm")), "the chips write GameSettings")
+	select.set_llm_available(false)
+	assert_true((llm_switch.find_child("LLMOn", true, false) as Button).disabled, "no backend: greyed out")
+	select.set_llm_available(true)
+	assert_false(llm_switch.is_on())
+	select.set_llm_status("Online: claude-sonnet-5-5")
+	assert_eq((select.find_child("LLMStatus", true, false) as Label).text, "Online: claude-sonnet-5-5")
+	settings.set_value("llm", saved)
+
+
 func _fill(select: RoleSelect) -> void:
 	select.set_continue({"role": SimConstants.GOVERNANCE, "year": 2041, "era": 2, "mode_name": "Quarter century",
 		"scenario_name": "Open-Weights World", "difficulty_name": "Story", "players": 3, "saved_at_text": "yesterday",

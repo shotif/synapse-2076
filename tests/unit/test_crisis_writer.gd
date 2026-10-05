@@ -423,43 +423,21 @@ func test_a_written_card_can_be_put_off_until_it_breaks() -> void:
 
 # --- The setting ---------------------------------------------------------------------------
 
-func test_the_setting_lives_in_the_llm_settings_dialog() -> void:
-	var path := "user://test_crisis_writer_%d.cfg" % Time.get_ticks_usec()
+func test_the_writer_follows_the_build_and_the_llm_switch() -> void:
 	var service := LLMService.new()
-	service.config_path = path
-	var host := Control.new()
-	host.theme = EraTheme.get_theme(1)
-	host.size = Vector2(412, 915)
-	tree.root.add_child(host)
-	var dialog := LLMSettingsDialog.new()
-	dialog.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	host.add_child(dialog)
-	dialog.set_compact(true)
-	dialog.open(service)
-	await wait_frames(2)
-	var toggle := dialog.find_child("WriteCrises", true, false) as CheckBox
-	assert_not_null(toggle)
-	assert_false(toggle.button_pressed, "off by default")
-	assert_string_contains(toggle.text, "Write crises with Claude")
-	var overflowing: Array[String] = []
-	for node in dialog.find_children("*", "Control", true, false):
-		var control := node as Control
-		if control.is_visible_in_tree() and control.get_global_rect().end.x > 412.5:
-			overflowing.append(String(control.name))
-	assert_eq(overflowing, [] as Array[String], "the settings still fit a phone")
-	toggle.button_pressed = true
-	for button in dialog.find_children("*", "Button", true, false):
-		if (button as Button).text == "Save & close":
-			(button as Button).pressed.emit()
-	assert_true(service.write_crises, "applied to the service")
-	assert_true(CrisisWriter.new(service).is_enabled(), "and the writer follows it")
-	var config := ConfigFile.new()
-	assert_eq(config.load(path), OK)
-	assert_eq(config.get_value("llm", "write_crises", false), true, "saved with the LLM config, never in project.godot")
-	assert_false(ProjectSettings.has_setting("synapse/llm/write_crises"))
-	host.queue_free()
+	assert_true(service.write_crises, "on by default: the player's LLM switch decides")
+	var writer := CrisisWriter.new(service)
+	assert_true(writer.is_enabled())
+	var engine := _engine()
+	service.configure({"endpoint_url": "https://proxy.example.workers.dev/v1/messages", "model_name": ""})
+	service.set_online(true)
+	assert_eq(writer.blocked_reason(engine, GOV), "", "the LLM is on and online")
+	service.set_switched_on(false)
+	assert_eq(writer.blocked_reason(engine, GOV), "LLM offline", "switching the LLM off stops the writer")
+	service.set_switched_on(true)
+	service.configure({"write_crises": false})
+	assert_eq(writer.blocked_reason(engine, GOV), "crisis writing is off", "a build can leave crisis writing out")
 	service.free()
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 # --- The newswire -----------------------------------------------------------------------

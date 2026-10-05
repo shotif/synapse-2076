@@ -89,7 +89,7 @@ var _effects_check: CheckBox
 ## Autosave (Continue) and the endings collection.
 var saves := SaveManager.new(String(ProjectSettings.get_setting("synapse/storage/save_dir", "user://saves")))
 var endings := EndingsBook.new(String(ProjectSettings.get_setting("synapse/storage/endings_path", "user://endings.cfg")))
-## Optional: Claude writes some of the players' crises (LLM settings).
+## Claude writes some of the players' crises while the LLM is on.
 var crisis_writer: CrisisWriter
 ## How this campaign was started (mode, daily date): kept with saves and shares.
 var _meta := {}
@@ -160,7 +160,6 @@ var _phase_text := "Standby"
 @onready var _footer_box: VBoxContainer = %FooterBox
 @onready var _dilemma: DilemmaDialog = %DilemmaDialog
 @onready var _debrief: EndgameDebrief = %EndgameDebrief
-@onready var _settings: LLMSettingsDialog = %LLMSettingsDialog
 @onready var _role_select: RoleSelect = %RoleSelect
 
 
@@ -180,11 +179,16 @@ func _ready() -> void:
 	llm = LLMService.new()
 	llm.name = "LLMService"
 	add_child(llm)
+	# The build picks the backend; the player only switches the LLM on or off.
 	llm.load_configuration()
-	llm.import_page_url_settings()
+	var from_link := llm.import_page_url_settings()
+	if from_link.has("enabled"):
+		GameSettings.instance().set_value("llm", bool(from_link["enabled"]))
+	llm.set_switched_on(bool(GameSettings.value("llm")))
 	_badge.bind(llm)
+	_settings_dialog.bind_llm(llm)
 	crisis_writer = CrisisWriter.new(llm)
-	_badge.settings_requested.connect(_open_llm_settings)
+	_badge.switch_requested.connect(_toggle_llm)
 	llm.llm_status_changed.connect(func(_online: bool, _provider: String): _update_llm_hint())
 
 	_spectate_timer = Timer.new()
@@ -205,11 +209,9 @@ func _ready() -> void:
 	_debrief.rewind_requested.connect(_rewind_to)
 	_debrief.share_requested.connect(_share_ending)
 	_debrief.endings_requested.connect(_open_endings)
-	_settings.closed.connect(func(): _badge.refresh())
 	_role_select.campaign_requested.connect(_on_campaign_requested)
 	_role_select.continue_requested.connect(_continue_campaign)
 	_role_select.endings_requested.connect(_open_endings)
-	_role_select.llm_settings_requested.connect(_open_llm_settings)
 	GameSettings.instance().changed.connect(_on_game_setting_changed)
 	_globe_button.pressed.connect(func(): show_view("globe"))
 	_lattice_button.pressed.connect(func(): show_view("lattice"))
@@ -644,7 +646,6 @@ func set_screen_mode(mode: String, landscape: bool = true) -> void:
 	_dilemma.set_compact(compact)
 	_role_select.set_compact(compact)
 	_debrief.set_compact(compact)
-	_settings.set_compact(compact)
 	_era_upgrade.set_compact(compact)
 	_front_page.set_compact(compact)
 	_world_overlay.set_compact(compact)
@@ -856,7 +857,6 @@ func _build_menu() -> void:
 	box.add_child(_menu_item(I18n.mark("Settings"), "settings", func(): _open_settings()))
 	box.add_child(_menu_item(I18n.mark("People"), "person", func(): _open_people()))
 	box.add_child(_menu_item(I18n.mark("Endings"), "flag", func(): _open_endings()))
-	box.add_child(_menu_item(I18n.mark("AI settings"), "spark", func(): _open_llm_settings()))
 	if OS.has_feature("web"):
 		box.add_child(_menu_item(I18n.mark("Full screen"), "layers", func(): _toggle_fullscreen()))
 	box.add_child(HSeparator.new())
@@ -942,6 +942,9 @@ func _on_game_setting_changed(key: String, value: Variant) -> void:
 		I18n.apply(String(value))
 		# After the widgets' own relabeling, which they defer the same way.
 		_relabel.call_deferred()
+	elif key == "llm" and llm != null:
+		llm.set_switched_on(bool(value))
+		_update_llm_hint()
 
 
 ## The language changed: every text the dashboard composes, the lens (rebuilt
@@ -1317,12 +1320,16 @@ func _show_role_select() -> void:
 	_role_select.visible = true
 
 
-func _open_llm_settings() -> void:
-	_settings.open(llm)
+## The header badge flips the player's LLM switch (GameSettings "llm").
+func _toggle_llm() -> void:
+	GameSettings.instance().set_value("llm", not bool(GameSettings.value("llm")))
 
 
 func _update_llm_hint() -> void:
-	_role_select.set_llm_status(_badge.get_text())
+	if llm == null:
+		return
+	_role_select.set_llm_available(llm.has_backend())
+	_role_select.set_llm_status(LLMStatusBadge.status_line(llm))
 
 
 # --- Telemetry rendering ------------------------------------------------------------
