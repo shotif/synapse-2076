@@ -272,8 +272,8 @@ func _paragraph(text: String, drop_cap: bool, justify: bool = true) -> RichTextL
 		label.push_dropcap(body.left(1), EraStyle.font("Newsreader-SemiBold.ttf"), 40 if _compact else 46,
 			Rect2(0, 1, 5 if _compact else 6, -20 if _compact else -22), RED)
 		body = body.substr(1)
-	# The trailing space stops Godot 4.3 from wrapping a drop-capped
-	# paragraph's last character onto a line of its own.
+	# The trailing space stops Godot (seen in 4.3) from wrapping a
+	# drop-capped paragraph's last character onto a line of its own.
 	label.add_text(body + " ")
 	label.pop()
 	return label

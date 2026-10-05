@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        godot: ["4.3", "4.7"]
+        godot: ["4.7.2"]
     env:
       GODOT_BIN: ${{ github.workspace }}/.godot-bin/Godot_v${{ matrix.godot }}-stable_linux.x86_64
     steps:

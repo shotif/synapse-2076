@@ -1,12 +1,12 @@
 # SYNAPSE-2076
 
-**A hard-systems, turn-based simulation of the compounding effects of AI, energy saturation, labor displacement and machine alignment from 2026 to 2076.** Built in Godot 4.3+ (GDScript), headless-first.
+**A hard-systems, turn-based simulation of the compounding effects of AI, energy saturation, labor displacement and machine alignment from 2026 to 2076.** Built in Godot 4.7 (GDScript), headless-first.
 
 ![The dashboard in Era I: the Frontier Lab's markets lens, the globe with its metric layers, the ACT column and the newswire](docs/screenshots/dashboard.png)
 
 You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Governance Chair, Emergent Superintelligence or Post-Work Citizen Coalition. You then play up to 100 semi-annual turns while the other factions act on their own. They are driven by an LLM while it is switched on and reachable (the web build shares one Claude backend), and by a deterministic heuristic engine otherwise. Six coupled macro-metrics evolve every turn. The world drifts, tips and settles into one of eight civilizational end-states.
 
-**Play it in your browser at https://shotif.github.io/synapse-2076/.** It needs a browser with WebGL 2 and nothing to install. Every push to `main` redeploys it.
+**Play it in your browser at https://shotif.github.io/synapse-2076/.** It needs a browser with WebGL 2 and WebAssembly SIMD (Chrome or Edge 91+, Firefox 89+, Safari 16.4+ on Mac and iPhone) and nothing to install. Every push to `main` redeploys it.
 
 ### What's in a campaign
 
@@ -57,7 +57,7 @@ You pick one of four asymmetric perspectives: Frontier Lab CEO, Global AI Govern
 
 ## Quick start
 
-**Requirements:** the [Godot 4.3+](https://godotengine.org/download) standard build (not .NET). The project uses the GL Compatibility renderer, so it runs on modest GPUs and exports to the web.
+**Requirements:** the [Godot 4.7.2](https://godotengine.org/download) standard build (not .NET; 4.7 or newer). The project uses the GL Compatibility renderer, so it runs on modest GPUs and exports to the web.
 
 1. Open `project.godot` in the Godot editor and press **F5**. The main scene is `res://ui/main_dashboard.tscn`.
 2. Pick a perspective and a seed. Tick **Spectate** to watch the AI play your role.
@@ -93,7 +93,7 @@ All tests run headless, with no addons and no GPU:
 ```bash
 tools/run_tests.sh                                   # import, lint every script and shader, unit tests, 100-turn sim
 tools/run_tests.sh --suite=engine --filter=async     # one suite, filtered by test name
-GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
+GODOT=/path/to/Godot_v4.7.2-stable_linux.x86_64 tools/run_tests.sh
 ```
 
 - **`tests/run_tests.gd`** is a zero-dependency runner. Assertion names mirror [GUT](https://github.com/bitwes/Gut) (`assert_eq`, `assert_almost_eq`, `assert_between`, …), so suites port to GUT by changing their `extends` line.
@@ -117,7 +117,7 @@ GODOT=/path/to/Godot_v4.3-stable_linux.x86_64 tools/run_tests.sh
   - balance guardrails
   - full 100-turn campaigns in automated and scripted-interactive modes
 - **The wrapper fails on script errors.** `tools/run_tests.sh` fails if Godot prints any `SCRIPT ERROR`, because GDScript runtime errors don't change the exit code.
-- **CI** runs the same script on every push against Godot 4.3 (the minimum) and 4.7 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The suite has also been verified locally on 4.4.1 and 4.6.
+- **CI** runs the same script on every push with Godot 4.7.2 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 - **Pages** runs it again on every push to `main` before exporting and deploying the web build ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
 - **Proxy tests** (`node --test` in `proxy/`) run in CI next to the Godot suite; see [`proxy/README.md`](proxy/README.md).
 
@@ -328,7 +328,7 @@ The coupled equations, scaling laws, faction economies and endgame logic are spe
 
 ## Exporting
 
-`export_presets.cfg` defines Linux, Windows, macOS and Web presets. Install the Godot 4.3 export templates, then run, for example:
+`export_presets.cfg` defines Linux, Windows, macOS and Web presets. Install the Godot 4.7.2 export templates, then run, for example:
 
 ```bash
 godot --headless --path . --export-release "Linux" build/linux/synapse-2076.x86_64
@@ -337,7 +337,7 @@ python3 -m http.server 8000 --directory build/web    # browsers won't run it fro
 ```
 
 - **Web.** The preset is single-threaded (`variant/thread_support=false`), so it runs on hosts that can't send cross-origin isolation (COOP/COEP) headers, GitHub Pages included. It needs only the `web_nothreads_*` export templates.
-- **GitHub Pages.** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs the test suite, exports the Web preset with Godot 4.3 and deploys it on every push to `main`. You can also start it from the Actions tab. Before exporting, `tools/configure_web_build.gd` applies the `SYNAPSE_LLM_*` repository variables (see [Claude on the web build](#claude-on-the-web-build)). In a fork, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions** once.
+- **GitHub Pages.** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs the test suite, exports the Web preset with Godot 4.7.2 and deploys it on every push to `main`. You can also start it from the Actions tab. Before exporting, `tools/configure_web_build.gd` applies the `SYNAPSE_LLM_*` repository variables (see [Claude on the web build](#claude-on-the-web-build)). In a fork, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions** once.
 - **`build/.gdignore`** keeps Godot from importing exported files back into the project, where the next export would pack them.
 
 ## Credits

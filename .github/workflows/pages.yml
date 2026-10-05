@@ -34,27 +34,27 @@ concurrency:
 
 jobs:
   build:
-    name: Test and export the Web build (Godot 4.3)
+    name: Test and export the Web build (Godot 4.7.2)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      GODOT_BIN: ${{ github.workspace }}/.godot-bin/Godot_v4.3-stable_linux.x86_64
+      GODOT_BIN: ${{ github.workspace }}/.godot-bin/Godot_v4.7.2-stable_linux.x86_64
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache Godot 4.3
+      - name: Cache Godot 4.7.2
         id: cache-godot
         uses: actions/cache@v4
         with:
           path: .godot-bin
-          key: godot-4.3-stable-linux-x86_64
+          key: godot-4.7.2-stable-linux-x86_64
 
-      - name: Download Godot 4.3
+      - name: Download Godot 4.7.2
         if: steps.cache-godot.outputs.cache-hit != 'true'
         run: |
           mkdir -p .godot-bin
           curl -fsSL -o /tmp/godot.zip \
-            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip"
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
           unzip -q /tmp/godot.zip -d .godot-bin
           chmod +x "$GODOT_BIN"
           # Keep Godot's filesystem scan out of the engine download.
@@ -64,16 +64,16 @@ jobs:
         id: cache-templates
         uses: actions/cache@v4
         with:
-          path: ~/.local/share/godot/export_templates/4.3.stable
-          key: godot-4.3-stable-web-nothreads-templates
+          path: ~/.local/share/godot/export_templates/4.7.2.stable
+          key: godot-4.7.2-stable-web-nothreads-templates
 
       - name: Download Web export templates
         if: steps.cache-templates.outputs.cache-hit != 'true'
         run: |
           curl -fsSL -o /tmp/templates.tpz \
-            "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz"
-          # The archive holds every platform (~1 GB). Keep only the single-threaded Web templates.
-          dest="$HOME/.local/share/godot/export_templates/4.3.stable"
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz"
+          # The archive holds every platform (~1.3 GB). Keep only the single-threaded Web templates.
+          dest="$HOME/.local/share/godot/export_templates/4.7.2.stable"
           mkdir -p "$dest"
           unzip -j -o /tmp/templates.tpz templates/version.txt \
             templates/web_nothreads_release.zip templates/web_nothreads_debug.zip -d "$dest"

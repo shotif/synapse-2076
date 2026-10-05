@@ -1,6 +1,6 @@
 # CLAUDE.md: working on SYNAPSE-2076
 
-A Godot 4.3+ (GDScript) turn-based simulation. Read `README.md` for the product and `docs/SIMULATION_MODEL.md` for the math.
+A Godot 4.7 (GDScript) turn-based simulation, made with Godot 4.7.2. Read `README.md` for the product and `docs/SIMULATION_MODEL.md` for the math.
 
 ## Commands
 
@@ -21,12 +21,12 @@ tools/make_audio.sh                                                         # re
 godot --headless --path . --script res://tools/i18n_catalog.gd -- --missing=de   # translation counts; strings left to translate
 ```
 
-- **Godot binary.** Set `GODOT=/path/to/godot` if `godot` isn't on PATH.
+- **Godot binary.** Use Godot 4.7.2 (standard build, not .NET). Set `GODOT=/path/to/godot` if `godot` isn't on PATH; `tools/run_tests.sh` refuses anything older than 4.7.
 - **Fresh clones** need `godot --headless --path . --import` once to build the `class_name` cache. `run_tests.sh` does this for you.
-- **Godot 4.4+ writes `*.uid` files** next to scripts. The project targets 4.3; don't commit them (delete any a newer editor leaves behind).
+- **Commit the `*.uid` files.** Godot writes one next to every script and shader on import (`run_tests.sh` imports first), and scenes may refer to scripts by them. Commit a new script's `.uid` with the script, and delete the `.uid` of a script you delete.
 - **Test runs keep player data apart.** `tests/run_tests.gd` points saves, endings and settings at `user://test_storage/` (`synapse/storage/*` project settings) and turns the tutorial off (`synapse/onboarding/coach`). Suites that change GameSettings put the values back.
-- **CI** (`.github/workflows/ci.yml`) runs `tools/run_tests.sh` on Godot 4.3 and 4.7.
-- **Pages** (`.github/workflows/pages.yml`) runs the same script on every push to `main`, applies the `SYNAPSE_LLM_*` repository variables with `tools/configure_web_build.gd`, then exports the Web preset with Godot 4.3 and deploys it to https://shotif.github.io/synapse-2076/.
+- **CI** (`.github/workflows/ci.yml`) runs `tools/run_tests.sh` on Godot 4.7.2.
+- **Pages** (`.github/workflows/pages.yml`) runs the same script on every push to `main`, applies the `SYNAPSE_LLM_*` repository variables with `tools/configure_web_build.gd`, then exports the Web preset with Godot 4.7.2 and deploys it to https://shotif.github.io/synapse-2076/.
 - **LLM proxy** (`.github/workflows/llm-proxy.yml`, manual) tests and deploys `proxy/`, the web build's shared LLM backend, to Cloudflare Workers. CI runs its tests on every push.
 
 ## Architecture rules
@@ -65,7 +65,9 @@ godot --headless --path . --script res://tools/i18n_catalog.gd -- --missing=de  
   4. Update `docs/SIMULATION_MODEL.md` and its balance snapshot, and refresh `EndingsBook.SHARES` (the rarity table; its comment names the two Monte Carlo commands).
 - **New end-state rule:** `core/victory_matrix.gd` holds the `OUTCOMES` (in priority order), `ROLE_OUTCOME_VALUE` and `CATASTROPHE_OUTCOMES`.
 
-## GDScript / Godot 4.3 gotchas hit in this codebase
+## GDScript / Godot gotchas hit in this codebase
+
+Most were found on Godot 4.3, before the move to 4.7.2; the workarounds stay, since they are harmless where the engine has changed.
 
 1. **`:=` on a Variant expression is a parse error** (INFERENCE_ON_VARIANT is an error by default). This shows up with loop variables over untyped arrays (`for x in [1.0, 2.0]`), dictionary values, and ternaries mixing types. Annotate the type instead: `var y: float = ...`.
 2. **Packed arrays inside a Dictionary are copies.** `(dict["buf"] as PackedByteArray).append_array(x)` silently does nothing. Read the array into a local, modify it, and assign it back.
@@ -74,12 +76,12 @@ godot --headless --path . --script res://tools/i18n_catalog.gd -- --missing=de  
 5. **GDScript runtime errors don't change the exit code.** `tools/run_tests.sh` fails if output contains `SCRIPT ERROR`. A test that reports "no assertions ran" usually aborted on an error.
 6. **The headless dummy renderer prints `mesh_get_surface_count` errors** when a mesh instance and its mesh are freed together. Viewports call `GlobeViewport.release_meshes(self)` in `_exit_tree()`, and line meshes are rebuilt in place (`clear_surfaces()`) instead of being replaced.
 7. **`const` Dictionaries and Arrays are read-only.** `duplicate(true)` before mutating templates (see `DilemmaDeck._resolve_option`).
-8. **Don't load class_name scripts with `CACHE_MODE_IGNORE`:** it can segfault 4.3 (seen in `tools/check_scripts.gd`).
+8. **Don't load class_name scripts with `CACHE_MODE_IGNORE`:** it segfaulted 4.3 (seen in `tools/check_scripts.gd`).
 9. **The Web build is single-threaded.** Keep `variant/thread_support=false`: GitHub Pages can't send COOP/COEP headers, so a threaded build won't start there. Export into `build/`, whose `.gdignore` stops Godot from importing the output and packing it into the next export. Web builds never auto-probe the default localhost LLM endpoint (`LLMService.should_auto_probe()`).
 10. **`PanelContainer` and `Button` default to `MOUSE_FILTER_STOP`.** A touch drag that starts on one never reaches the enclosing `ScrollContainer`, so phones can't scroll. `UiLayout.pass_touch_through()` switches them to PASS; Godot then cancels the pressed button once the drag turns into a scroll.
 11. **A `ScrollContainer` with horizontal scrolling off is as wide as its content plus the vertical scrollbar.** A full-width phone panel then overflows by the bar's width; compact overlays hide the bar (`SCROLL_MODE_SHOW_NEVER`, drag still scrolls).
 12. **`HBoxContainer`/`VBoxContainer` can't change orientation at runtime** ("Can't change orientation"). Use a plain `BoxContainer` and set `vertical` when a row must stack on phones.
-13. **`RichTextLabel` has no touch-drag scrolling in 4.3.** Put it in a `ScrollContainer` with `fit_content = true` (the history book does).
+13. **`RichTextLabel` had no touch-drag scrolling in 4.3.** Put it in a `ScrollContainer` with `fit_content = true` (the history book does).
 14. **Changing a control's own theme overrides, or a StyleBox it uses as an override, inside `NOTIFICATION_THEME_CHANGED` sends the notification again.** That recursion overflows the stack. Restyle only when the era changed (`EraTheme.style_of(self).era != _era`) or guard with a flag (`NavBar`, `LLMStatusBadge`).
 15. **`set_anchors_preset()` on a control that is already in the tree keeps its old rectangle** (the offsets are recomputed). Overlays built in code use `set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)`, or they stay 0x0.
 16. **Any `text_overrun_behavior` other than no trimming lets a `Label` shrink to the ellipsis.** In a container that doesn't expand it, the text vanishes; an autowrapped label also loses its minimum height. Trim only where the label gets room (`SIZE_EXPAND_FILL`).

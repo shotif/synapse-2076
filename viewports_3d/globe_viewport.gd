@@ -202,7 +202,7 @@ func _exit_tree() -> void:
 
 ## Detaches meshes before the nodes are freed; freeing an instance together
 ## with its mesh trips "mesh_get_surface_count" errors in the headless dummy
-## renderer (Godot 4.3).
+## renderer (seen in Godot 4.3).
 static func release_meshes(root: Node) -> void:
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		(node as MeshInstance3D).mesh = null

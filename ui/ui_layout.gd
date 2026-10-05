@@ -94,9 +94,10 @@ static func set_overlay_margin(margin: MarginContainer, compact: bool) -> void:
 		scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER if compact else ScrollContainer.SCROLL_MODE_AUTO
 
 
-## Godot 4.3 keeps the height an autowrapped CheckBox (or Button) measured at
-## an earlier, narrower width: one word per line, far too tall. Once the panel
-## has its width, setting the wrap mode again measures it anew. Waits a frame.
+## Godot can keep the height an autowrapped CheckBox (or Button) measured at
+## an earlier, narrower width (seen in 4.3): one word per line, far too tall.
+## Once the panel has its width, setting the wrap mode again measures it anew.
+## Waits a frame.
 static func reflow_wrapped_buttons(root: Node) -> void:
 	if root == null or not root.is_inside_tree():
 		return
